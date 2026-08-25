@@ -23,7 +23,7 @@ Content precedence, highest first: repository workspace > baked-in package > dyn
 
 ## Status
 
-Planning phase. The decision record and roadmap live in [docs](docs/). Implementation has not started.
+Fase 0 (spike) complete: a working Go harness with OpenRouter streaming, tools, Pi-aligned JSONL sessions, and measured benchmarks against Pi (see `docs/benchmarks/phase-0.md`). Execution ledger lives in the plan under [substrate/traces/plans](substrate/traces/plans/2026-08-24-smidja-harness-plan.md). Next: Fase 1, MVP interno.
 
 ## License
 
