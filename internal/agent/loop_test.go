@@ -101,12 +101,14 @@ func (r *fakeRecorder) joinEvents() string {
 	return strings.Join(r.events, ",")
 }
 
-// fakeTool is a scripted agent.Tool that counts its executions.
+// fakeTool is a scripted agent.Tool that counts its executions and
+// records the raw arguments of every call.
 type fakeTool struct {
 	mu     sync.Mutex
 	name   string
 	result Result
 	calls  int
+	args   []json.RawMessage
 }
 
 func (t *fakeTool) Name() string            { return t.name }
@@ -116,6 +118,7 @@ func (t *fakeTool) Exec(ctx context.Context, args json.RawMessage) Result {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.calls++
+	t.args = append(t.args, append(json.RawMessage(nil), args...))
 	return t.result
 }
 
@@ -123,6 +126,17 @@ func (t *fakeTool) executed() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.calls
+}
+
+// lastArgs returns the raw arguments of the most recent execution, or
+// nil when the tool never executed.
+func (t *fakeTool) lastArgs() json.RawMessage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.args) == 0 {
+		return nil
+	}
+	return t.args[len(t.args)-1]
 }
 
 // textStop builds a scripted assistant message that stops with text.
@@ -806,10 +820,13 @@ func TestRunTurnToolCallDenied(t *testing.T) {
 func TestRunTurnDetectorWarnInjectsSteeringMessage(t *testing.T) {
 	// The loop detector warns on the first observation: the steering user
 	// message is recorded and appended to history, and the loop continues
-	// to the next assistant round.
+	// to the next assistant round. The recorded text is the detector's
+	// fixed host-owned template, prefixed with "[smidja] " so it is
+	// distinguishable from real user input and carries no finding
+	// details.
 	rec := &fakeRecorder{}
 	tool := &fakeTool{name: "read", result: TextResult("ok")}
-	const steerText = "**Loop detected**\n\n- tool-repetition: Tool call repetition: \"read(a.go)\" repeated 3 times in a row with identical output.\n\nIt looks like you are in a loop. Stop repeating the same approach."
+	const steerText = "[smidja] You are repeating the same actions with the same results. Stop, summarize the current state briefly, and choose a different approach."
 	det := &fakeDetector{outcomes: []Outcome{{
 		Verdict:         VerdictWarn,
 		Findings:        []Finding{{Type: "tool-repetition", Message: "Tool call repetition: \"read(a.go)\" repeated 3 times in a row with identical output."}},
@@ -841,7 +858,15 @@ func TestRunTurnDetectorWarnInjectsSteeringMessage(t *testing.T) {
 		t.Fatalf("steer content does not decode: %v", err)
 	}
 	if text != steerText {
-		t.Errorf("steer text = %q, want the detector's warning message", text)
+		t.Errorf("steer text = %q, want the detector's fixed warning template", text)
+	}
+	// The steer text is a fixed host-owned template: it must not embed
+	// the finding's model-controlled details.
+	if strings.Contains(text, "read(a.go)") || strings.Contains(text, "tool-repetition") {
+		t.Errorf("steer text embeds finding details: %q", text)
+	}
+	if !strings.HasPrefix(text, "[smidja] ") {
+		t.Errorf("steer text = %q, want the [smidja] provenance prefix", text)
 	}
 	if history[4].Assistant == nil || history[4].Assistant.Content[0].Text != "done" {
 		t.Errorf("history[4] = %+v, want the loop to continue with the final assistant turn", history[4])
@@ -1002,4 +1027,109 @@ func firstAssistantText(rec *fakeRecorder) string {
 		return ""
 	}
 	return rec.assistants[0].Content[0].Text
+}
+
+func TestRunTurnToolCallFinalArgsUsed(t *testing.T) {
+	// The tool_call gate's final arguments are exactly what executes,
+	// what gets recorded in the assistant toolCall block, what the
+	// tool_result hook sees, and what the loop detector observes.
+	rec := &fakeRecorder{}
+	tool := &fakeTool{name: "read", result: TextResult("file body")}
+	hooks := &fakeHooks{toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
+		if !strings.Contains(string(args), "a.go") {
+			t.Errorf("gate saw %s, want the original model arguments", args)
+		}
+		return ToolCallDecision{FinalArgs: json.RawMessage(`{"path":"sanitized.go"}`)}, nil
+	}}
+	det := &fakeDetector{}
+	client := &fakeClient{script: []*AssistantMessage{
+		toolUseMsg(toolCallBlock("c1", "read", `{"path":"a.go"}`)),
+		textStop("done"),
+	}}
+	history, err := RunTurn(context.Background(), &LoopDeps{
+		Client:   client,
+		Recorder: rec,
+		Tools:    []Tool{tool},
+		Hooks:    hooks,
+		Detector: det,
+	}, "m", "", nil, "read a.go")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	// The tool executed with the final arguments, not the original ones.
+	if got := tool.lastArgs(); !strings.Contains(string(got), "sanitized.go") || strings.Contains(string(got), "a.go") {
+		t.Errorf("tool executed with %s, want the sanitized final arguments", got)
+	}
+	// The recorded assistant toolCall block carries the final arguments.
+	asst := history[1].Assistant
+	if asst == nil || len(asst.Content) != 1 || asst.Content[0].Type != BlockTypeToolCall {
+		t.Fatalf("history[1] = %+v, want the toolCall assistant block", history[1])
+	}
+	if got := string(asst.Content[0].Arguments); !strings.Contains(got, "sanitized.go") || strings.Contains(got, "a.go") {
+		t.Errorf("recorded assistant block arguments = %s, want the final arguments", got)
+	}
+	// The recorder's copy of the assistant message shows the same block.
+	if len(rec.assistants) != 2 || len(rec.assistants[0].Content) != 1 {
+		t.Fatalf("recorder captured %d assistants, want 2 with the first holding the toolCall block", len(rec.assistants))
+	}
+	if got := string(rec.assistants[0].Content[0].Arguments); !strings.Contains(got, "sanitized.go") {
+		t.Errorf("recorded assistant block arguments = %s, want the final arguments", got)
+	}
+	// The loop detector observed the final arguments.
+	obs := det.observed
+	if len(obs) != 1 || len(obs[0].ToolCalls) != 1 {
+		t.Fatalf("detector observed %+v, want one observation with one call", obs)
+	}
+	if got := string(obs[0].ToolCalls[0].Arguments); !strings.Contains(got, "sanitized.go") || strings.Contains(got, "a.go") {
+		t.Errorf("detector observed arguments %s, want the final arguments", got)
+	}
+	// The next model call sees the toolCall block with the final
+	// arguments, so the provider and the tool agree on what ran.
+	req := client.lastReq
+	if req == nil || len(req.Messages) < 2 {
+		t.Fatalf("client saw %+v, want the full history", req)
+	}
+	for _, m := range req.Messages {
+		if m.Assistant != nil {
+			for _, b := range m.Assistant.Content {
+				if b.Type == BlockTypeToolCall && strings.Contains(string(b.Arguments), "a.go") {
+					t.Errorf("provider request carries the unsanitized arguments: %s", b.Arguments)
+				}
+			}
+		}
+	}
+}
+
+func TestRunTurnToolCallDenyStillUsesOriginalArgs(t *testing.T) {
+	// A denied call never executes: the tool_call gate's FinalArgs is
+	// ignored, the recorded assistant block keeps the model's original
+	// arguments, and the denial reason becomes the error result.
+	rec := &fakeRecorder{}
+	tool := &fakeTool{name: "read", result: TextResult("file body")}
+	hooks := &fakeHooks{toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
+		return ToolCallDecision{Block: true, Reason: "denied by policy", FinalArgs: json.RawMessage(`{"path":"sanitized.go"}`)}, nil
+	}}
+	client := &fakeClient{script: []*AssistantMessage{
+		toolUseMsg(toolCallBlock("c1", "read", `{"path":"a.go"}`)),
+		textStop("done"),
+	}}
+	history, err := RunTurn(context.Background(), &LoopDeps{
+		Client:   client,
+		Recorder: rec,
+		Tools:    []Tool{tool},
+		Hooks:    hooks,
+	}, "m", "", nil, "read a.go")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if tool.executed() != 0 {
+		t.Errorf("tool executed %d times, want 0 (denied call must not execute)", tool.executed())
+	}
+	tr := history[2].ToolResult
+	if tr == nil || !tr.IsError || !strings.Contains(tr.Content[0].Text, "denied by policy") {
+		t.Fatalf("history[2] = %+v, want the denial error result", history[2])
+	}
+	if got := string(history[1].Assistant.Content[0].Arguments); !strings.Contains(got, "a.go") {
+		t.Errorf("recorded assistant block arguments = %s, want the original (never-executed) arguments", got)
+	}
 }

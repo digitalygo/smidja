@@ -90,16 +90,19 @@ type AutoRetryEndEvent struct {
 }
 
 // ToolCallEvent gates one tool execution. The Args field is the raw JSON
-// of the tool arguments; handlers replace it to patch arguments before
-// execution, mirroring Pi's mutable event.input.
+// of the tool arguments; handlers patch them to change what executes,
+// mirroring Pi's mutable event.input.
 type ToolCallEvent struct {
 	// ToolCallID is the identifier of the tool call, matching the
 	// toolCall block ID in the assistant message.
 	ToolCallID string
 	// Name is the tool name, for example "read" or "exec".
 	Name string
-	// Args is the raw JSON object of the tool arguments. Replacing it
-	// patches the arguments seen by later handlers and by the execution.
+	// Args is the raw JSON object of the tool arguments. Handlers patch
+	// it in place (byte-level rewrites within the buffer length); a
+	// successful handler's patch is committed and visible to later
+	// handlers and to the execution. Reassigning Args has no effect on
+	// the chain; use ToolCallDecision.FinalArgs for a full replacement.
 	Args json.RawMessage
 }
 
@@ -110,6 +113,13 @@ type ToolCallDecision struct {
 	Block bool
 	// Reason is the denial reason, shown to the model and the user.
 	Reason string
+	// FinalArgs, when non-nil, replaces the tool arguments for later
+	// handlers and for the execution. The dispatcher validates it as
+	// strict JSON before committing; an invalid replacement is logged
+	// and the last valid arguments are kept. The dispatcher also uses
+	// FinalArgs to report the chain's final arguments back to the loop,
+	// which executes exactly those bytes.
+	FinalArgs json.RawMessage
 }
 
 // ToolResultEvent describes one finished tool execution. Handlers may

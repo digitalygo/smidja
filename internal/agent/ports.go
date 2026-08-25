@@ -124,6 +124,12 @@ type ToolCallDecision struct {
 
 	// Reason is the denial reason, surfaced to the model and the user.
 	Reason string
+
+	// FinalArgs is the chain's final tool arguments: the last strict-JSON
+	// value the handlers produced, or the input when no handler patched.
+	// The loop executes exactly these bytes, records them in the
+	// assistant toolCall block, and feeds them to the loop detector.
+	FinalArgs json.RawMessage
 }
 
 // HookDispatcher runs the extension hook chains for the phase 1 events.
@@ -152,8 +158,10 @@ type HookDispatcher interface {
 	AutoRetryEnd(ctx context.Context, success bool, attempt int, finalError string) error
 
 	// ToolCall runs the tool_call hook chain before a tool executes.
-	// Handlers may patch the arguments (by returning a replaced request
-	// through the context chain) or deny the call.
+	// Handlers may patch the arguments (in place or through the
+	// decision's FinalArgs) or deny the call. The returned decision
+	// carries the chain's final arguments; the caller must execute
+	// exactly those bytes.
 	ToolCall(ctx context.Context, name string, callID string, args json.RawMessage) (ToolCallDecision, error)
 
 	// ToolResult runs the tool_result hook chain after a tool executes,
@@ -349,8 +357,11 @@ type Outcome struct {
 	// ("loop-detector-warning" or "loop-detector-force-stop"), or empty.
 	SteerCustomType string
 
-	// SteerText is the rendered markdown body of the steer message to
-	// deliver, or empty.
+	// SteerText is the fixed host-owned steer message to deliver, or
+	// empty. The text is a constant template prefixed with "[smidja] "
+	// so injected steering messages are distinguishable from real user
+	// input; it contains no model-controlled values, which stay in
+	// Findings.
 	SteerText string
 }
 

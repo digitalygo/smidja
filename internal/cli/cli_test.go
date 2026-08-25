@@ -458,7 +458,7 @@ const piAssistantEntry = `{"type":"message","id":"e2","parentId":"e1","timestamp
 
 func TestRunImport(t *testing.T) {
 	sessDir := t.TempDir()
-	src := piSessionFile(t, "/work/dir", "2026-08-25T00:00:00.000Z", "session-1", piUserEntry, piAssistantEntry)
+	src := piSessionFile(t, "/work/dir", "2026-08-25T00:00:00.000Z", "0196b87c-7a2b-7000-8000-000000000002", piUserEntry, piAssistantEntry)
 
 	var stdout, stderr bytes.Buffer
 	if err := run([]string{"import", src, "--session-dir", sessDir}, testDeps("", &stdout, &stderr)); err != nil {
@@ -473,7 +473,7 @@ func TestRunImport(t *testing.T) {
 	}
 
 	// The destination lands where the store would have written it.
-	dest := filepath.Join(sessDir, "--work-dir--", "2026-08-25T00-00-00-000Z_session-1.jsonl")
+	dest := filepath.Join(sessDir, "--work-dir--", "2026-08-25T00-00-00-000Z_0196b87c-7a2b-7000-8000-000000000002.jsonl")
 	if _, err := os.Stat(dest); err != nil {
 		t.Errorf("imported destination %q missing: %v", dest, err)
 	}
@@ -491,8 +491,8 @@ func TestRunImport(t *testing.T) {
 
 func TestRunImportConflict(t *testing.T) {
 	sessDir := t.TempDir()
-	src1 := piSessionFile(t, "/work/dir", "2026-08-25T00:00:00.000Z", "session-1", piUserEntry)
-	src2 := piSessionFile(t, "/work/dir", "2026-08-25T00:00:00.000Z", "session-1",
+	src1 := piSessionFile(t, "/work/dir", "2026-08-25T00:00:00.000Z", "0196b87c-7a2b-7000-8000-000000000003", piUserEntry)
+	src2 := piSessionFile(t, "/work/dir", "2026-08-25T00:00:00.000Z", "0196b87c-7a2b-7000-8000-000000000003",
 		`{"type":"message","id":"e1","parentId":null,"timestamp":"2026-08-25T00:00:00.000Z","message":{"role":"user","content":"\"different\""}}`)
 
 	var stdout, stderr bytes.Buffer
@@ -535,6 +535,50 @@ func TestRunImportErrors(t *testing.T) {
 			t.Errorf("stderr = %q, want the invalid-source message", stderr.String())
 		}
 	})
+}
+
+// TestRunImportEscapesControlChars feeds the importer a session whose
+// entry type and cwd carry terminal control characters (ESC/BEL, the
+// building blocks of CSI/OSC terminal spoofing). Everything the CLI
+// prints must be escaped, never emitted as raw control bytes.
+func TestRunImportEscapesControlChars(t *testing.T) {
+	hdr := `{"type":"session","version":3,"id":"0196b87c-7a2b-7000-8000-000000000001","timestamp":"2026-08-25T00:00:00.000Z","cwd":"/tmp/evil\u001bdir"}`
+	evilType := `{"type":"evil\u001b]0;owned\u0007type","id":"e1","parentId":null,"timestamp":"2026-08-25T00:00:01.000Z","message":{"role":"user","content":"\"hi\""}}`
+	src := filepath.Join(t.TempDir(), "hostile.jsonl")
+	if err := os.WriteFile(src, []byte(hdr+"\n"+evilType+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sessDir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{"import", src, "--session-dir", sessDir}, testDeps("", &stdout, &stderr)); err != nil {
+		t.Fatalf("import: %v (stderr %q)", err, stderr.String())
+	}
+	out := stdout.Bytes()
+	if bytes.Contains(out, []byte{0x1b}) {
+		t.Errorf("stdout contains a raw ESC byte: %q", out)
+	}
+	if bytes.Contains(out, []byte{0x07}) {
+		t.Errorf("stdout contains a raw BEL byte: %q", out)
+	}
+	if !strings.Contains(stdout.String(), `\x1b`) || !strings.Contains(stdout.String(), `\a`) {
+		t.Errorf("stdout = %q, want the quoted \\x1b and \\a escapes", stdout.String())
+	}
+
+	// A hostile id on the error path is printed escaped too.
+	badHdr := `{"type":"session","version":3,"id":"/..\u001b\u0007/evil","timestamp":"2026-08-25T00:00:00.000Z","cwd":"/tmp/x"}`
+	badSrc := filepath.Join(t.TempDir(), "bad.jsonl")
+	if err := os.WriteFile(badSrc, []byte(badHdr+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if err := run([]string{"import", badSrc, "--session-dir", sessDir}, testDeps("", &stdout, &stderr)); err == nil {
+		t.Fatal("hostile id import: want error")
+	}
+	if errOut := stderr.Bytes(); bytes.Contains(errOut, []byte{0x1b}) || bytes.Contains(errOut, []byte{0x07}) {
+		t.Errorf("stderr contains raw control bytes: %q", errOut)
+	}
 }
 
 // updateServer serves the GitHub releases API surface the update command

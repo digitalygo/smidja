@@ -182,7 +182,7 @@ func TestImportConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	dest := filepath.Join(dir, canonicalDestName)
-	clobber := []byte("{\"type\":\"session\",\"version\":3,\"id\":\"other\",\"timestamp\":\"2026-08-25T10:00:00.000Z\",\"cwd\":\"/tmp/imports/project\"}\n")
+	clobber := []byte("{\"type\":\"session\",\"version\":3,\"id\":\"0123456789abcdef0123456789abcdef\",\"timestamp\":\"2026-08-25T10:00:00.000Z\",\"cwd\":\"/tmp/imports/project\"}\n")
 	if err := os.WriteFile(dest, clobber, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestImportPreservesLineEndings(t *testing.T) {
 }
 
 func TestImportHeaderOnly(t *testing.T) {
-	header := `{"type":"session","version":3,"id":"hdr-only","timestamp":"2026-08-25T14:00:00.000Z","cwd":"/tmp/hdr"}`
+	header := `{"type":"session","version":3,"id":"0123456789abcdef0123456789abcdef","timestamp":"2026-08-25T14:00:00.000Z","cwd":"/tmp/hdr"}`
 	src := writeSource(t, []byte(header+"\n"))
 	store, err := session.NewStore(filepath.Join(t.TempDir(), "sessions"))
 	if err != nil {
@@ -403,7 +403,7 @@ func TestImportHeaderOnly(t *testing.T) {
 func TestImportParentSessionPreserved(t *testing.T) {
 	parent := "/tmp/other/2026-01-01T00-00-00-000Z_01234567-89ab-4cde-f012-3456789abcd.jsonl"
 	lines := []string{
-		`{"type":"session","version":3,"id":"fork-session","timestamp":"2026-08-25T15:00:00.000Z","cwd":"/tmp/fork","parentSession":"` + parent + `"}`,
+		`{"type":"session","version":3,"id":"abcdef0123456789fedcba9876543210","timestamp":"2026-08-25T15:00:00.000Z","cwd":"/tmp/fork","parentSession":"` + parent + `"}`,
 		`{"type":"message","id":"f0000001","parentId":null,"timestamp":"2026-08-25T15:00:01.000Z","message":{"role":"user","content":"x","timestamp":1}}`,
 	}
 	srcData := []byte(strings.Join(lines, "\n") + "\n")
@@ -430,6 +430,51 @@ func TestImportParentSessionPreserved(t *testing.T) {
 	if l.Header().ParentSession == nil || *l.Header().ParentSession != parent {
 		t.Errorf("parentSession = %v, want %q", l.Header().ParentSession, parent)
 	}
+}
+
+func TestImportRejectsHostileIdentity(t *testing.T) {
+	base := t.TempDir()
+	store, err := session.NewStore(filepath.Join(base, "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const validTS = "2026-08-25T10:00:00.000Z"
+	const validID = "0196b87c-7a2b-7000-8000-000000000001"
+	cases := map[string]string{
+		"traversal id":   strings.Replace(importFixture[0], validID, "/../../../../target/poison", 1),
+		"dotdot id":      strings.Replace(importFixture[0], validID, "..", 1),
+		"non-hex id":     strings.Replace(importFixture[0], validID, "session-1", 1),
+		"id too long":    strings.Replace(importFixture[0], validID, strings.Repeat("a", 40), 1),
+		"non-rfc3339 ts": strings.Replace(importFixture[0], validTS, "2026/08/25T10:00:00.000Z", 1),
+		"non-utc ts":     strings.Replace(importFixture[0], validTS, "2026-08-25T10:00:00+02:00", 1),
+		"traversal ts":   strings.Replace(importFixture[0], validTS, "../../etc/passwd", 1),
+	}
+	for name, hdr := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := writeSource(t, []byte(hdr+"\n"+importFixture[1]+"\n"))
+			if _, _, err := Import(src, store); !errors.Is(err, ErrInvalidSource) {
+				t.Fatalf("Import: err = %v, want ErrInvalidSource", err)
+			}
+		})
+	}
+
+	// The hostile imports created nothing outside the store root: the
+	// only paths that may exist under base are inside the sessions dir.
+	filepath.WalkDir(base, func(p string, de os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(base, p)
+		if err != nil {
+			return err
+		}
+		if rel == "." || rel == "sessions" || strings.HasPrefix(rel, "sessions"+string(filepath.Separator)) {
+			return nil
+		}
+		t.Errorf("path %q created outside the store root", p)
+		return nil
+	})
 }
 
 // assertNoTempFiles fails the test when any import temp file remains in dir.

@@ -32,8 +32,12 @@ type LLMHookRegistry interface {
 type ToolHookRegistry interface {
 	// OnToolCall registers a pre-execution gate. Return nil to allow the
 	// call, or a decision with Block true to deny it, with an optional
-	// reason shown to the model and the user. Handler errors are logged
-	// and the call is allowed, matching Pi's fail-safe tool_call policy.
+	// reason shown to the model and the user. To patch the tool
+	// arguments, mutate the event's Args in place or return a decision
+	// whose FinalArgs carries the full replacement JSON; the dispatcher
+	// validates the patched value as strict JSON before committing it.
+	// Handler errors are logged and the call is allowed, matching Pi's
+	// fail-safe tool_call policy.
 	OnToolCall(handler ToolCallHandler)
 
 	// OnToolResult registers a result-patching handler. Returning nil
@@ -74,8 +78,10 @@ type AutoRetryStartHandler func(ctx HandlerContext, event AutoRetryStartEvent) e
 type AutoRetryEndHandler func(ctx HandlerContext, event AutoRetryEndEvent) error
 
 // ToolCallHandler gates one tool execution. Return nil to allow the call,
-// or a decision with Block true to deny it. Handler errors are logged and
-// the call is allowed, matching Pi's fail-safe behavior.
+// or a decision with Block true to deny it. Set FinalArgs to replace the
+// tool arguments; in-place mutations of event.Args are also committed on
+// success. Every committed patch must be strict JSON. Handler errors are
+// logged and the call is allowed, matching Pi's fail-safe behavior.
 type ToolCallHandler func(ctx HandlerContext, event ToolCallEvent) (*ToolCallDecision, error)
 
 // ToolResultHandler patches a finished tool result. Returning nil keeps

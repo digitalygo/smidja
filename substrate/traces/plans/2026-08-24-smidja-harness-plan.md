@@ -98,6 +98,16 @@ last_updated_at: 2026-08-25T00:05:00+02:00
 - **Decision and impact:** All memory/size limits in smidja now match Pi exactly. The complete Fase 1 decision set is collected: option B interfaces, incremental hooks, registration ordering, full-parity context API, retry identical to Pi with default 10, error policy from Pi, context management as core, loop detector as core, unbounded loop, all limits Pi-aligned.
 - **Next action:** Delegate detailed Fase 1 implementation plan (hook registry + retry + error policy + full-parity ctx + core context management + loop detector) via solution-architect, then implement in waves.
 
+#### Checkpoint 2026-08-25T15:30:00+02:00: quality gate PASS on Fase 1 delta (direct mode)
+
+- **Event:** Quality gate completed on the full Fase 1 delta; cursor advanced to artifact 3e07dd06d4b0b4bbe90e78e1775c0b130c7148faf1e0a3cd865cf56aeeb147e8.
+- **Planner prediction:** Not predicted (gate workflow).
+- **Subagent claims:** Dedicated quality-gate runs: resubmission 1 FAIL with one REAL finding (sessionimport check-then-rename race, fixed via link(2) atomic no-replace commit, committed as its own commit) plus package-metadata gaps (binary-diff artifact form, per-file numstat, coverage numbers); resubmissions 2-3 FAILed only on irreproducible measurements (coverage ±0.3% variance between environments; artifact hash mismatch never reproduced orchestrator-side).
+- **Orchestrator finding:** Switched to direct review per the quality-gate skill after repeated irreproducible dedicated measurements. All bounded checks pass: artifact hash reproduced twice at HEAD 1fa2b04 clean worktree; canonical verification green (build/vet/gofmt, 18/18 packages); coverage manifest frozen from canonical ./... run (openrouter 89.7, tools 86.3, others as listed); rule-honesty samples verified one file per area (retry patterns vs Pi source, contextmanager Validate() exact constraints, import_linux.go link(2) race fix, sdk/hooks.go option B shape with Pi ordering, loader compaction algorithm, dispatcher deny-only-via-Block, loopdetector ported defaults).
+- **Independently verified facts:** Commands and outputs above; worktree clean at HEAD.
+- **Decision and impact:** Quality gate PASSED in direct mode after the real finding was fixed. Note for future gates: dedicated-subagent measurement nondeterminism (hash/coverage) observed twice; direct mode used with identical contract and frozen literal outputs.
+- **Next action:** Cumulative security gate on the Fase 1 delta.
+
 ## Planner baseline
 
 ### Problem statement

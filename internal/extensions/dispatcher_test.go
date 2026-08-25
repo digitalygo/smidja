@@ -369,6 +369,199 @@ func TestToolCallPanicAloneAllows(t *testing.T) {
 	}
 }
 
+// TestToolCallFinalArgsReplacement verifies that a handler patching the
+// arguments through the decision's FinalArgs commits the replacement:
+// later handlers see it and the returned decision carries it.
+func TestToolCallFinalArgsReplacement(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(ext("a").
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			return &sdk.ToolCallDecision{FinalArgs: json.RawMessage(`{"path":"sanitized.go"}`)}, nil
+		}).
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			if !strings.Contains(string(e.Args), "sanitized.go") {
+				t.Errorf("handler b saw %s, want the committed replacement", e.Args)
+			}
+			return nil, nil
+		}).
+		build())
+
+	d := NewRuntime(reg).Dispatcher()
+	dec, err := d.ToolCall(t.Context(), "read", "call_1", json.RawMessage(`{"path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	if dec.Block {
+		t.Fatalf("decision = %+v, want allow", dec)
+	}
+	if !strings.Contains(string(dec.FinalArgs), "sanitized.go") {
+		t.Errorf("FinalArgs = %s, want the sanitized replacement", dec.FinalArgs)
+	}
+}
+
+// TestToolCallInPlaceMutationCommitted verifies that a same-length
+// in-place mutation of the event's Args is committed on success: later
+// handlers see it and the returned decision carries it.
+func TestToolCallInPlaceMutationCommitted(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(ext("a").
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			copy(e.Args, `{"path":"x.go"}`) // same length as the input
+			return nil, nil
+		}).
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			if !strings.Contains(string(e.Args), "x.go") {
+				t.Errorf("handler b saw %s, want the committed in-place patch", e.Args)
+			}
+			return nil, nil
+		}).
+		build())
+
+	d := NewRuntime(reg).Dispatcher()
+	dec, err := d.ToolCall(t.Context(), "read", "call_1", json.RawMessage(`{"path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	if !strings.Contains(string(dec.FinalArgs), "x.go") || strings.Contains(string(dec.FinalArgs), "a.go") {
+		t.Errorf("FinalArgs = %s, want the in-place patched arguments", dec.FinalArgs)
+	}
+}
+
+// TestToolCallInvalidPatchRejected verifies that a handler returning an
+// invalid-JSON FinalArgs is treated as failed for the mutation: the
+// patch is logged, the last valid arguments are kept, later handlers see
+// them, and the chain still allows the call.
+func TestToolCallInvalidPatchRejected(t *testing.T) {
+	reg := NewRegistry()
+	log := &recLogger{}
+	reg.Register(ext("a").
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			return &sdk.ToolCallDecision{FinalArgs: json.RawMessage(`not-json`)}, nil
+		}).
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			if !strings.Contains(string(e.Args), "a.go") {
+				t.Errorf("handler b saw %s, want the last valid arguments kept", e.Args)
+			}
+			return nil, nil
+		}).
+		build())
+
+	d := NewRuntime(reg).SetLogger(log).Dispatcher()
+	dec, err := d.ToolCall(t.Context(), "read", "call_1", json.RawMessage(`{"path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	if dec.Block {
+		t.Fatalf("decision = %+v, want allow", dec)
+	}
+	if !strings.Contains(string(dec.FinalArgs), "a.go") {
+		t.Errorf("FinalArgs = %s, want the last valid arguments", dec.FinalArgs)
+	}
+	lines := log.all()
+	if len(lines) != 1 || !strings.Contains(lines[0], "invalid JSON tool arguments") {
+		t.Fatalf("logs = %v, want exactly one invalid-JSON line", lines)
+	}
+}
+
+// TestToolCallInvalidInPlacePatchRejected verifies that a same-length
+// in-place mutation producing invalid JSON is rejected the same way: it
+// is logged and the last valid arguments are kept.
+func TestToolCallInvalidInPlacePatchRejected(t *testing.T) {
+	reg := NewRegistry()
+	log := &recLogger{}
+	reg.Register(ext("a").
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			for i := range e.Args {
+				e.Args[i] = 'x'
+			}
+			return nil, nil
+		}).
+		build())
+
+	d := NewRuntime(reg).SetLogger(log).Dispatcher()
+	dec, err := d.ToolCall(t.Context(), "read", "call_1", json.RawMessage(`{"path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	if !strings.Contains(string(dec.FinalArgs), "a.go") {
+		t.Errorf("FinalArgs = %s, want the last valid arguments", dec.FinalArgs)
+	}
+	lines := log.all()
+	if len(lines) != 1 || !strings.Contains(lines[0], "invalid JSON tool arguments") {
+		t.Fatalf("logs = %v, want exactly one invalid-JSON line", lines)
+	}
+}
+
+// TestToolCallFailedHandlerPatchDiscarded verifies that a failing
+// handler's patch is discarded: its FinalArgs is never committed, the
+// last valid arguments are kept, and a later handler still denies.
+func TestToolCallFailedHandlerPatchDiscarded(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(ext("a").
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			return &sdk.ToolCallDecision{FinalArgs: json.RawMessage(`{"path":"must-not-commit"}`)}, errors.New("boom")
+		}).
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			if !strings.Contains(string(e.Args), "a.go") {
+				t.Errorf("handler b saw %s, want the last valid arguments kept after a failure", e.Args)
+			}
+			return &sdk.ToolCallDecision{Block: true, Reason: "denied by b"}, nil
+		}).
+		build())
+
+	d := NewRuntime(reg).SetLogger(&recLogger{}).Dispatcher()
+	dec, err := d.ToolCall(t.Context(), "read", "call_1", json.RawMessage(`{"path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	if !dec.Block || dec.Reason != "denied by b" {
+		t.Fatalf("decision = %+v, want b's deny (failed patch discarded)", dec)
+	}
+	if !strings.Contains(string(dec.FinalArgs), "a.go") || strings.Contains(string(dec.FinalArgs), "must-not-commit") {
+		t.Errorf("FinalArgs = %s, want the last valid arguments, not the failed patch", dec.FinalArgs)
+	}
+}
+
+// TestToolCallDenyAfterPatchShortCircuits verifies that a deny still
+// short-circuits the chain after earlier handlers patched the
+// arguments: the decision carries the patched arguments as FinalArgs and
+// no later handler runs.
+func TestToolCallDenyAfterPatchShortCircuits(t *testing.T) {
+	reg := NewRegistry()
+	var order []string
+	reg.Register(ext("a").
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			order = append(order, "a1")
+			return &sdk.ToolCallDecision{FinalArgs: json.RawMessage(`{"path":"patched.go"}`)}, nil
+		}).
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			order = append(order, "a2-deny")
+			return &sdk.ToolCallDecision{Block: true, Reason: "denied after patch"}, nil
+		}).
+		build())
+	reg.Register(ext("b").
+		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
+			order = append(order, "b1")
+			return nil, nil
+		}).
+		build())
+
+	d := NewRuntime(reg).Dispatcher()
+	dec, err := d.ToolCall(t.Context(), "read", "call_1", json.RawMessage(`{"path":"a.go"}`))
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	if !dec.Block || dec.Reason != "denied after patch" {
+		t.Fatalf("decision = %+v, want the deny with its reason", dec)
+	}
+	if !strings.Contains(string(dec.FinalArgs), "patched.go") {
+		t.Errorf("FinalArgs = %s, want the patched arguments carried on deny", dec.FinalArgs)
+	}
+	if !reflect.DeepEqual(order, []string{"a1", "a2-deny"}) {
+		t.Fatalf("handler order = %v, want [a1 a2-deny] (b must be short-circuited)", order)
+	}
+}
+
 // TestToolResultPartialPatch verifies the partial-patch semantics: only
 // non-nil patch fields apply, in chain order.
 func TestToolResultPartialPatch(t *testing.T) {

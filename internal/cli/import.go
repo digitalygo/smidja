@@ -59,10 +59,10 @@ func runImport(args []string, d *cliDeps) error {
 	if err != nil {
 		return fail(d, fmt.Errorf("import: %w", err))
 	}
-	fmt.Fprintf(d.stdout, "imported %s\n", dest)
+	fmt.Fprintf(d.stdout, "imported %s\n", sanitizeTerm(dest))
 	fmt.Fprintf(d.stdout, "  entries: %d\n", stats.Entries)
 	for _, typ := range sortedKeys(stats.PerType) {
-		fmt.Fprintf(d.stdout, "  %s: %d\n", typ, stats.PerType[typ])
+		fmt.Fprintf(d.stdout, "  %s: %d\n", sanitizeTerm(typ), stats.PerType[typ])
 	}
 	if stats.Opaque > 0 {
 		fmt.Fprintf(d.stdout, "  opaque: %d\n", stats.Opaque)
@@ -71,6 +71,28 @@ func runImport(args []string, d *cliDeps) error {
 		fmt.Fprintf(d.stdout, "  idempotent: destination already held identical content\n")
 	}
 	return nil
+}
+
+// sanitizeTerm renders a string safe to print to a terminal. Strings
+// without control characters pass through unchanged; strings containing
+// C0 or C1 control characters (including ESC 0x1b, the CSI/OSC
+// introducer) are quoted with %q so the bytes print as inert escapes
+// instead of terminal control sequences. An entry type or destination
+// path parsed from a hostile JSONL can carry such bytes, and printing
+// them verbatim would let the source spoof or hijack the terminal.
+func sanitizeTerm(s string) string {
+	for _, r := range s {
+		if isTermControl(r) {
+			return fmt.Sprintf("%q", s)
+		}
+	}
+	return s
+}
+
+// isTermControl reports whether r is a C0 control (< 0x20, including ESC
+// 0x1b), DEL (0x7f), or a C1 control (0x80-0x9f, including CSI 0x9b).
+func isTermControl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (0x80 <= r && r <= 0x9f)
 }
 
 // sortedKeys returns the keys of m in sorted order, for deterministic

@@ -204,14 +204,18 @@ func (e *LoopDetectedError) Unwrap() error { return e.Err }
 //     recorded and appended).
 //  4. Each tool call runs the tool_call gate first: a deny short-circuits
 //     the execution and records an error result with the denial reason.
-//     Otherwise the tool executes as before (unknown tools and invalid
-//     arguments still produce error results without executing anything).
+//     Otherwise the chain's final arguments (returned by the dispatcher
+//     after handler patches) are the ones that execute, that get recorded
+//     in the assistant toolCall block, and that the loop detector
+//     observes. Unknown tools and invalid arguments still produce error
+//     results without executing anything.
 //  5. After each tool execution the loop detector observes the call's raw
-//     outcome. A warn verdict injects the detector's steer message as a
-//     user message into history (recorded through the Recorder) and the
-//     turn continues; a block verdict replaces the call's result with a
-//     "loop detected" error, records it, and ends the run with
-//     ErrLoopDetected.
+//     outcome. A warn verdict injects the detector's fixed steer message
+//     (a host-owned template prefixed with "[smidja] ", containing no
+//     model-controlled values) as a user message into history (recorded
+//     through the Recorder) and the turn continues; a block verdict
+//     replaces the call's result with a "loop detected" error, records
+//     it, and ends the run with ErrLoopDetected.
 //  6. The tool_result hook chain runs on every result message before it is
 //     recorded.
 //
@@ -422,6 +426,14 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 				if dec.Block {
 					denied = true
 					res = ErrorResult(dec.Reason)
+				} else if dec.FinalArgs != nil {
+					// The chain's final arguments are the ones that
+					// execute, get recorded, and get observed. The
+					// recorded assistant toolCall block is updated so
+					// history, the session, and the provider all see the
+					// same arguments that ran.
+					call.Arguments = dec.FinalArgs
+					applyFinalArgs(finalMsg.Assistant, call.ID, call.Arguments)
 				}
 			}
 			if !denied {
@@ -437,9 +449,15 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 				outcome := deps.Detector.Observe(observationTurn(finalMsg.Assistant, call, res, turnIndex, i == 0))
 				switch outcome.Verdict {
 				case VerdictWarn:
-					// The steer message is recorded as a plain user
-					// message through the Recorder; custom-type tagging
-					// of session entries lands with session integration.
+					// The steer message is a fixed host-owned template
+					// prefixed with "[smidja] " (rendered by the detector
+					// adapter), so it carries no model-controlled values
+					// and is distinguishable from real user input. It is
+					// still recorded as a plain user message through the
+					// Recorder.
+					// TODO(session wave): persist the steering message as
+					// a custom entry type instead of a plain user-role
+					// message.
 					if outcome.SteerText != "" {
 						steerMsgs = append(steerMsgs, &Message{User: &UserMessage{
 							Role:      string(RoleUser),
@@ -607,6 +625,24 @@ func toolCallBlocks(content []ContentBlock) []ContentBlock {
 		}
 	}
 	return out
+}
+
+// applyFinalArgs replaces the Arguments of the assistant content's
+// toolCall block with the given id, so the recorded assistant message
+// carries the exact arguments the tool executed with. It is a no-op when
+// the block is absent (for example after a message_end replacement that
+// dropped or re-id'd the block).
+func applyFinalArgs(asst *AssistantMessage, callID string, args json.RawMessage) {
+	if asst == nil {
+		return
+	}
+	for i := range asst.Content {
+		b := &asst.Content[i]
+		if b.Type == BlockTypeToolCall && b.ID == callID {
+			b.Arguments = args
+			return
+		}
+	}
 }
 
 // resultToToolResult converts a tool's Result into the tool result message

@@ -207,7 +207,11 @@ type Outcome struct {
 	Findings []Finding
 }
 
-// Steer message custom types and texts, ported from the extension.
+// Steer message custom types and fixed texts. The texts are host-owned
+// templates: they contain no model-controlled values, so model-influenced
+// content can never enter the user trust tier through a steer message.
+// The structured findings stay in Outcome.Findings for logging and UI
+// rendering and are never interpolated into the delivered text.
 const (
 	// SteerTypeWarning is the customType of the first-detection steer
 	// message.
@@ -217,40 +221,35 @@ const (
 	// message.
 	SteerTypeForceStop = "loop-detector-force-stop"
 
-	// WarningTitle is the heading of the warning steer message.
-	WarningTitle = "Loop detected"
+	// SteerPrefix marks injected steering messages so they are
+	// distinguishable from real user input.
+	SteerPrefix = "[smidja] "
 
-	// WarningGuidance is the guidance paragraph of the warning steer
-	// message.
-	WarningGuidance = "It looks like you are in a loop. Stop repeating the same approach.\nSummarize your current state, close any open work, and complete your session properly."
+	// SteerTextWarning is the fixed warning steer message.
+	SteerTextWarning = SteerPrefix + "You are repeating the same actions with the same results. Stop, summarize the current state briefly, and choose a different approach."
 
-	// ForceStopTitle is the heading of the force-stop steer message.
-	ForceStopTitle = "Loop persists"
-
-	// ForceStopText is the body of the force-stop steer message.
-	ForceStopText = "The loop continued after the previous warning. This run is being force-stopped.\nStop all activity now and close/complete your session."
+	// SteerTextForceStop is the fixed force-stop steer message.
+	SteerTextForceStop = SteerPrefix + "Execution stopped: repeated identical tool calls detected. Summarize progress so far."
 )
 
-// SteerMessage renders the intervention message the host should deliver,
-// mirroring the extension's buildSteerMessage output for the two message
-// kinds: customType is SteerTypeWarning or SteerTypeForceStop, and text is
-// the full markdown body (findings summary included for the warning). For
-// VerdictNone it returns ("", "").
+// SteerMessage renders the intervention message the host should deliver:
+// customType is SteerTypeWarning or SteerTypeForceStop, and text is the
+// fixed host-owned template for the verdict, prefixed with SteerPrefix so
+// injected steering messages are distinguishable from real user input.
+// The text carries no model-controlled values; the structured findings
+// stay in Outcome.Findings for logging and UI rendering. For VerdictNone
+// it returns ("", "").
+//
+// TODO(session wave): the session integration wave persists the steering
+// message as a custom entry type instead of a plain user-role message;
+// until then the "[smidja] " prefix keeps it distinguishable from real
+// user input.
 func (o Outcome) SteerMessage() (customType, text string) {
 	switch o.Verdict {
 	case VerdictWarn:
-		var b strings.Builder
-		b.WriteString("**" + WarningTitle + "**\n\n")
-		for i, f := range o.Findings {
-			if i > 0 {
-				b.WriteString("\n")
-			}
-			fmt.Fprintf(&b, "- %s: %s", f.Type, f.Message)
-		}
-		b.WriteString("\n\n" + WarningGuidance)
-		return SteerTypeWarning, b.String()
+		return SteerTypeWarning, SteerTextWarning
 	case VerdictBlock:
-		return SteerTypeForceStop, "**" + ForceStopTitle + "**\n\n" + ForceStopText
+		return SteerTypeForceStop, SteerTextForceStop
 	default:
 		return "", ""
 	}

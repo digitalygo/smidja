@@ -590,6 +590,96 @@ func TestNilMessagesRejected(t *testing.T) {
 	}
 }
 
+func TestSessionFileNameValidation(t *testing.T) {
+	validTS := "2026-08-25T10:00:00.000Z"
+	validID := "0196b87c-7a2b-7000-8000-000000000001"
+	cases := []struct {
+		name    string
+		ts, id  string
+		wantErr bool
+		want    string
+	}{
+		{"valid uuid", validTS, validID, false, "2026-08-25T10-00-00-000Z_0196b87c-7a2b-7000-8000-000000000001.jsonl"},
+		{"valid uppercase hex", validTS, "0196B87C-7A2B-7000-8000-000000000001", false, "2026-08-25T10-00-00-000Z_0196B87C-7A2B-7000-8000-000000000001.jsonl"},
+		{"valid no fraction", "2026-08-25T10:00:00Z", validID, false, "2026-08-25T10-00-00Z_0196b87c-7a2b-7000-8000-000000000001.jsonl"},
+		{"valid plain hex", validTS, "abcdef0123456789", false, "2026-08-25T10-00-00-000Z_abcdef0123456789.jsonl"},
+		{"valid 36 char id", validTS, "0123456789abcdef0123456789abcdefabcd", false, "2026-08-25T10-00-00-000Z_0123456789abcdef0123456789abcdefabcd.jsonl"},
+
+		{"empty id", validTS, "", true, ""},
+		{"id too long", validTS, strings.Repeat("a", 37), true, ""},
+		{"traversal id", validTS, "/../../../../target/poison", true, ""},
+		{"dotdot id", validTS, "..", true, ""},
+		{"id with slash", validTS, "abc/def", true, ""},
+		{"id with backslash", validTS, "..\\..\\evil", true, ""},
+		{"id with colon", validTS, "abc:def", true, ""},
+		{"id with non-hex letters", validTS, "session-1", true, ""},
+		{"id with punctuation", validTS, "abc!def", true, ""},
+		{"id with space", validTS, "abc def", true, ""},
+
+		{"empty timestamp", "", validID, true, ""},
+		{"timestamp not rfc3339", "not-a-timestamp", validID, true, ""},
+		{"timestamp missing zone", "2026-08-25T10:00:00.000", validID, true, ""},
+		{"timestamp with offset", "2026-08-25T10:00:00+02:00", validID, true, ""},
+		{"timestamp date only", "2026-08-25", validID, true, ""},
+		{"timestamp with slash", "2026/08/25T10:00:00.000Z", validID, true, ""},
+		{"timestamp with space", "2026-08-25 10:00:00Z", validID, true, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := SessionFileName(tc.ts, tc.id)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("SessionFileName(%q, %q) = %q, want error", tc.ts, tc.id, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("SessionFileName(%q, %q): %v", tc.ts, tc.id, err)
+			}
+			if got != tc.want {
+				t.Errorf("SessionFileName(%q, %q) = %q, want %q", tc.ts, tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSessionFilePathContainment(t *testing.T) {
+	dir := filepath.Join(string(filepath.Separator), "tmp", "sessions", "--work-dir--")
+	ts := "2026-08-25T10:00:00.000Z"
+	id := "0196b87c-7a2b-7000-8000-000000000001"
+	name := "2026-08-25T10-00-00-000Z_0196b87c-7a2b-7000-8000-000000000001.jsonl"
+
+	// A valid identity resolves to exactly the canonical joined path.
+	got, err := SessionFilePath(dir, ts, id)
+	if err != nil {
+		t.Fatalf("SessionFilePath: %v", err)
+	}
+	if want := filepath.Join(dir, name); got != want {
+		t.Errorf("SessionFilePath = %q, want %q", got, want)
+	}
+
+	// A hostile id is rejected before any path is derived.
+	if _, err := SessionFilePath(dir, ts, "../../../evil"); err == nil {
+		t.Error("SessionFilePath with traversal id: want error")
+	}
+
+	// The containment guard itself: a crafted name must never escape dir,
+	// even when it is fed in directly (the belt-and-braces layer).
+	for _, hostile := range []string{"../escape.jsonl", "../../x", "a/../../x", "/abs/escape.jsonl", ""} {
+		if _, err := filePathUnder(dir, hostile); err == nil {
+			t.Errorf("filePathUnder(%q, %q): want error", dir, hostile)
+		}
+	}
+
+	// A nested safe name inside dir is allowed.
+	nested, err := filePathUnder(dir, "sub/x.jsonl")
+	if err != nil {
+		t.Errorf("filePathUnder nested: %v", err)
+	} else if want := filepath.Join(dir, "sub/x.jsonl"); nested != want {
+		t.Errorf("filePathUnder nested = %q, want %q", nested, want)
+	}
+}
+
 func TestClose(t *testing.T) {
 	st, err := NewStore(t.TempDir())
 	if err != nil {

@@ -126,6 +126,17 @@ func TestToolCallDecisionZeroValueAllows(t *testing.T) {
 	}
 }
 
+// TestToolCallDecisionFinalArgs verifies that the decision carries the
+// chain's final tool arguments alongside the allow/deny decision, the
+// additive field the dispatcher and the loop use to execute exactly the
+// patched bytes.
+func TestToolCallDecisionFinalArgs(t *testing.T) {
+	dec := ToolCallDecision{Block: true, Reason: "denied", FinalArgs: json.RawMessage(`{"path":"safe"}`)}
+	if !dec.Block || dec.Reason != "denied" || string(dec.FinalArgs) != `{"path":"safe"}` {
+		t.Errorf("decision = %+v, want block with reason and final args", dec)
+	}
+}
+
 // TestEventTypeConstantsMatchPi verifies the event type constants keep
 // Pi's exact event strings.
 func TestEventTypeConstantsMatchPi(t *testing.T) {

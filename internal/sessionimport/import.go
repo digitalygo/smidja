@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/digitalygo/smidja/internal/session"
 )
@@ -106,12 +105,16 @@ func Import(srcPath string, store *session.Store) (destPath string, stats Import
 	}
 
 	// Phase 2: resolve the destination from the header, exactly like the
-	// Store would.
+	// Store would. SessionFilePath validates the id and timestamp and
+	// rejects an identity that would escape the store root.
 	dir, err := store.DirForCwd(hdr.Cwd)
 	if err != nil {
 		return "", stats, fmt.Errorf("sessionimport: resolve destination for cwd %q: %w", hdr.Cwd, err)
 	}
-	destPath = filepath.Join(dir, session.SessionFileName(hdr.Timestamp, hdr.ID))
+	destPath, err = session.SessionFilePath(dir, hdr.Timestamp, hdr.ID)
+	if err != nil {
+		return "", stats, fmt.Errorf("%w: invalid session identity: %v", ErrInvalidSource, err)
+	}
 
 	// Phase 3: stream the remaining lines into a temp file in the
 	// destination directory, preserving raw bytes and hashing as we go.

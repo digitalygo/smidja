@@ -1,6 +1,7 @@
 package extensions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -199,39 +200,62 @@ func (d *Dispatcher) AutoRetryEnd(ctx context.Context, success bool, attempt int
 	return nil
 }
 
-// ToolCall runs the tool_call hook chain before a tool executes. The
-// first handler that returns a decision with Block true denies the call
-// and short-circuits the chain; its reason surfaces to the model and the
-// user. Handler errors and panics are logged and never deny the call: the
-// chain continues and the call is allowed, matching Pi's fail-safe
+// ToolCall runs the tool_call hook chain before a tool executes and
+// returns the decision plus the chain's final arguments. The first
+// handler that returns a decision with Block true denies the call and
+// short-circuits the chain; its reason surfaces to the model and the
+// user. Handler errors and panics are logged and never deny the call:
+// the chain continues and the call is allowed, matching Pi's fail-safe
 // tool_call policy.
 //
-// Handlers receive the chain's current arguments as the event Args. The
-// event parameter is passed by value (the frozen sdk.ToolCallHandler
-// signature), so a handler can only patch the arguments seen by later
-// handlers by rewriting the shared byte slice in place within the
-// original length; reassigning event.Args affects only the handler's own
-// copy.
+// Handlers patch the arguments two ways: in-place byte writes within the
+// event's Args buffer (same-length patches) and, for full replacements,
+// the returned decision's FinalArgs field. Each handler receives a
+// private copy of the chain's current arguments; a successful handler's
+// patches are committed and visible to later handlers and to the
+// execution, while a failed handler's patches are discarded. Every
+// committed value must be strict JSON: an invalid patch is logged and
+// the last valid arguments are kept. The final arguments are returned in
+// the decision's FinalArgs field, and the loop executes exactly those
+// bytes.
 func (d *Dispatcher) ToolCall(ctx context.Context, name string, callID string, args json.RawMessage) (agent.ToolCallDecision, error) {
 	snap := d.snapshot()
 	hc := d.handlerContext(ctx)
 
-	ev := sdk.ToolCallEvent{ToolCallID: callID, Name: name, Args: cloneRaw(args)}
+	current := cloneRaw(args)
 	for _, e := range snap.entries {
 		for _, h := range e.toolCall {
+			patched := cloneRaw(current)
 			var dec *sdk.ToolCallDecision
 			if !d.call(e.id, sdk.EventToolCall, func() (err error) {
-				dec, err = h(hc, ev)
+				dec, err = h(hc, sdk.ToolCallEvent{ToolCallID: callID, Name: name, Args: patched})
 				return err
 			}) {
-				continue // panics and errors never deny
+				continue // panics and errors never deny; patches are discarded
 			}
 			if dec != nil && dec.Block {
-				return agent.ToolCallDecision{Block: true, Reason: dec.Reason}, nil
+				return agent.ToolCallDecision{Block: true, Reason: dec.Reason, FinalArgs: current}, nil
+			}
+			// Commit the handler's patch: a FinalArgs replacement wins
+			// over in-place byte writes, and only strict JSON is
+			// committed. Handlers that left the arguments untouched are
+			// not validated.
+			var candidate json.RawMessage
+			if dec != nil && dec.FinalArgs != nil {
+				candidate = dec.FinalArgs
+			} else if !bytes.Equal(patched, current) {
+				candidate = patched
+			}
+			if candidate != nil {
+				if json.Valid(candidate) {
+					current = cloneRaw(candidate)
+				} else if lg := d.log(); lg != nil {
+					lg.Logf("extension %s: %s handler produced invalid JSON tool arguments; keeping the last valid arguments", e.id, sdk.EventToolCall)
+				}
 			}
 		}
 	}
-	return agent.ToolCallDecision{}, nil
+	return agent.ToolCallDecision{FinalArgs: current}, nil
 }
 
 // ToolResult runs the tool_result hook chain after a tool executes,

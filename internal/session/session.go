@@ -26,6 +26,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -46,6 +47,17 @@ const headerTimestampLayout = "2006-01-02T15:04:05.000Z"
 // maxIDCollisions is how many 8-hex entry id draws are attempted before
 // falling back to a full UUID, mirroring Pi's generateId loop.
 const maxIDCollisions = 100
+
+// maxSessionIDLen is the length of a canonical UUID string, the longest
+// session id the writer or importer accepts.
+const maxSessionIDLen = 36
+
+// sessionIDRe matches the character set a session id may be drawn from:
+// hex digits and hyphens only, mirroring the UUID shapes Pi writes. Any
+// other character (notably path separators, '.', and '..' sequences) is
+// rejected so a crafted header id can never inject a directory escape
+// into a session file name.
+var sessionIDRe = regexp.MustCompile(`^[0-9a-fA-F-]+$`)
 
 // Store is the sessions root: the directory that holds one munged
 // subdirectory per working directory.
@@ -94,10 +106,14 @@ func (s *Store) Create(cwd string) (*Session, error) {
 	}
 	now := time.Now().UTC()
 	headerTimestamp := now.Format(headerTimestampLayout)
+	path, err := SessionFilePath(dir, headerTimestamp, id)
+	if err != nil {
+		return nil, err
+	}
 	return &Session{
 		id:              id,
 		cwd:             abs,
-		path:            filepath.Join(dir, SessionFileName(headerTimestamp, id)),
+		path:            path,
 		headerTimestamp: headerTimestamp,
 		used:            make(map[string]struct{}),
 	}, nil
@@ -126,14 +142,78 @@ func (s *Store) DirForCwd(cwd string) (string, error) {
 	return dir, nil
 }
 
-// SessionFileName returns the canonical session file name for a header
-// timestamp and session id: the ISO timestamp with ':' and '.' replaced
-// by '-', an underscore, the id, and the .jsonl suffix. Store.Create and
-// the import command share this scheme, so imported sessions land on the
-// same names Pi uses.
-func SessionFileName(headerTimestamp, id string) string {
+// SessionFileName validates a header timestamp and session id and
+// returns the canonical session file name: the ISO timestamp with ':'
+// and '.' replaced by '-', an underscore, the id, and the .jsonl suffix.
+// Store.Create and the import command share this scheme, so imported
+// sessions land on the same names Pi uses.
+//
+// The id must be non-empty, at most 36 characters, and drawn from hex
+// digits and hyphens only, so a crafted header id can never inject a
+// path separator, '.', or '..' component into the file name. The
+// timestamp must parse as RFC3339 in UTC. As belt-and-braces the
+// composed name must also satisfy filepath.IsLocal.
+func SessionFileName(headerTimestamp, id string) (string, error) {
+	if id == "" {
+		return "", errors.New("session: empty session id")
+	}
+	if len(id) > maxSessionIDLen {
+		return "", fmt.Errorf("session: session id %q is %d characters, want at most %d", id, len(id), maxSessionIDLen)
+	}
+	if !sessionIDRe.MatchString(id) {
+		return "", fmt.Errorf("session: session id %q contains characters outside [0-9a-fA-F-]", id)
+	}
+	if headerTimestamp == "" {
+		return "", errors.New("session: empty header timestamp")
+	}
+	t, err := time.Parse(time.RFC3339Nano, headerTimestamp)
+	if err != nil {
+		return "", fmt.Errorf("session: header timestamp %q is not RFC3339: %v", headerTimestamp, err)
+	}
+	if _, offset := t.Zone(); offset != 0 {
+		return "", fmt.Errorf("session: header timestamp %q is not UTC", headerTimestamp)
+	}
 	fileStamp := strings.ReplaceAll(strings.ReplaceAll(headerTimestamp, ":", "-"), ".", "-")
-	return fileStamp + "_" + id + ".jsonl"
+	name := fileStamp + "_" + id + ".jsonl"
+	if !filepath.IsLocal(name) {
+		return "", fmt.Errorf("session: file name %q is not a local path", name)
+	}
+	return name, nil
+}
+
+// SessionFilePath validates a header timestamp and session id against
+// dir and returns the canonical absolute session file path. It is the
+// single place Store.Create and the import command derive destination
+// paths from header fields, so the writer and the importer share one
+// validation: SessionFileName checks the id, timestamp, and composed
+// name, and filePathUnder verifies the joined path stays inside dir. dir
+// must be absolute, as every directory the Store returns is.
+func SessionFilePath(dir, headerTimestamp, id string) (string, error) {
+	name, err := SessionFileName(headerTimestamp, id)
+	if err != nil {
+		return "", err
+	}
+	return filePathUnder(dir, name)
+}
+
+// filePathUnder returns filepath.Join(dir, name) after verifying that
+// the result stays inside dir. It is defense-in-depth on top of the
+// SessionFileName checks: even a name that slipped past them cannot
+// escape the session directory.
+func filePathUnder(dir, name string) (string, error) {
+	if !filepath.IsLocal(name) {
+		return "", fmt.Errorf("session: file name %q is not a local path", name)
+	}
+	cleanDir := filepath.Clean(dir)
+	full := filepath.Clean(filepath.Join(cleanDir, name))
+	prefix := cleanDir
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	if full != cleanDir && !strings.HasPrefix(full, prefix) {
+		return "", fmt.Errorf("session: file name %q escapes session dir %q", name, dir)
+	}
+	return full, nil
 }
 
 // List returns the absolute paths of the *.jsonl session files under the

@@ -614,12 +614,16 @@ func TestSteerMessageWarning(t *testing.T) {
 	if ct != SteerTypeWarning {
 		t.Errorf("customType = %q, want %q", ct, SteerTypeWarning)
 	}
-	want := "**Loop detected**\n\n" +
-		"- reasoning-stagnation: Stuck reasoning: 4 consecutive turns with ≥85% word overlap in thinking (turns 0-3).\n" +
-		"- tool-repetition: Tool call repetition: \"read(/a) → read(/b)\" repeated 3 times in a row with identical output.\n\n" +
-		"It looks like you are in a loop. Stop repeating the same approach.\nSummarize your current state, close any open work, and complete your session properly."
-	if text != want {
-		t.Errorf("text = %q\nwant %q", text, want)
+	if text != SteerTextWarning {
+		t.Errorf("text = %q\nwant %q", text, SteerTextWarning)
+	}
+	// The text is a fixed host-owned template: it must not interpolate
+	// any finding details (tool names, argument fragments, turn numbers).
+	if strings.Contains(text, "Stuck reasoning") || strings.Contains(text, "read(") || strings.Contains(text, "turn") {
+		t.Errorf("text embeds model-controlled finding details: %q", text)
+	}
+	if !strings.HasPrefix(text, SteerPrefix) {
+		t.Errorf("text = %q, want the %q provenance prefix", text, SteerPrefix)
 	}
 }
 
@@ -629,9 +633,14 @@ func TestSteerMessageBlock(t *testing.T) {
 	if ct != SteerTypeForceStop {
 		t.Errorf("customType = %q, want %q", ct, SteerTypeForceStop)
 	}
-	want := "**Loop persists**\n\nThe loop continued after the previous warning. This run is being force-stopped.\nStop all activity now and close/complete your session."
-	if text != want {
-		t.Errorf("text = %q\nwant %q", text, want)
+	if text != SteerTextForceStop {
+		t.Errorf("text = %q\nwant %q", text, SteerTextForceStop)
+	}
+	if strings.Contains(text, "hosts") || strings.Contains(text, "read") {
+		t.Errorf("text embeds model-controlled finding details: %q", text)
+	}
+	if !strings.HasPrefix(text, SteerPrefix) {
+		t.Errorf("text = %q, want the %q provenance prefix", text, SteerPrefix)
 	}
 }
 
