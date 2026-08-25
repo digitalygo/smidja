@@ -86,7 +86,17 @@ last_updated_at: 2026-08-25T00:05:00+02:00
 - **Orchestrator finding:** Wave 3 agent was interrupted during its final smoke but the work was complete on disk. Orchestrator verified: full suite green (18 packages), -race green on agent/cli/extensions, binary smoke: --version, version --json, bad-command usage, update --check clean failure path, and a LIVE end-to-end run with .env credentials through the complete new stack (contextmanager + detector + hooks registry + UI): file created and read back correctly.
 - **Independently verified facts:** Commands and outputs listed above; all tests green post-interruption without further changes.
 - **Decision and impact:** Fase 1 code complete except: Digitalygo bundle packaging (second repository - requires user approval/location per multi-repo gate) and golden compatibility fixtures vs installed Pi (wave 4). Quality and security gates for the Fase 1 delta not yet run.
-- **Next action:** User decision on bundle repo location; wave 4 golden tests; then quality + security gates; commit/push cadence per user instruction.
+- **Next action:** Commit/push ledger updates; resolve bundle repo location with user; wave 4 goldens.
+
+#### Checkpoint 2026-08-25T17:30:00+02:00: wave 4 goldens complete, Fase 1 code closed
+
+- **Event:** Golden compatibility fixtures and tests implemented; Fase 1 code work closed. Bundle packaging explicitly deferred by user ("la creiamo dopo prima finiamo l'harness di base").
+- **Planner prediction:** Predicted verification for Fase 1: uso quotidiano del team e update deterministico tra due macchine — NOT yet satisfiable in-session; code-level scope otherwise complete.
+- **Subagent claims:** go-dev produced sanitized committed fixture internal/session/testdata/pi-v3/session-basic.jsonl (70 lines, structural mirror of a real private session: 67 message + thinking_level_change + model_change; content fully synthetic); golden tests prove byte-exact entry round-trip incl. unmodeled fields (rawStopReason, details, thinkingSignature), tree/branch reconstruction, import byte-exactness/idempotence via CLI end-to-end; LOCAL validation against the real private file passed (byte-exact copy, idempotent re-import, loader clean) with no content committed (token-level privacy sweep); integration check SUCCEEDED in both directions: installed Pi 0.84.2 SessionManager reads smidja-written sessions (loadEntriesFromFile + buildContextEntries).
+- **Orchestrator finding:** Full suite green (18 packages); commit 4100555 pushed; worktree clean. User provided an HTML export at tmp/ (gitignored): superseded by the original JSONL found in the local Pi store.
+- **Independently verified facts:** Commands/results above; privacy sweep reported by agent (one probe script accidentally printed private fragments to stdout only; nothing written/staged/committed — noted as limitation).
+- **Decision and impact:** Fase 1 status: CODE COMPLETE AND GATED (quality PASS direct mode, security PASS after corrections). Completion criterion "uso quotidiano del team solo con questo harness e update provato tra due macchine" remains OPEN by nature (requires human adoption over time + second machine). Bundle packaging deferred to post-base-harness per user decision (new variation V-011).
+- **Next action:** Record V-011 + operation record update; hand Fase 1 completion criterion to real-world usage; remaining plan phases unchanged.
 
 #### Checkpoint 2026-08-25T16:30:00+02:00: quality and security gates PASSED on Fase 1 delta
 
@@ -473,6 +483,22 @@ Solo task, nessuna stima di giorni.
 - **Resolution:** Implemented and verified 2026-08-25 (checkpoint 2026-08-25T12:00:00+02:00). Open flag: write/edit 2 MiB input cap retained pending user direction (not part of the six rows).
 
 ### Variation V-010: write/edit input size cap removed for Pi parity
+
+- **Baseline reference:** Spike shipped a 2 MiB input cap on write content / edit inputs (architect proposal hardening); flagged open in V-009.
+- **Discovered evidence:** Verified from installed Pi 0.84.2 source: write.js and edit.js contain no input size limits. User instruction: check Pi and align.
+- **Decision:** Accepted: writeMaxBytes constant and the oversize rejection removed; write accepts arbitrary content, matching Pi.
+- **Scope and downstream impact:** internal/tools only. A model can now write arbitrarily large files in one call, as in Pi.
+- **Approval:** Explicit user instruction to match Pi.
+- **Resolution:** Implemented and verified 2026-08-25 (checkpoint 2026-08-25T12:15:00+02:00).
+
+### Variation V-011: Digitalygo bundle packaging deferred until base harness is complete
+
+- **Baseline reference:** Fase 1 step 5: "Packaging della repo Digitalygo con i nostri contenuti baked-in".
+- **Discovered evidence:** Packaging requires a second repository (Digitalygo package repo) whose location/creation the user explicitly deferred: "la creiamo dopo prima finiamo l'harness di base".
+- **Decision:** Accepted: Fase 1 closes with packaging pending as a tracked follow-up; sdk.Bundle + smidja.go entry seam already provide the composition surface.
+- **Scope and downstream impact:** Bundle wiring wave (3C) not executed; multi-repo approval will be requested when the work is scheduled.
+- **Approval:** Explicit user decision, recorded in checkpoint 2026-08-25T17:30:00+02:00.
+- **Resolution:** Pending; scheduled after base-harness completion.
 
 - **Baseline reference:** Spike shipped a 2 MiB input cap on write content / edit inputs (architect proposal hardening); flagged open in V-009.
 - **Discovered evidence:** Verified from installed Pi 0.84.2 source: write.js and edit.js contain no input size limits. User instruction: check Pi and align.
