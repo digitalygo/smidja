@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Compiled-in default values applied by Load.
@@ -27,13 +28,23 @@ const (
 
 // Environment variable names consulted by Load.
 const (
-	envModel           = "SMIDJA_MODEL"
-	envOpenRouterURL   = "SMIDJA_OPENROUTER_URL"
-	envAPIKey          = "OPENROUTER_API_KEY"
-	envSessionDir      = "SMIDJA_SESSION_DIR"
-	envExecTimeoutSecs = "SMIDJA_EXEC_TIMEOUT_SECS"
-	envMaxReadLines    = "SMIDJA_MAX_READ_LINES"
-	envMaxOutputBytes  = "SMIDJA_MAX_OUTPUT_BYTES"
+	envModel                      = "SMIDJA_MODEL"
+	envOpenRouterURL              = "SMIDJA_OPENROUTER_URL"
+	envAPIKey                     = "OPENROUTER_API_KEY"
+	envSessionDir                 = "SMIDJA_SESSION_DIR"
+	envExecTimeoutSecs            = "SMIDJA_EXEC_TIMEOUT_SECS"
+	envMaxReadLines               = "SMIDJA_MAX_READ_LINES"
+	envMaxOutputBytes             = "SMIDJA_MAX_OUTPUT_BYTES"
+	envContextEnabled             = "SMIDJA_CONTEXT"
+	envContextWindowTokens        = "SMIDJA_CONTEXT_WINDOW_TOKENS"
+	envContextCacheMissAfterSecs  = "SMIDJA_CONTEXT_CACHE_MISS_AFTER_SECS"
+	envContextPruneThreshold      = "SMIDJA_CONTEXT_PRUNE_THRESHOLD"
+	envContextCompactThreshold    = "SMIDJA_CONTEXT_COMPACT_THRESHOLD"
+	envContextSafetyThreshold     = "SMIDJA_CONTEXT_SAFETY_THRESHOLD"
+	envContextCompactTarget       = "SMIDJA_CONTEXT_COMPACT_TARGET"
+	envContextKeepRecentMessages  = "SMIDJA_CONTEXT_KEEP_RECENT_MESSAGES"
+	envContextSelectorChunkTokens = "SMIDJA_CONTEXT_SELECTOR_CHUNK_TOKENS"
+	envContextSelectorModel       = "SMIDJA_CONTEXT_SELECTOR_MODEL"
 )
 
 // Config is the immutable runtime configuration of one smidja invocation.
@@ -73,6 +84,63 @@ type Config struct {
 	// runs, in bytes. Default 50 KB; values below 1 fall back to the
 	// default.
 	MaxOutputBytes int64
+
+	// ContextEnabled turns smart context management on: prune and
+	// compact of the conversation before each provider call. Default
+	// true; overridable via SMIDJA_CONTEXT (0, false, no, off disable).
+	ContextEnabled bool
+
+	// ContextWindowTokens is the model context window in tokens used by
+	// the context-manager thresholds. Default 0 resolves the window from
+	// the model registry by the active Model; a positive value overrides
+	// the lookup. Overridable via SMIDJA_CONTEXT_WINDOW_TOKENS.
+	ContextWindowTokens int64
+
+	// ContextCacheMissAfter is how long after the last observed response
+	// the provider cache is considered stale, in seconds. Default 0
+	// applies the contextmanager default (5 minutes). Overridable via
+	// SMIDJA_CONTEXT_CACHE_MISS_AFTER_SECS.
+	ContextCacheMissAfter time.Duration
+
+	// ContextPruneThreshold is the occupancy fraction above which
+	// stale-cache calls prune old tool results. Default 0 applies the
+	// contextmanager default (0.70). Overridable via
+	// SMIDJA_CONTEXT_PRUNE_THRESHOLD.
+	ContextPruneThreshold float64
+
+	// ContextCompactThreshold is the occupancy fraction above which
+	// stale-cache calls compact via the selector. Default 0 applies the
+	// contextmanager default (0.85). Overridable via
+	// SMIDJA_CONTEXT_COMPACT_THRESHOLD.
+	ContextCompactThreshold float64
+
+	// ContextSafetyThreshold is the occupancy fraction above which
+	// compaction fires immediately, regardless of cache age. Default 0
+	// applies the contextmanager default (0.95). Overridable via
+	// SMIDJA_CONTEXT_SAFETY_THRESHOLD.
+	ContextSafetyThreshold float64
+
+	// ContextCompactTarget is the fraction of the context window the
+	// retained messages may consume after compaction. Default 0 applies
+	// the contextmanager default (0.50). Overridable via
+	// SMIDJA_CONTEXT_COMPACT_TARGET.
+	ContextCompactTarget float64
+
+	// ContextKeepRecentMessages is how many trailing messages are never
+	// pruned or compacted. Default 0 applies the contextmanager default
+	// (6). Overridable via SMIDJA_CONTEXT_KEEP_RECENT_MESSAGES.
+	ContextKeepRecentMessages int
+
+	// ContextSelectorChunkTokens is the token budget below which
+	// candidate messages are chunked before being handed to the
+	// selector. Default 0 applies the contextmanager default (12_000).
+	// Overridable via SMIDJA_CONTEXT_SELECTOR_CHUNK_TOKENS.
+	ContextSelectorChunkTokens int64
+
+	// ContextSelectorModel is the provider model identifier used for
+	// selector turns. Empty (the default) uses the main Model.
+	// Overridable via SMIDJA_CONTEXT_SELECTOR_MODEL.
+	ContextSelectorModel string
 }
 
 // Load builds a Config from the given sources. env returns the value of an
@@ -132,14 +200,24 @@ func Load(env func(string) string, getwd func() (string, error), home func() str
 	}
 
 	return &Config{
-		Model:           strDefault(lookup(envModel), defaultModel),
-		OpenRouterURL:   strDefault(lookup(envOpenRouterURL), defaultOpenRouterURL),
-		APIKey:          lookup(envAPIKey),
-		SessionDir:      strDefault(lookup(envSessionDir), filepath.Join(homeDir, ".smidja", "sessions")),
-		WorkspaceRoot:   filepath.Clean(root),
-		ExecTimeoutSecs: intDefault(lookup(envExecTimeoutSecs), defaultExecTimeoutSecs),
-		MaxReadLines:    intDefault(lookup(envMaxReadLines), defaultMaxReadLines),
-		MaxOutputBytes:  int64Default(lookup(envMaxOutputBytes), defaultMaxOutputBytes),
+		Model:                      strDefault(lookup(envModel), defaultModel),
+		OpenRouterURL:              strDefault(lookup(envOpenRouterURL), defaultOpenRouterURL),
+		APIKey:                     lookup(envAPIKey),
+		SessionDir:                 strDefault(lookup(envSessionDir), filepath.Join(homeDir, ".smidja", "sessions")),
+		WorkspaceRoot:              filepath.Clean(root),
+		ExecTimeoutSecs:            intDefault(lookup(envExecTimeoutSecs), defaultExecTimeoutSecs),
+		MaxReadLines:               intDefault(lookup(envMaxReadLines), defaultMaxReadLines),
+		MaxOutputBytes:             int64Default(lookup(envMaxOutputBytes), defaultMaxOutputBytes),
+		ContextEnabled:             boolDefault(lookup(envContextEnabled), true),
+		ContextWindowTokens:        int64AtLeastZero(lookup(envContextWindowTokens)),
+		ContextCacheMissAfter:      time.Duration(intAtLeastZero(lookup(envContextCacheMissAfterSecs))) * time.Second,
+		ContextPruneThreshold:      fracDefault(lookup(envContextPruneThreshold)),
+		ContextCompactThreshold:    fracDefault(lookup(envContextCompactThreshold)),
+		ContextSafetyThreshold:     safetyFracDefault(lookup(envContextSafetyThreshold)),
+		ContextCompactTarget:       fracDefault(lookup(envContextCompactTarget)),
+		ContextKeepRecentMessages:  intAtLeastZero(lookup(envContextKeepRecentMessages)),
+		ContextSelectorChunkTokens: int64AtLeastZero(lookup(envContextSelectorChunkTokens)),
+		ContextSelectorModel:       lookup(envContextSelectorModel),
 	}, nil
 }
 
@@ -223,4 +301,59 @@ func int64Default(v string, def int64) int64 {
 		return def
 	}
 	return n
+}
+
+// boolDefault parses v as a boolean setting: an empty value uses def, and
+// the common false spellings (0, false, no, off, case-insensitive,
+// trimmed) are false; anything else is true.
+func boolDefault(v string, def bool) bool {
+	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "" {
+		return def
+	}
+	switch s {
+	case "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
+
+// intAtLeastZero parses v as a non-negative int. Invalid or negative
+// values fall back to 0, which downstream defaults interpret as "unset".
+func intAtLeastZero(v string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// int64AtLeastZero is intAtLeastZero for int64 values.
+func int64AtLeastZero(v string) int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// fracDefault parses v as a fraction in (0,1). Invalid or out-of-range
+// values fall back to 0, which the contextmanager default interprets as
+// "unset" and replaces with its own default.
+func fracDefault(v string) float64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || f <= 0 || f >= 1 {
+		return 0
+	}
+	return f
+}
+
+// safetyFracDefault is fracDefault for the safety threshold, which may
+// equal 1 (the full window).
+func safetyFracDefault(v string) float64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || f <= 0 || f > 1 {
+		return 0
+	}
+	return f
 }

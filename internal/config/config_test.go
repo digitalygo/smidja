@@ -288,3 +288,121 @@ func TestLoadDotEnvMissingFileNoError(t *testing.T) {
 		t.Errorf("APIKey = %q, want empty", c.APIKey)
 	}
 }
+
+func TestLoadContextDefaults(t *testing.T) {
+	c, err := Load(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !c.ContextEnabled {
+		t.Error("ContextEnabled = false, want true by default")
+	}
+	if c.ContextWindowTokens != 0 {
+		t.Errorf("ContextWindowTokens = %d, want 0 (registry lookup)", c.ContextWindowTokens)
+	}
+	if c.ContextCacheMissAfter != 0 {
+		t.Errorf("ContextCacheMissAfter = %s, want 0 (contextmanager default)", c.ContextCacheMissAfter)
+	}
+	if c.ContextPruneThreshold != 0 || c.ContextCompactThreshold != 0 ||
+		c.ContextSafetyThreshold != 0 || c.ContextCompactTarget != 0 {
+		t.Errorf("thresholds = %v/%v/%v/%v, want all 0 (contextmanager defaults)",
+			c.ContextPruneThreshold, c.ContextCompactThreshold, c.ContextSafetyThreshold, c.ContextCompactTarget)
+	}
+	if c.ContextKeepRecentMessages != 0 || c.ContextSelectorChunkTokens != 0 {
+		t.Errorf("KeepRecentMessages/SelectorChunkTokens = %d/%d, want 0",
+			c.ContextKeepRecentMessages, c.ContextSelectorChunkTokens)
+	}
+	if c.ContextSelectorModel != "" {
+		t.Errorf("ContextSelectorModel = %q, want empty (main model)", c.ContextSelectorModel)
+	}
+}
+
+func TestLoadContextEnvOverrides(t *testing.T) {
+	env := map[string]string{
+		"SMIDJA_CONTEXT":                       "false",
+		"SMIDJA_CONTEXT_WINDOW_TOKENS":         "32000",
+		"SMIDJA_CONTEXT_CACHE_MISS_AFTER_SECS": "300",
+		"SMIDJA_CONTEXT_PRUNE_THRESHOLD":       "0.5",
+		"SMIDJA_CONTEXT_COMPACT_THRESHOLD":     "0.8",
+		"SMIDJA_CONTEXT_SAFETY_THRESHOLD":      "0.9",
+		"SMIDJA_CONTEXT_COMPACT_TARGET":        "0.4",
+		"SMIDJA_CONTEXT_KEEP_RECENT_MESSAGES":  "10",
+		"SMIDJA_CONTEXT_SELECTOR_CHUNK_TOKENS": "8000",
+		"SMIDJA_CONTEXT_SELECTOR_MODEL":        "acme/selector",
+	}
+	c, err := Load(
+		envFrom(env),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.ContextEnabled {
+		t.Error("ContextEnabled = true, want false override")
+	}
+	if c.ContextWindowTokens != 32000 {
+		t.Errorf("ContextWindowTokens = %d, want 32000", c.ContextWindowTokens)
+	}
+	if c.ContextCacheMissAfter.Seconds() != 300 {
+		t.Errorf("ContextCacheMissAfter = %s, want 300s", c.ContextCacheMissAfter)
+	}
+	if c.ContextPruneThreshold != 0.5 || c.ContextCompactThreshold != 0.8 ||
+		c.ContextSafetyThreshold != 0.9 || c.ContextCompactTarget != 0.4 {
+		t.Errorf("thresholds = %v/%v/%v/%v, want 0.5/0.8/0.9/0.4",
+			c.ContextPruneThreshold, c.ContextCompactThreshold, c.ContextSafetyThreshold, c.ContextCompactTarget)
+	}
+	if c.ContextKeepRecentMessages != 10 {
+		t.Errorf("ContextKeepRecentMessages = %d, want 10", c.ContextKeepRecentMessages)
+	}
+	if c.ContextSelectorChunkTokens != 8000 {
+		t.Errorf("ContextSelectorChunkTokens = %d, want 8000", c.ContextSelectorChunkTokens)
+	}
+	if c.ContextSelectorModel != "acme/selector" {
+		t.Errorf("ContextSelectorModel = %q, want override", c.ContextSelectorModel)
+	}
+}
+
+func TestLoadContextInvalidValuesFallBack(t *testing.T) {
+	// Invalid, negative, and out-of-range values fall back to 0 (or the
+	// boolean default), letting the contextmanager defaults apply.
+	env := map[string]string{
+		"SMIDJA_CONTEXT":                       "banana",
+		"SMIDJA_CONTEXT_WINDOW_TOKENS":         "-5",
+		"SMIDJA_CONTEXT_CACHE_MISS_AFTER_SECS": "not-a-number",
+		"SMIDJA_CONTEXT_PRUNE_THRESHOLD":       "1.5",
+		"SMIDJA_CONTEXT_SAFETY_THRESHOLD":      "2",
+		"SMIDJA_CONTEXT_COMPACT_TARGET":        "-0.1",
+		"SMIDJA_CONTEXT_KEEP_RECENT_MESSAGES":  "-1",
+		"SMIDJA_CONTEXT_SELECTOR_CHUNK_TOKENS": "abc",
+	}
+	c, err := Load(
+		envFrom(env),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !c.ContextEnabled {
+		t.Error("ContextEnabled = false, want the boolean default true for a non-false value")
+	}
+	if c.ContextWindowTokens != 0 {
+		t.Errorf("ContextWindowTokens = %d, want 0", c.ContextWindowTokens)
+	}
+	if c.ContextCacheMissAfter != 0 {
+		t.Errorf("ContextCacheMissAfter = %s, want 0", c.ContextCacheMissAfter)
+	}
+	if c.ContextPruneThreshold != 0 || c.ContextSafetyThreshold != 0 || c.ContextCompactTarget != 0 {
+		t.Errorf("thresholds = %v/%v/%v, want all 0",
+			c.ContextPruneThreshold, c.ContextSafetyThreshold, c.ContextCompactTarget)
+	}
+	if c.ContextKeepRecentMessages != 0 || c.ContextSelectorChunkTokens != 0 {
+		t.Errorf("KeepRecentMessages/SelectorChunkTokens = %d/%d, want 0",
+			c.ContextKeepRecentMessages, c.ContextSelectorChunkTokens)
+	}
+}

@@ -88,20 +88,52 @@ func (s *Store) Create(cwd string) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("session: make cwd %q absolute: %w", cwd, err)
 	}
-	dir := filepath.Join(s.root, dirNameForCwd(abs))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("session: create session dir %q: %w", dir, err)
+	dir, err := s.DirForCwd(abs)
+	if err != nil {
+		return nil, err
 	}
 	now := time.Now().UTC()
 	headerTimestamp := now.Format(headerTimestampLayout)
-	fileStamp := strings.ReplaceAll(strings.ReplaceAll(headerTimestamp, ":", "-"), ".", "-")
 	return &Session{
 		id:              id,
 		cwd:             abs,
-		path:            filepath.Join(dir, fileStamp+"_"+id+".jsonl"),
+		path:            filepath.Join(dir, SessionFileName(headerTimestamp, id)),
 		headerTimestamp: headerTimestamp,
 		used:            make(map[string]struct{}),
 	}, nil
+}
+
+// Root returns the absolute sessions root directory.
+func (s *Store) Root() string { return s.root }
+
+// DirForCwd returns the absolute munged session directory under the store
+// root for cwd, creating it with 0700 permissions. It is the same
+// directory Create writes sessions into, so tools that place files from
+// an existing session header (for example the import command) can compute
+// the destination directory with the exact Store layout.
+func (s *Store) DirForCwd(cwd string) (string, error) {
+	if cwd == "" {
+		return "", errors.New("session: empty cwd")
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("session: make cwd %q absolute: %w", cwd, err)
+	}
+	dir := filepath.Join(s.root, dirNameForCwd(abs))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("session: create session dir %q: %w", dir, err)
+	}
+	return dir, nil
+}
+
+// SessionFileName returns the canonical session file name for a header
+// timestamp and session id: the ISO timestamp with ':' and '.' replaced
+// by '-', an underscore, the id, and the .jsonl suffix. Store.Create and
+// the import command share this scheme, so imported sessions land on the
+// same names Pi uses.
+func SessionFileName(headerTimestamp, id string) string {
+	fileStamp := strings.ReplaceAll(strings.ReplaceAll(headerTimestamp, ":", "-"), ".", "-")
+	return fileStamp + "_" + id + ".jsonl"
 }
 
 // List returns the absolute paths of the *.jsonl session files under the
@@ -186,7 +218,11 @@ func (sess *Session) AppendUser(m *agent.UserMessage) error {
 	if m == nil {
 		return errors.New("session: nil user message")
 	}
-	return sess.append(m)
+	payload, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("session: marshal user message: %w", err)
+	}
+	return sess.append(&MessageEntry{Message: payload})
 }
 
 // AppendAssistant persists one assistant message entry, with the same
@@ -195,7 +231,11 @@ func (sess *Session) AppendAssistant(m *agent.AssistantMessage) error {
 	if m == nil {
 		return errors.New("session: nil assistant message")
 	}
-	return sess.append(m)
+	payload, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("session: marshal assistant message: %w", err)
+	}
+	return sess.append(&MessageEntry{Message: payload})
 }
 
 // AppendToolResult persists one tool result message entry, with the same
@@ -204,21 +244,41 @@ func (sess *Session) AppendToolResult(m *agent.ToolResultMessage) error {
 	if m == nil {
 		return errors.New("session: nil tool result message")
 	}
-	return sess.append(m)
+	payload, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("session: marshal tool result message: %w", err)
+	}
+	return sess.append(&MessageEntry{Message: payload})
 }
 
-// append marshals and persists one message entry. The parentId is the
+// AppendEntry persists one typed session entry as a child of the current
+// leaf, assigning its id, parentId, and timestamp, then advancing the
+// leaf. It accepts the nine known entry payloads; OpaqueEntry is rejected
+// because it carries no envelope to chain. On any failure nothing is
+// persisted and the leaf stays unchanged.
+func (sess *Session) AppendEntry(e Entry) error {
+	if e == nil {
+		return errors.New("session: nil entry")
+	}
+	return sess.append(e)
+}
+
+// append marshals and persists one typed entry. The parentId is the
 // current leaf (null for the first entry), the entry id is an 8-hex
 // crypto/rand draw collision-checked against ids already used in this
 // session, and the entry timestamp is RFC3339 UTC ISO. The entry is
 // marshaled before any file I/O, so a marshal failure leaves the session
 // untouched, including the leaf. The leaf advances only after the line is
 // written and the file synced.
-func (sess *Session) append(m any) error {
+func (sess *Session) append(e Entry) error {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if sess.closed {
 		return errors.New("session: append on closed session")
+	}
+	base, err := entryBaseOf(e)
+	if err != nil {
+		return err
 	}
 	id, err := sess.newEntryIDLocked()
 	if err != nil {
@@ -229,14 +289,11 @@ func (sess *Session) append(m any) error {
 		pid := sess.leaf
 		parentID = &pid
 	}
-	entry := messageEntry{
-		Type:      "message",
-		ID:        id,
-		ParentID:  parentID,
-		Timestamp: time.Now().UTC().Format(headerTimestampLayout),
-		Message:   m,
-	}
-	line, err := json.Marshal(entry)
+	base.Type = e.EntryType()
+	base.ID = id
+	base.ParentID = parentID
+	base.Timestamp = time.Now().UTC().Format(headerTimestampLayout)
+	line, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("session: marshal entry: %w", err)
 	}
@@ -292,8 +349,8 @@ func (sess *Session) writeLocked(line []byte) error {
 // the partial file is removed so the session stays lazily uncreated and a
 // retry starts clean. Callers hold mu.
 func (sess *Session) firstWriteLocked(line []byte) error {
-	header, err := json.Marshal(sessionHeader{
-		Type:      "session",
+	header, err := json.Marshal(Header{
+		Type:      EntryTypeSession,
 		Version:   sessionFormatVersion,
 		ID:        sess.id,
 		Timestamp: sess.headerTimestamp,
@@ -341,24 +398,4 @@ func (sess *Session) Close() error {
 		return fmt.Errorf("session: close %q: %w", sess.path, err)
 	}
 	return nil
-}
-
-// sessionHeader is the first line of every session file, aligned with Pi's
-// v3 header: type, version, id, timestamp, cwd.
-type sessionHeader struct {
-	Type      string `json:"type"`
-	Version   int    `json:"version"`
-	ID        string `json:"id"`
-	Timestamp string `json:"timestamp"`
-	Cwd       string `json:"cwd"`
-}
-
-// messageEntry wraps one agent message in the Pi session entry envelope:
-// type, id, parentId, timestamp, message.
-type messageEntry struct {
-	Type      string  `json:"type"`
-	ID        string  `json:"id"`
-	ParentID  *string `json:"parentId"`
-	Timestamp string  `json:"timestamp"`
-	Message   any     `json:"message"`
 }

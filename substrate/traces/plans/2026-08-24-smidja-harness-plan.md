@@ -68,6 +68,26 @@ last_updated_at: 2026-08-25T00:05:00+02:00
 - **Decision and impact:** Smidja memory behavior now matches Pi exactly at all six points of the comparison table. Security posture regression vs spike hardening is explicit, user-approved, recorded in V-009 for future gates.
 - **Next action:** Fase 1 design complete pending only write/edit input cap direction; then delegate Fase 1 implementation.
 
+#### Checkpoint 2026-08-25T13:30:00+02:00: Wave 0 and Wave 1 of Fase 1 implemented
+
+- **Event:** Fase 1 waves 0-1 implemented via delegated subagents; wave 2 (loop integration) starting.
+- **Planner prediction:** Baseline steps 1-6 with frozen user decisions CP-011..CP-014.
+- **Subagent claims:** solution-architect produced the detailed proposal (package layout sdk/ + internal/{extensions,contextmanager,subagent,retry,loopdetector,models,ui,sessionimport,update,buildinfo,content}, wave breakdown, verification matrix). Wave 0: sdk/ public contracts (option B interfaces, full-parity API surface, 102-capability parity matrix in docs/sdk-parity-matrix.md), agent ports, CLI root/chat split without behavior change. Wave 1 lanes: extensions registry/dispatcher (95.2% cov); session v3 codec for all nine entry types + opaque preservation + tree loader + sessionimport byte-exact/idempotent/conflict; contextmanager (double-criterion prune/compact, safety 0.95, pins, verbatim smidja-verbatim-v1 summaries, deterministic fallback) + subagent selector; retry exact Pi port with default MaxRetries=10 + IsContextOverflow; loopdetector ported from the user's own Pi extension ~/.pi/agent/extensions/loop-detector/index.ts preserving all defaults and six detectors; models registry + LineUI owning shared stdin; update client (checksums, atomic rename, locks) + buildinfo ldflags.
+- **Orchestrator finding:** After every lane: go build/vet/gofmt clean and go test -count=1 ./... all green on the combined tree (18 packages). Notable verified details: session import validated byte-exact against a real local Pi session file incl. unmodeled fields; ports.go extended additively by wave 1C (LastUsageInput, EntryIDs, Compaction in ContextResult) documented in-file.
+- **Independently verified facts:** Final combined run: all packages ok; -race green on extensions/ui/contextmanager/subagent per lane reports.
+- **Decision and impact:** Digitalygo bundle packaging deferred: it lives in a second repository requiring user approval/location (architect flagged multi-repo gate); to be resolved before wave 3C.
+- **Next action:** Wave 2: integrate context manager, hooks, retry, loop detector into internal/agent/loop.go under a single owner.
+
+#### Checkpoint 2026-08-25T14:30:00+02:00: Waves 2-3 implemented, Fase 1 code complete pending bundle packaging
+
+- **Event:** Loop integration (wave 2) and CLI composition (wave 3) implemented; live smoke successful.
+- **Planner prediction:** Baseline steps 1-5 of Fase 1.
+- **Subagent claims:** Wave 2: RunTurn v2 with Preparer/Hooks/Retry/Detector deps (nil-safe legacy preserved), context hook mutation chain, retry with auto-retry events and overflow sentinel not consuming retries, tool-call deny gate, detector warn->steering / block->run end with ErrLoopDetected, message_end before recording. Import cycles solved via documented mirror types in ports.go (host adapter pattern). Wave 3: LineUI owns shared stdin replacing local reader; contextmanager wired from new config fields (SMIDJA_CONTEXT etc., model registry lookup for context window); OpenRouterSelector; compaction entries persisted via session.AppendEntry; overflow recovery = forced safety compaction + one retry; subcommands import (--session-dir, stats, exit codes), update (--check/--version, buildinfo origin), version --json; root usage updated.
+- **Orchestrator finding:** Wave 3 agent was interrupted during its final smoke but the work was complete on disk. Orchestrator verified: full suite green (18 packages), -race green on agent/cli/extensions, binary smoke: --version, version --json, bad-command usage, update --check clean failure path, and a LIVE end-to-end run with .env credentials through the complete new stack (contextmanager + detector + hooks registry + UI): file created and read back correctly.
+- **Independently verified facts:** Commands and outputs listed above; all tests green post-interruption without further changes.
+- **Decision and impact:** Fase 1 code complete except: Digitalygo bundle packaging (second repository - requires user approval/location per multi-repo gate) and golden compatibility fixtures vs installed Pi (wave 4). Quality and security gates for the Fase 1 delta not yet run.
+- **Next action:** User decision on bundle repo location; wave 4 golden tests; then quality + security gates; commit/push cadence per user instruction.
+
 #### Checkpoint 2026-08-25T12:15:00+02:00: write/edit input cap removed, Fase 1 design decisions complete
 
 - **Event:** Variation V-010 implemented and verified; the last open design flag is closed.
