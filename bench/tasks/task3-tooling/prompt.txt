@@ -1,0 +1,1 @@
+Create a shell script tools/count.sh that prints the number of regular files under the current directory recursively, make it executable, run it and report the number.

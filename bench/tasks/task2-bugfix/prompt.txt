@@ -1,0 +1,1 @@
+Run the tests, find the bug in MungeCWD and fix it without changing tests or exported API. Tests must pass.

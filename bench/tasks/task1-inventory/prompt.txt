@@ -1,0 +1,1 @@
+Inspect this repository and reply ONLY with a JSON object with keys module, files (sorted list of .go file names), and lines (total line count of .go files). Do not create or modify any file.
