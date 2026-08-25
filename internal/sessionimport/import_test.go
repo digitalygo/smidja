@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/digitalygo/smidja/internal/session"
@@ -196,6 +197,78 @@ func TestImportConflict(t *testing.T) {
 	}
 	if !bytes.Equal(got, clobber) {
 		t.Error("conflict overwrote the existing destination")
+	}
+	assertNoTempFiles(t, dir)
+}
+
+// TestImportConcurrentSameDestination races two imports of different
+// content against the same canonical destination. The assertions are
+// deterministic (not flaky) because link(2) serializes the commit:
+// exactly one import wins the link, and the other gets EEXIST, finds
+// different content, and fails with ErrConflict. Every possible
+// interleaving produces the same invariants, so no sleeps or retries are
+// needed.
+func TestImportConcurrentSameDestination(t *testing.T) {
+	store, err := session.NewStore(filepath.Join(t.TempDir(), "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Two sources with the same header (same canonical destination) and
+	// different entry content.
+	base := []byte(strings.Join(importFixture, "\n") + "\n")
+	contentA := base
+	contentB := bytes.Replace(base, []byte("hello smidja"), []byte("concurrent write B"), 1)
+	if bytes.Equal(contentA, contentB) {
+		t.Fatal("fixture replacement did not change the content")
+	}
+	srcA := writeSource(t, contentA)
+	srcB := writeSource(t, contentB)
+
+	type result struct {
+		err error
+	}
+	results := make(chan result, 2)
+	var wg sync.WaitGroup
+	for _, src := range []string{srcA, srcB} {
+		wg.Add(1)
+		go func(src string) {
+			defer wg.Done()
+			_, _, err := Import(src, store)
+			results <- result{err: err}
+		}(src)
+	}
+	wg.Wait()
+	close(results)
+
+	wins, conflicts := 0, 0
+	for r := range results {
+		switch {
+		case r.err == nil:
+			wins++
+		case errors.Is(r.err, ErrConflict):
+			conflicts++
+		default:
+			t.Fatalf("Import: unexpected error: %v", r.err)
+		}
+	}
+	if wins != 1 || conflicts != 1 {
+		t.Fatalf("wins = %d, conflicts = %d, want 1 and 1", wins, conflicts)
+	}
+
+	// The surviving destination is byte-identical to one whole racing
+	// source, never a mix, and no temp files remain.
+	dir, err := store.DirForCwd("/tmp/imports/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(dir, canonicalDestName)
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, contentA) && !bytes.Equal(got, contentB) {
+		t.Error("destination content matches neither racing source")
 	}
 	assertNoTempFiles(t, dir)
 }

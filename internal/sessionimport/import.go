@@ -30,6 +30,11 @@ var ErrInvalidSource = errors.New("sessionimport: source is not a valid Pi sessi
 // with different content. The existing file is never overwritten.
 var ErrConflict = errors.New("sessionimport: destination exists with different content")
 
+// ErrUnsupportedPlatform is returned when the atomic no-replace commit
+// (link(2)) is unavailable, which is the case on every platform but
+// Linux. The destination is left untouched.
+var ErrUnsupportedPlatform = errors.New("sessionimport: only linux is supported")
+
 // ImportStats describes one import: how many entries were copied, how
 // they break down by type, how many were opaque (unknown future types),
 // and whether the destination already held identical content.
@@ -62,11 +67,20 @@ type ImportStats struct {
 // endings).
 //
 // The imported bytes are written to a 0600 temp file in the destination
-// directory, synced, and atomically renamed into place. If the canonical
-// destination already exists with an identical SHA-256 of the imported
-// content the import is idempotent (ImportStats.Idempotent is true and
-// the file is left untouched). If it exists with different content the
-// import fails with ErrConflict and nothing is overwritten.
+// directory, synced, and committed into place without ever replacing an
+// existing file. The commit uses os.Link (link(2)), which fails with
+// EEXIST when the destination already exists, so the existence check and
+// the placement are one atomic operation with no race window. When the
+// link hits an existing destination, that file is hashed: an identical
+// SHA-256 makes the import idempotent (ImportStats.Idempotent is true
+// and the file is left untouched), different content fails with
+// ErrConflict and nothing is overwritten. The comparison always runs on
+// the file that won the race, so a concurrent importer can never be
+// silently replaced.
+//
+// The atomic no-replace commit depends on Linux link(2) semantics; on
+// any other platform Import fails with ErrUnsupportedPlatform rather
+// than falling back to a racy rename.
 func Import(srcPath string, store *session.Store) (destPath string, stats ImportStats, err error) {
 	stats.PerType = make(map[string]int)
 	if store == nil {
@@ -106,14 +120,11 @@ func Import(srcPath string, store *session.Store) (destPath string, stats Import
 		return "", stats, fmt.Errorf("sessionimport: create temp file in %q: %w", dir, err)
 	}
 	tmpName := tmp.Name()
-	committed := false
 	defer func() {
 		if tmp != nil {
 			tmp.Close()
 		}
-		if !committed {
-			os.Remove(tmpName)
-		}
+		os.Remove(tmpName)
 	}()
 
 	hasher := sha256.New()
@@ -156,22 +167,15 @@ func Import(srcPath string, store *session.Store) (destPath string, stats Import
 	tmp = nil
 	wantHash := hasher.Sum(nil)
 
-	// Phase 4: idempotence or conflict check, then atomic rename.
-	if existing, statErr := os.ReadFile(destPath); statErr == nil {
-		existingHash := sha256.Sum256(existing)
-		if bytes.Equal(existingHash[:], wantHash) {
-			stats.Idempotent = true
-			return destPath, stats, nil
-		}
-		return "", stats, fmt.Errorf("%w: %q already exists with different content", ErrConflict, destPath)
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return "", stats, fmt.Errorf("sessionimport: read destination %q: %w", destPath, statErr)
+	// Phase 4: commit atomically without ever replacing an existing
+	// destination. commitAtomic is platform-specific: on Linux it is
+	// link(2)-based and race-free, elsewhere it fails with
+	// ErrUnsupportedPlatform.
+	idempotent, err := commitAtomic(tmpName, destPath, wantHash)
+	if err != nil {
+		return "", stats, err
 	}
-
-	if err := os.Rename(tmpName, destPath); err != nil {
-		return "", stats, fmt.Errorf("sessionimport: rename to %q: %w", destPath, err)
-	}
-	committed = true
+	stats.Idempotent = idempotent
 	return destPath, stats, nil
 }
 
