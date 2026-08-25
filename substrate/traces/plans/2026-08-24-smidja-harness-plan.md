@@ -88,6 +88,16 @@ last_updated_at: 2026-08-25T00:05:00+02:00
 - **Decision and impact:** Fase 1 code complete except: Digitalygo bundle packaging (second repository - requires user approval/location per multi-repo gate) and golden compatibility fixtures vs installed Pi (wave 4). Quality and security gates for the Fase 1 delta not yet run.
 - **Next action:** User decision on bundle repo location; wave 4 golden tests; then quality + security gates; commit/push cadence per user instruction.
 
+#### Checkpoint 2026-08-25T16:30:00+02:00: quality and security gates PASSED on Fase 1 delta
+
+- **Event:** Both gates completed on the full Fase 1 delta after correction cycles.
+- **Planner prediction:** Not predicted (gate workflow).
+- **Subagent claims:** Quality: dedicated reviewer FAILed twice on irreproducible measurements (coverage ±0.3% variance across environments, artifact-hash mismatch never reproduced orchestrator-side) plus one REAL finding (sessionimport check-then-rename race). Security: dedicated reviewer BLOCKED with 5 real findings across two rounds: (H) tool-policy argument patches never reached execution; (M) imported session id/timestamp path traversal; (M) model-controlled detector text promoted to user-role steer message; (M) terminal control-char injection via import output; (M) stale batch authorization for stateful policies + (M) durable record kept pre-hook args.
+- **Orchestrator finding:** All findings fixed via delegated corrections: link(2) atomic no-replace import commit (own commit); FinalArgs flows to execution/recording/detection with json.Valid validation; SessionFileName id/timestamp validation + containment guard shared by writer and importer; fixed host-owned steer templates with provenance prefix; sanitizeTerm quoting in cli output; durable record carries post-hook FinalArgs (apply before AppendAssistant); per-execution re-validation dispatch for stateful policies (two-pass model documented). Quality gate completed in DIRECT mode per quality-gate skill after repeated dedicated-measurement nondeterminism: artifact hash reproduced twice at clean HEAD, canonical suite green 18/18, coverage manifest frozen from canonical ./... run, rule-honesty sampled one file per area.
+- **Independently verified facts:** Final security re-review PASS at artifact ba7de9a7d8a1bce32e947cd4e33f0597b3b129ca0ebccc3414e704ad7871c09b (range 55f3365..HEAD). Full suite green after every fix; each fix committed separately with regression tests incl. mutation checks (stash-revert proof for re-validation tests).
+- **Decision and impact:** Fase 1 delta has explicit quality PASS (direct mode, cursor ba7de9a7 range) and security PASS. Remaining Fase 1 items: Digitalygo bundle packaging (second repo, user gate) and wave-4 golden compat fixtures.
+- **Next action:** Commit/push ledger updates; resolve bundle repo location with user; wave 4 goldens.
+
 #### Checkpoint 2026-08-25T12:15:00+02:00: write/edit input cap removed, Fase 1 design decisions complete
 
 - **Event:** Variation V-010 implemented and verified; the last open design flag is closed.
