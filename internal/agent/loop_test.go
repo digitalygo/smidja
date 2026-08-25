@@ -163,6 +163,14 @@ func (t *fakeTool) lastArgs() json.RawMessage {
 	return t.args[len(t.args)-1]
 }
 
+// allArgs returns the raw arguments of every execution, in execution
+// order.
+func (t *fakeTool) allArgs() []json.RawMessage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]json.RawMessage(nil), t.args...)
+}
+
 // textStop builds a scripted assistant message that stops with text.
 func textStop(text string) *AssistantMessage {
 	return &AssistantMessage{
@@ -1056,12 +1064,27 @@ func firstAssistantText(rec *fakeRecorder) string {
 func TestRunTurnToolCallFinalArgsUsed(t *testing.T) {
 	// The tool_call gate's final arguments are exactly what executes,
 	// what gets recorded in the assistant toolCall block, what the
-	// tool_result hook sees, and what the loop detector observes.
+	// tool_result hook sees, and what the loop detector observes. The
+	// two-pass model runs the chain twice (pass 1 before the durable
+	// record, pass 2 before execution); this sanitizer patches the same
+	// bytes both times, so the record, the execution, the detector, and
+	// the next provider request all agree.
 	rec := &copyingRecorder{fakeRecorder: &fakeRecorder{}}
 	tool := &fakeTool{name: "read", result: TextResult("file body")}
+	dispatches := 0
 	hooks := &fakeHooks{toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
-		if !strings.Contains(string(args), "a.go") {
-			t.Errorf("gate saw %s, want the original model arguments", args)
+		dispatches++
+		if dispatches == 1 {
+			// Pass 1 sees the model's original arguments.
+			if !strings.Contains(string(args), "a.go") {
+				t.Errorf("gate saw %s, want the original model arguments", args)
+			}
+		} else {
+			// Pass 2 re-validates against the pass-1 final state: it
+			// sees the sanitized arguments, never the model's originals.
+			if !strings.Contains(string(args), "sanitized.go") || strings.Contains(string(args), "a.go") {
+				t.Errorf("re-validation saw %s, want the pass-1 final (sanitized) arguments", args)
+			}
 		}
 		return ToolCallDecision{FinalArgs: json.RawMessage(`{"path":"sanitized.go"}`)}, nil
 	}}
@@ -1253,5 +1276,160 @@ func TestRunTurnNoHooksRecordsOriginalArgs(t *testing.T) {
 	}
 	if got := string(rec.assistants[0].Content[0].Arguments); !strings.Contains(got, "a.go") {
 		t.Errorf("durable assistant block arguments = %s, want the original arguments", got)
+	}
+}
+
+func TestRunTurnToolCallRevalidationDeniesAfterExecution(t *testing.T) {
+	// A stateful one-success quota is evaluated against stale state in
+	// pass 1: both calls of the batch pass, because no execution has
+	// happened yet. Pass 2 re-validates each call right before it
+	// executes; the second call sees the first execution's outcome, the
+	// quota is exhausted, and the call is denied with a
+	// "blocked on re-validation" error result instead of executing.
+	rec := &fakeRecorder{}
+	tool := &fakeTool{name: "read", result: TextResult("ok")}
+	var mu sync.Mutex
+	executed := 0 // successful executions observed through the tool_result hook
+	hooks := &fakeHooks{
+		toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if executed >= 1 {
+				return ToolCallDecision{Block: true, Reason: "one-success quota exhausted"}, nil
+			}
+			return ToolCallDecision{}, nil
+		},
+		toolResultFn: func(ctx context.Context, name, callID string, args json.RawMessage, res Result) (Result, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !res.IsError {
+				executed++
+			}
+			return res, nil
+		},
+	}
+	client := &fakeClient{script: []*AssistantMessage{
+		toolUseMsg(
+			toolCallBlock("c1", "read", `{"path":"a.go"}`),
+			toolCallBlock("c2", "read", `{"path":"a.go"}`),
+		),
+		textStop("done"),
+	}}
+	history, err := RunTurn(context.Background(), &LoopDeps{
+		Client:   client,
+		Recorder: rec,
+		Tools:    []Tool{tool},
+		Hooks:    hooks,
+	}, "m", "", nil, "read it")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if tool.executed() != 1 {
+		t.Errorf("tool executed %d times, want 1 (one-success quota)", tool.executed())
+	}
+	// c1 executed normally...
+	tr1 := history[2].ToolResult
+	if tr1 == nil || tr1.IsError || tr1.ToolCallID != "c1" {
+		t.Errorf("history[2] = %+v, want the successful c1 result", history[2])
+	}
+	// ...c2 was blocked on re-validation: an error result, never
+	// executed, carrying the re-validation reason.
+	tr2 := history[3].ToolResult
+	if tr2 == nil || !tr2.IsError || tr2.ToolCallID != "c2" {
+		t.Fatalf("history[3] = %+v, want the c2 error result", history[3])
+	}
+	if len(tr2.Content) != 1 || !strings.Contains(tr2.Content[0].Text, "blocked on re-validation: one-success quota exhausted") {
+		t.Errorf("c2 result text = %q, want the re-validation denial reason", tr2.Content[0].Text)
+	}
+	// Both calls were authorized in pass 1 (the batch-start record holds
+	// them), then the chain dispatched again per execution: pass 2 for
+	// c1, pass 2 for c2.
+	if got := hooks.joinEvents(); got != "context,message_end,tool_call,tool_call,tool_call,tool_result,tool_call,tool_result,context,message_end" {
+		t.Errorf("hook events = %q, want the two-pass dispatch order", got)
+	}
+	if len(history) != 5 || history[4].Assistant == nil {
+		t.Errorf("history = %d messages, want 5 (user, assistant, c1 result, c2 result, assistant)", len(history))
+	}
+	if got := rec.joinEvents(); got != "user,assistant,toolResult,toolResult,assistant" {
+		t.Errorf("recorder events = %q, want both tool results recorded", got)
+	}
+}
+
+func TestRunTurnToolCallRevalidationTransformation(t *testing.T) {
+	// Re-validation may transform the arguments immediately before
+	// execution: the second dispatch of the second call patches them,
+	// and the patched bytes are exactly what executes and what the loop
+	// detector observes. The in-memory assistant block follows the
+	// latest validated state, while the durable record keeps the
+	// batch-start (pass 1) bytes: append-only, the audit reflects
+	// batch-start authorization.
+	rec := &copyingRecorder{fakeRecorder: &fakeRecorder{}}
+	tool := &fakeTool{name: "read", result: TextResult("ok")}
+	det := &fakeDetector{}
+	dispatches := map[string]int{}
+	hooks := &fakeHooks{toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
+		dispatches[callID]++
+		if callID == "c2" && dispatches[callID] == 2 {
+			// Pass 2 of c2: transform the arguments before execution.
+			return ToolCallDecision{FinalArgs: json.RawMessage(`{"path":"revalidated.go"}`)}, nil
+		}
+		return ToolCallDecision{}, nil
+	}}
+	client := &fakeClient{script: []*AssistantMessage{
+		toolUseMsg(
+			toolCallBlock("c1", "read", `{"path":"a.go"}`),
+			toolCallBlock("c2", "read", `{"path":"a.go"}`),
+		),
+		textStop("done"),
+	}}
+	history, err := RunTurn(context.Background(), &LoopDeps{
+		Client:   client,
+		Recorder: rec,
+		Tools:    []Tool{tool},
+		Hooks:    hooks,
+		Detector: det,
+	}, "m", "", nil, "read it")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if tool.executed() != 2 {
+		t.Fatalf("tool executed %d times, want 2", tool.executed())
+	}
+	args := tool.allArgs()
+	if got := string(args[0]); !strings.Contains(got, "a.go") {
+		t.Errorf("first execution args = %s, want the original arguments (no re-validation patch)", got)
+	}
+	if got := string(args[1]); !strings.Contains(got, "revalidated.go") || strings.Contains(got, "a.go") {
+		t.Errorf("second execution args = %s, want the re-validated arguments", got)
+	}
+	// The loop detector observed the re-validated arguments of the
+	// second execution.
+	obs := det.observed
+	if len(obs) != 2 {
+		t.Fatalf("detector observed %d calls, want 2", len(obs))
+	}
+	if got := string(obs[1].ToolCalls[0].Arguments); !strings.Contains(got, "revalidated.go") {
+		t.Errorf("detector observed second-call args %s, want the re-validated arguments", got)
+	}
+	// The in-memory assistant block follows the latest validated state.
+	asst := history[1].Assistant
+	if asst == nil || len(asst.Content) != 2 {
+		t.Fatalf("history[1] = %+v, want the toolCall assistant block with two calls", history[1])
+	}
+	if got := string(asst.Content[1].Arguments); !strings.Contains(got, "revalidated.go") {
+		t.Errorf("in-memory assistant block args = %s, want the re-validated arguments", got)
+	}
+	// The durable record keeps the batch-start bytes: it was deep-copied
+	// at AppendAssistant time, before the re-validation patched the
+	// second call, and is never rewritten.
+	if len(rec.assistants) != 2 {
+		t.Fatalf("recorder captured %d assistants, want 2", len(rec.assistants))
+	}
+	durable := rec.assistants[0]
+	if len(durable.Content) != 2 {
+		t.Fatalf("durable assistant has %d blocks, want 2", len(durable.Content))
+	}
+	if got := string(durable.Content[1].Arguments); !strings.Contains(got, "a.go") {
+		t.Errorf("durable assistant block args = %s, want the batch-start original arguments", got)
 	}
 }

@@ -202,25 +202,42 @@ func (e *LoopDetectedError) Unwrap() error { return e.Err }
 //  3. Successful assistant messages run the message_end hook chain (the
 //     replacement, which must keep the assistant role, is what gets
 //     recorded and appended).
-//  4. Before the assistant message is recorded, each tool call runs the
-//     tool_call gate: a deny short-circuits execution (an error result
-//     with the denial reason is recorded instead). The chain's final
-//     arguments (returned by the dispatcher after handler patches) are
-//     always applied to the recorded assistant toolCall block, deny or
-//     not, so the durable record reflects the last validated state: the
-//     patched arguments when a sanitizer ran, the model's originals when
-//     nothing patched. The same final bytes are what execute, what the
-//     loop detector observes, and what the provider sees next. Unknown
-//     tools and invalid arguments still produce error results without
+//  4. Tool authorization runs twice per call. Pass 1, before the
+//     assistant message is recorded, sanitizes and authorizes the whole
+//     batch against batch-start state: each tool call runs the
+//     tool_call gate, a deny short-circuits execution (an error result
+//     with the denial reason is recorded instead), and the chain's
+//     final arguments (returned by the dispatcher after handler
+//     patches) are always applied to the recorded assistant toolCall
+//     block, deny or not, so the durable record reflects the
+//     batch-start authorization: the patched arguments when a sanitizer
+//     ran, the model's originals when nothing patched. The pass-1
+//     final bytes are what the durable record carries. Unknown tools
+//     and invalid arguments still produce error results without
 //     executing anything.
-//  5. After each tool execution the loop detector observes the call's raw
+//  5. Pass 2, immediately before each non-denied call executes,
+//     re-dispatches the tool_call chain for that single call, so
+//     stateful policies (one-success quotas, approval counters) are
+//     evaluated against the state after previous executions instead of
+//     the stale batch-start snapshot pass 1 saw. A re-validation deny
+//     blocks execution with a "blocked on re-validation" error result
+//     and the call never runs. The re-validation's final arguments
+//     (transformation patches) apply to the execution bytes, the
+//     in-memory assistant toolCall block, and the loop-detector
+//     observation: the latest validated state. They never rewrite the
+//     durable record, which is append-only: the audit reflects
+//     batch-start authorization, and re-validation affects execution
+//     and detection only, never the durable assistant message. The
+//     re-validated bytes are exactly what execute and what the loop
+//     detector observes.
+//  6. After each tool execution the loop detector observes the call's raw
 //     outcome. A warn verdict injects the detector's fixed steer message
 //     (a host-owned template prefixed with "[smidja] ", containing no
 //     model-controlled values) as a user message into history (recorded
 //     through the Recorder) and the turn continues; a block verdict
 //     replaces the call's result with a "loop detected" error, records
 //     it, and ends the run with ErrLoopDetected.
-//  6. The tool_result hook chain runs on every result message before it is
+//  7. The tool_result hook chain runs on every result message before it is
 //     recorded.
 //
 // The loop has no round or tool-call budget: it keeps alternating assistant
@@ -389,16 +406,20 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 			}
 		}
 		// Tool-call gating runs after message_end but before the durable
-		// record, so the recorded assistant message carries the chain's
-		// final arguments when a handler patches them. The rule is
-		// consistent: FinalArgs, when present, is always applied to the
-		// recorded message, deny or not. Only execution is
-		// short-circuited by a deny. A plain deny (no patch) therefore
-		// records the model's original arguments, the fidelity the audit
-		// wants: the model requested that call, the policy rejected it,
-		// and nothing sensitive ran. When a sanitizer patched the
-		// arguments before a later handler denied, the record shows the
-		// patched arguments, the last validated state before the denial.
+		// record: this is pass 1 of the two-pass gate, the batch-start
+		// sanitize and authorize that is what gets recorded. The recorded
+		// assistant message carries the chain's final arguments when a
+		// handler patches them. The rule is consistent: FinalArgs, when
+		// present, is always applied to the recorded message, deny or
+		// not. Only execution is short-circuited by a deny: pass-1
+		// denials never reach pass 2, which re-validates each non-denied
+		// call right before it executes, against the state after previous
+		// executions. A plain deny (no patch) therefore records the
+		// model's original arguments, the fidelity the audit wants: the
+		// model requested that call, the policy rejected it, and nothing
+		// sensitive ran. When a sanitizer patched the arguments before a
+		// later handler denied, the record shows the patched arguments,
+		// the last validated state before the denial.
 		calls := toolCallBlocks(finalMsg.Assistant.Content)
 		denied := make([]bool, len(calls))
 		denyReason := make([]string, len(calls))
@@ -454,15 +475,22 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 		// the loop-detector warning.
 		var steerMsgs []*Message
 		for i, call := range calls {
-			// The gate already ran for every call before the assistant
-			// message was recorded: denied calls produce the denial error
-			// result without executing, everything else executes with the
-			// same final bytes the record carries.
+			// Pass 2 of the gate runs here, immediately before execution.
+			// Pass-1 denials produce the denial error result without
+			// executing; every other call is re-validated against the
+			// state after previous executions, so stateful policies see
+			// the current state instead of the batch-start snapshot pass
+			// 1 saw. Only the re-validated bytes execute; the durable
+			// record was already written in pass 1 and is never
+			// rewritten.
 			res := Result{}
 			if denied[i] {
 				res = ErrorResult(denyReason[i])
 			} else {
-				res = executeCall(ctx, call, toolsByName)
+				var xerr error
+				if res, xerr = revalidateAndExecute(ctx, deps, &call, finalMsg.Assistant, toolsByName); xerr != nil {
+					return history, xerr
+				}
 			}
 
 			// Loop detector: one observation per executed call, over the
@@ -623,6 +651,35 @@ func loopFindingText(o Outcome) string {
 func mustMarshalString(s string) json.RawMessage {
 	b, _ := json.Marshal(s)
 	return b
+}
+
+// revalidateAndExecute is pass 2 of the tool-call gate: it re-dispatches
+// the tool_call hook chain for one call immediately before execution, so
+// stateful policies (quotas, approval counters) evaluate the state after
+// previous executions rather than the batch-start snapshot pass 1 saw,
+// then executes the call with the re-validated final arguments. A
+// re-validation deny blocks execution with a "blocked on re-validation"
+// error result. In both paths the re-validation's FinalArgs, when
+// present, apply to the execution bytes, the in-memory assistant toolCall
+// block, and the loop-detector observation (the latest validated state);
+// the durable record is never rewritten: it is append-only, and the audit
+// reflects the batch-start authorization of pass 1. A hook error is
+// fatal, matching pass 1.
+func revalidateAndExecute(ctx context.Context, deps *LoopDeps, call *ContentBlock, asst *AssistantMessage, toolsByName map[string]Tool) (Result, error) {
+	if deps.Hooks != nil {
+		dec, derr := deps.Hooks.ToolCall(ctx, call.Name, call.ID, call.Arguments)
+		if derr != nil {
+			return Result{}, fmt.Errorf("agent: tool_call hook: %w", derr)
+		}
+		if dec.FinalArgs != nil {
+			call.Arguments = dec.FinalArgs
+			applyFinalArgs(asst, call.ID, call.Arguments)
+		}
+		if dec.Block {
+			return ErrorResult("blocked on re-validation: " + dec.Reason), nil
+		}
+	}
+	return executeCall(ctx, *call, toolsByName), nil
 }
 
 // executeCall runs one toolCall block and converts the outcome into the
