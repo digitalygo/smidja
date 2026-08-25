@@ -101,6 +101,30 @@ func (r *fakeRecorder) joinEvents() string {
 	return strings.Join(r.events, ",")
 }
 
+// copyingRecorder wraps fakeRecorder but deep-copies every assistant
+// message at AppendAssistant time (a JSON round-trip, the same way the
+// session package persists entries), so mutations to the in-memory
+// message after the call cannot leak into the captured record. Tests
+// that assert the durable record's contents use this recorder, because
+// the aliasing fakeRecorder would hide a record-after-mutation bug.
+type copyingRecorder struct {
+	*fakeRecorder
+}
+
+// AppendAssistant deep-copies the message before recording it, mirroring
+// the session's marshal-at-append semantics.
+func (r *copyingRecorder) AppendAssistant(m *AssistantMessage) error {
+	payload, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	var copy AssistantMessage
+	if err := json.Unmarshal(payload, &copy); err != nil {
+		return err
+	}
+	return r.fakeRecorder.AppendAssistant(&copy)
+}
+
 // fakeTool is a scripted agent.Tool that counts its executions and
 // records the raw arguments of every call.
 type fakeTool struct {
@@ -1033,7 +1057,7 @@ func TestRunTurnToolCallFinalArgsUsed(t *testing.T) {
 	// The tool_call gate's final arguments are exactly what executes,
 	// what gets recorded in the assistant toolCall block, what the
 	// tool_result hook sees, and what the loop detector observes.
-	rec := &fakeRecorder{}
+	rec := &copyingRecorder{fakeRecorder: &fakeRecorder{}}
 	tool := &fakeTool{name: "read", result: TextResult("file body")}
 	hooks := &fakeHooks{toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
 		if !strings.Contains(string(args), "a.go") {
@@ -1068,7 +1092,8 @@ func TestRunTurnToolCallFinalArgsUsed(t *testing.T) {
 	if got := string(asst.Content[0].Arguments); !strings.Contains(got, "sanitized.go") || strings.Contains(got, "a.go") {
 		t.Errorf("recorded assistant block arguments = %s, want the final arguments", got)
 	}
-	// The recorder's copy of the assistant message shows the same block.
+	// The durable recorder copy (deep-copied at AppendAssistant time,
+	// before any execution) shows the same block.
 	if len(rec.assistants) != 2 || len(rec.assistants[0].Content) != 1 {
 		t.Fatalf("recorder captured %d assistants, want 2 with the first holding the toolCall block", len(rec.assistants))
 	}
@@ -1100,11 +1125,13 @@ func TestRunTurnToolCallFinalArgsUsed(t *testing.T) {
 	}
 }
 
-func TestRunTurnToolCallDenyStillUsesOriginalArgs(t *testing.T) {
-	// A denied call never executes: the tool_call gate's FinalArgs is
-	// ignored, the recorded assistant block keeps the model's original
-	// arguments, and the denial reason becomes the error result.
-	rec := &fakeRecorder{}
+func TestRunTurnToolCallDenyAfterPatchRecordsPatchedArgs(t *testing.T) {
+	// A denied call never executes, but when the tool_call gate patched
+	// the arguments before denying, the durable record carries the
+	// patched arguments: the audit reflects the last validated state
+	// before the denial. The denial reason still becomes the error
+	// result.
+	rec := &copyingRecorder{fakeRecorder: &fakeRecorder{}}
 	tool := &fakeTool{name: "read", result: TextResult("file body")}
 	hooks := &fakeHooks{toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
 		return ToolCallDecision{Block: true, Reason: "denied by policy", FinalArgs: json.RawMessage(`{"path":"sanitized.go"}`)}, nil
@@ -1129,7 +1156,102 @@ func TestRunTurnToolCallDenyStillUsesOriginalArgs(t *testing.T) {
 	if tr == nil || !tr.IsError || !strings.Contains(tr.Content[0].Text, "denied by policy") {
 		t.Fatalf("history[2] = %+v, want the denial error result", history[2])
 	}
-	if got := string(history[1].Assistant.Content[0].Arguments); !strings.Contains(got, "a.go") {
+	// The recorded assistant block carries the patched (final) args, the
+	// last validated state before the denial.
+	asst := history[1].Assistant
+	if asst == nil || len(asst.Content) != 1 || asst.Content[0].Type != BlockTypeToolCall {
+		t.Fatalf("history[1] = %+v, want the toolCall assistant block", history[1])
+	}
+	if got := string(asst.Content[0].Arguments); !strings.Contains(got, "sanitized.go") || strings.Contains(got, "a.go") {
+		t.Errorf("recorded assistant block arguments = %s, want the patched arguments", got)
+	}
+	// The durable recorder copy agrees: it was deep-copied at
+	// AppendAssistant time, after the patch was applied.
+	if len(rec.assistants) != 2 || len(rec.assistants[0].Content) != 1 {
+		t.Fatalf("recorder captured %d assistants, want 2 with the first holding the toolCall block", len(rec.assistants))
+	}
+	if got := string(rec.assistants[0].Content[0].Arguments); !strings.Contains(got, "sanitized.go") || strings.Contains(got, "a.go") {
+		t.Errorf("durable assistant block arguments = %s, want the patched arguments", got)
+	}
+}
+
+func TestRunTurnToolCallDenyRecordsOriginalArgs(t *testing.T) {
+	// A plain deny (no FinalArgs patch) records the model's original
+	// arguments: the model requested that call, the policy rejected it,
+	// and nothing sensitive ran, so the audit keeps the fidelity of what
+	// was requested.
+	rec := &copyingRecorder{fakeRecorder: &fakeRecorder{}}
+	tool := &fakeTool{name: "read", result: TextResult("file body")}
+	hooks := &fakeHooks{toolCallFn: func(ctx context.Context, name, callID string, args json.RawMessage) (ToolCallDecision, error) {
+		return ToolCallDecision{Block: true, Reason: "denied by policy"}, nil
+	}}
+	client := &fakeClient{script: []*AssistantMessage{
+		toolUseMsg(toolCallBlock("c1", "read", `{"path":"a.go"}`)),
+		textStop("done"),
+	}}
+	history, err := RunTurn(context.Background(), &LoopDeps{
+		Client:   client,
+		Recorder: rec,
+		Tools:    []Tool{tool},
+		Hooks:    hooks,
+	}, "m", "", nil, "read a.go")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if tool.executed() != 0 {
+		t.Errorf("tool executed %d times, want 0 (denied call must not execute)", tool.executed())
+	}
+	tr := history[2].ToolResult
+	if tr == nil || !tr.IsError || !strings.Contains(tr.Content[0].Text, "denied by policy") {
+		t.Fatalf("history[2] = %+v, want the denial error result", history[2])
+	}
+	asst := history[1].Assistant
+	if asst == nil || len(asst.Content) != 1 || asst.Content[0].Type != BlockTypeToolCall {
+		t.Fatalf("history[1] = %+v, want the toolCall assistant block", history[1])
+	}
+	if got := string(asst.Content[0].Arguments); !strings.Contains(got, "a.go") {
 		t.Errorf("recorded assistant block arguments = %s, want the original (never-executed) arguments", got)
+	}
+	if len(rec.assistants) != 2 || len(rec.assistants[0].Content) != 1 {
+		t.Fatalf("recorder captured %d assistants, want 2 with the first holding the toolCall block", len(rec.assistants))
+	}
+	if got := string(rec.assistants[0].Content[0].Arguments); !strings.Contains(got, "a.go") {
+		t.Errorf("durable assistant block arguments = %s, want the original (never-executed) arguments", got)
+	}
+}
+
+func TestRunTurnNoHooksRecordsOriginalArgs(t *testing.T) {
+	// Without a hook chain there is nothing to patch: the durable
+	// assistant record carries the model's original arguments, which are
+	// also the ones that execute.
+	rec := &copyingRecorder{fakeRecorder: &fakeRecorder{}}
+	tool := &fakeTool{name: "read", result: TextResult("file body")}
+	client := &fakeClient{script: []*AssistantMessage{
+		toolUseMsg(toolCallBlock("c1", "read", `{"path":"a.go"}`)),
+		textStop("done"),
+	}}
+	history, err := RunTurn(context.Background(), &LoopDeps{
+		Client:   client,
+		Recorder: rec,
+		Tools:    []Tool{tool},
+	}, "m", "", nil, "read a.go")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if got := tool.lastArgs(); !strings.Contains(string(got), "a.go") {
+		t.Errorf("tool executed with %s, want the original arguments", got)
+	}
+	asst := history[1].Assistant
+	if asst == nil || len(asst.Content) != 1 || asst.Content[0].Type != BlockTypeToolCall {
+		t.Fatalf("history[1] = %+v, want the toolCall assistant block", history[1])
+	}
+	if got := string(asst.Content[0].Arguments); !strings.Contains(got, "a.go") {
+		t.Errorf("recorded assistant block arguments = %s, want the original arguments", got)
+	}
+	if len(rec.assistants) != 2 || len(rec.assistants[0].Content) != 1 {
+		t.Fatalf("recorder captured %d assistants, want 2 with the first holding the toolCall block", len(rec.assistants))
+	}
+	if got := string(rec.assistants[0].Content[0].Arguments); !strings.Contains(got, "a.go") {
+		t.Errorf("durable assistant block arguments = %s, want the original arguments", got)
 	}
 }

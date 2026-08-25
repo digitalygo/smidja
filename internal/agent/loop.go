@@ -202,13 +202,17 @@ func (e *LoopDetectedError) Unwrap() error { return e.Err }
 //  3. Successful assistant messages run the message_end hook chain (the
 //     replacement, which must keep the assistant role, is what gets
 //     recorded and appended).
-//  4. Each tool call runs the tool_call gate first: a deny short-circuits
-//     the execution and records an error result with the denial reason.
-//     Otherwise the chain's final arguments (returned by the dispatcher
-//     after handler patches) are the ones that execute, that get recorded
-//     in the assistant toolCall block, and that the loop detector
-//     observes. Unknown tools and invalid arguments still produce error
-//     results without executing anything.
+//  4. Before the assistant message is recorded, each tool call runs the
+//     tool_call gate: a deny short-circuits execution (an error result
+//     with the denial reason is recorded instead). The chain's final
+//     arguments (returned by the dispatcher after handler patches) are
+//     always applied to the recorded assistant toolCall block, deny or
+//     not, so the durable record reflects the last validated state: the
+//     patched arguments when a sanitizer ran, the model's originals when
+//     nothing patched. The same final bytes are what execute, what the
+//     loop detector observes, and what the provider sees next. Unknown
+//     tools and invalid arguments still produce error results without
+//     executing anything.
 //  5. After each tool execution the loop detector observes the call's raw
 //     outcome. A warn verdict injects the detector's fixed steer message
 //     (a host-owned template prefixed with "[smidja] ", containing no
@@ -384,6 +388,43 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 				finalMsg = replaced
 			}
 		}
+		// Tool-call gating runs after message_end but before the durable
+		// record, so the recorded assistant message carries the chain's
+		// final arguments when a handler patches them. The rule is
+		// consistent: FinalArgs, when present, is always applied to the
+		// recorded message, deny or not. Only execution is
+		// short-circuited by a deny. A plain deny (no patch) therefore
+		// records the model's original arguments, the fidelity the audit
+		// wants: the model requested that call, the policy rejected it,
+		// and nothing sensitive ran. When a sanitizer patched the
+		// arguments before a later handler denied, the record shows the
+		// patched arguments, the last validated state before the denial.
+		calls := toolCallBlocks(finalMsg.Assistant.Content)
+		denied := make([]bool, len(calls))
+		denyReason := make([]string, len(calls))
+		if finalMsg.Assistant.StopReason == "toolUse" && deps.Hooks != nil {
+			for i := range calls {
+				call := &calls[i]
+				dec, derr := deps.Hooks.ToolCall(ctx, call.Name, call.ID, call.Arguments)
+				if derr != nil {
+					return history, fmt.Errorf("agent: tool_call hook: %w", derr)
+				}
+				if dec.Block {
+					denied[i] = true
+					denyReason[i] = dec.Reason
+				}
+				if dec.FinalArgs != nil {
+					// The chain's final arguments are the ones that
+					// execute, get recorded, and get observed. The
+					// recorded assistant toolCall block is updated so
+					// history, the session, and the provider all see the
+					// same arguments that ran.
+					call.Arguments = dec.FinalArgs
+					applyFinalArgs(finalMsg.Assistant, call.ID, call.Arguments)
+				}
+			}
+		}
+
 		if deps.Recorder != nil {
 			if err := deps.Recorder.AppendAssistant(finalMsg.Assistant); err != nil {
 				return history, fmt.Errorf("agent: record assistant message: %w", err)
@@ -403,7 +444,6 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 		if finalMsg.Assistant.StopReason != "toolUse" {
 			return history, nil
 		}
-		calls := toolCallBlocks(finalMsg.Assistant.Content)
 		if len(calls) == 0 {
 			return history, nil
 		}
@@ -414,29 +454,14 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 		// the loop-detector warning.
 		var steerMsgs []*Message
 		for i, call := range calls {
-			// Tool_call gate: a deny short-circuits the execution, and
-			// the denial reason becomes the recorded error result.
+			// The gate already ran for every call before the assistant
+			// message was recorded: denied calls produce the denial error
+			// result without executing, everything else executes with the
+			// same final bytes the record carries.
 			res := Result{}
-			denied := false
-			if deps.Hooks != nil {
-				dec, derr := deps.Hooks.ToolCall(ctx, call.Name, call.ID, call.Arguments)
-				if derr != nil {
-					return history, fmt.Errorf("agent: tool_call hook: %w", derr)
-				}
-				if dec.Block {
-					denied = true
-					res = ErrorResult(dec.Reason)
-				} else if dec.FinalArgs != nil {
-					// The chain's final arguments are the ones that
-					// execute, get recorded, and get observed. The
-					// recorded assistant toolCall block is updated so
-					// history, the session, and the provider all see the
-					// same arguments that ran.
-					call.Arguments = dec.FinalArgs
-					applyFinalArgs(finalMsg.Assistant, call.ID, call.Arguments)
-				}
-			}
-			if !denied {
+			if denied[i] {
+				res = ErrorResult(denyReason[i])
+			} else {
 				res = executeCall(ctx, call, toolsByName)
 			}
 
@@ -629,7 +654,8 @@ func toolCallBlocks(content []ContentBlock) []ContentBlock {
 
 // applyFinalArgs replaces the Arguments of the assistant content's
 // toolCall block with the given id, so the recorded assistant message
-// carries the exact arguments the tool executed with. It is a no-op when
+// carries the exact arguments the tool executed with, or, for denied
+// calls, the last validated state before the denial. It is a no-op when
 // the block is absent (for example after a message_end replacement that
 // dropped or re-id'd the block).
 func applyFinalArgs(asst *AssistantMessage, callID string, args json.RawMessage) {
