@@ -23,6 +23,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 
 	"github.com/digitalygo/smidja/internal/agent"
@@ -30,6 +31,7 @@ import (
 	"github.com/digitalygo/smidja/internal/config"
 	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/models"
+	"github.com/digitalygo/smidja/internal/providers/oauth"
 	"github.com/digitalygo/smidja/internal/session"
 	"github.com/digitalygo/smidja/internal/update"
 	"github.com/digitalygo/smidja/sdk"
@@ -82,6 +84,18 @@ type Deps struct {
 	// binary path); tests substitute a client pointed at an httptest
 	// server.
 	NewUpdateClient func() *update.Client
+
+	// HTTPClient is the HTTP client passed to provider drivers built for
+	// -provider. Nil builds each driver's default client; tests inject a
+	// client whose transport rewrites requests to an httptest server.
+	HTTPClient *http.Client
+
+	// AuthOptions builds the OAuth Options used by "smidja auth login"
+	// for one provider, keyed by the OAuth provider id. Nil builds the
+	// default options: a best-effort browser opener and a LineUI prompt
+	// for the manual-code fallback. Tests substitute options pointed at
+	// a fake token endpoint so login runs without a browser.
+	AuthOptions func(provider string) oauth.Options
 
 	// Bundle is the packaged contents of the build: embedded resources,
 	// extensions, and configuration defaults. The bare harness ships an
@@ -193,14 +207,16 @@ func run(args []string, d *Deps) error {
 	fs.SetOutput(io.Discard) // run renders flag errors itself, once
 	fs.Usage = func() {}     // usage is printed by run, not by flag
 	var (
-		prompt  string
-		model   string
-		system  string
-		version bool
+		prompt   string
+		model    string
+		system   string
+		provider string
+		version  bool
 	)
 	fs.StringVar(&prompt, "p", "", "run one turn with the given prompt and exit")
 	fs.StringVar(&model, "model", "", "override the configured model")
 	fs.StringVar(&system, "system", "", "override the default system prompt")
+	fs.StringVar(&provider, "provider", "", "select the provider driver (manifest id or OAuth provider)")
 	fs.BoolVar(&version, "version", false, "print the version and exit")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -224,7 +240,12 @@ func run(args []string, d *Deps) error {
 		printUsage(d.Stderr)
 		return err
 	}
-	return runChat(d, prompt, model, system)
+	if provider != "" && model == "" && d.Env("SMIDJA_MODEL") == "" {
+		if def, ok := providerDefaultModel(provider); ok {
+			model = def
+		}
+	}
+	return runChat(d, prompt, model, system, provider)
 }
 
 // versionFor resolves the version string printed by -version and the
@@ -262,6 +283,7 @@ func buildIdentity(d *Deps) buildinfo.Info {
 // positional argument.
 var subcommands = map[string]bool{
 	"run":     true,
+	"auth":    true,
 	"import":  true,
 	"update":  true,
 	"version": true,
@@ -281,6 +303,8 @@ func runSubcommand(name string, args []string, d *Deps) error {
 	switch name {
 	case "version":
 		return runVersion(args, d)
+	case "auth":
+		return runAuth(args, d)
 	case "import":
 		return runImport(args, d)
 	case "update":
@@ -308,12 +332,14 @@ interactive session that reads prompts from stdin and streams responses
 to stdout. With -p it runs a single turn and exits.
 
 flags:
-  -p prompt      run one turn with the given prompt and exit
-  -model string  override the configured model (default: SMIDJA_MODEL)
-  -system string override the default system prompt
-  -version       print "smidja <version>" and exit
+  -p prompt       run one turn with the given prompt and exit
+  -model string   override the configured model (default: SMIDJA_MODEL)
+  -provider id    select the provider driver (default: openrouter)
+  -system string  override the default system prompt
+  -version        print "smidja <version>" and exit
 
 subcommands:
+  auth     manage provider credentials
   import   import Pi sessions into the session store
   run      run a single turn, not implemented yet
   update   update the harness binary from GitHub releases

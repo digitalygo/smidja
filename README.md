@@ -25,6 +25,12 @@ Content precedence, highest first: repository workspace > baked-in package > dyn
 
 Fase 0 (spike) complete: a working Go harness with OpenRouter streaming, tools, Pi-aligned JSONL sessions, and measured benchmarks against Pi (see `docs/benchmarks/phase-0.md`). Execution ledger lives in the plan under [substrate/traces/plans](substrate/traces/plans/2026-08-24-smidja-harness-plan.md). Next: Fase 1, MVP interno.
 
+## Docs
+
+- [Auth](docs/auth.md): how provider credentials work, `smidja auth` commands, where tokens live
+- [Brew tap](docs/brew.md): the future `github.com/digitalygo/homebrew-smidja` tap and its formula
+- [Providers manifest](docs/providers-manifest.md): the frozen API-key provider catalogue
+
 ## License
 
 MIT. Every fork builds its own binaries; there is no central build authority.

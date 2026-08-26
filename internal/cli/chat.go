@@ -87,7 +87,7 @@ type runDeps struct {
 // and extension runtime, and this function assembles only what depends on
 // parse-time state (the -model override, the -p mode): the context
 // manager and the LineUI.
-func runChat(d *Deps, prompt, model, system string) error {
+func runChat(d *Deps, prompt, model, system, provider string) error {
 	ctx := d.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -103,8 +103,16 @@ func runChat(d *Deps, prompt, model, system string) error {
 	if model != "" {
 		cfg.Model = model
 	}
-	client := d.Client
-	if client == nil {
+	var client agent.Client
+	if provider != "" {
+		built, err := buildProviderClient(d, provider)
+		if err != nil {
+			return fail(d, err)
+		}
+		client = built
+	} else if d.Client != nil {
+		client = d.Client
+	} else {
 		client = openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil)
 	}
 	toolSet := d.Tools

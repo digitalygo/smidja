@@ -129,10 +129,13 @@ func parse(content []byte) (map[string]Entry, error) {
 	return entries, nil
 }
 
+const openRouterOAuth = "openrouter-oauth"
+
 // validate checks one credential against the Pi shape. api_key entries
 // accept a key and an env object (env is preserved as an unknown field);
-// oauth entries require string access and refresh plus a finite numeric
-// expires. Unknown types are rejected, matching Pi.
+// oauth entries require string access plus string refresh and a finite
+// numeric expires, except openrouter-oauth whose non-expiring API keys
+// load without a refresh token. Unknown types are rejected, matching Pi.
 func validate(provider string, e Entry) error {
 	switch e.Type {
 	case "api_key":
@@ -143,8 +146,11 @@ func validate(provider string, e Entry) error {
 		}
 		return nil
 	case "oauth":
-		if e.Access == "" || e.Refresh == "" {
-			return fmt.Errorf("invalid auth.json credential for provider %q: oauth requires access and refresh", provider)
+		if e.Access == "" {
+			return fmt.Errorf("invalid auth.json credential for provider %q: oauth requires access", provider)
+		}
+		if e.Refresh == "" && provider != openRouterOAuth {
+			return fmt.Errorf("invalid auth.json credential for provider %q: oauth requires refresh", provider)
 		}
 		// expires decodes into the typed int64 field; a non-numeric
 		// value fails the decode in parse and never reaches here.

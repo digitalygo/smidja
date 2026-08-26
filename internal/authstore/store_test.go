@@ -66,6 +66,45 @@ func TestLoadCorruptFile(t *testing.T) {
 	}
 }
 
+// TestLoadOpenRouterOAuthWithoutRefresh verifies Pi parity for the
+// OpenRouter OAuth credential: OpenRouter mints non-expiring API keys, so
+// an oauth entry under openrouter-oauth with an empty refresh token loads
+// fine, while the same shape is still rejected for other providers.
+func TestLoadOpenRouterOAuthWithoutRefresh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.json")
+	writeAuthFile(t, path, `{
+  "openrouter-oauth": {
+    "type": "oauth",
+    "access": "sk-or-v1-abc",
+    "expires": 9007199254740991
+  }
+}`)
+	s, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(openrouter-oauth without refresh): %v", err)
+	}
+	e, ok := s.Get("openrouter-oauth")
+	if !ok {
+		t.Fatal("openrouter-oauth entry missing")
+	}
+	if e.Type != "oauth" || e.Access != "sk-or-v1-abc" || e.Refresh != "" {
+		t.Errorf("openrouter-oauth entry = %+v, want oauth with access and no refresh", e)
+	}
+
+	// The same refresh-less shape stays rejected for other providers.
+	path2 := filepath.Join(t.TempDir(), "auth.json")
+	writeAuthFile(t, path2, `{"anthropic-oauth":{"type":"oauth","access":"tok","expires":1780000000000}}`)
+	if _, err := Load(path2); err == nil {
+		t.Error("Load(anthropic-oauth without refresh): want error")
+	}
+	// An openrouter-oauth entry without access still fails.
+	path3 := filepath.Join(t.TempDir(), "auth.json")
+	writeAuthFile(t, path3, `{"openrouter-oauth":{"type":"oauth","expires":9007199254740991}}`)
+	if _, err := Load(path3); err == nil {
+		t.Error("Load(openrouter-oauth without access): want error")
+	}
+}
+
 // TestLoadNullFile treats the JSON null literal as an empty store.
 func TestLoadNullFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
