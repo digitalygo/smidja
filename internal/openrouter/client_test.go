@@ -13,7 +13,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// stubTool is a minimal agent.Tool for request-shape tests.
 type stubTool struct {
 	name   string
 	desc   string
@@ -59,8 +58,6 @@ func TestNewGivenClient(t *testing.T) {
 	}
 }
 
-// TestStreamTurnRequestShape drives one full turn and verifies the exact
-// request the client sends: method, path, headers, and body shape.
 func TestStreamTurnRequestShape(t *testing.T) {
 	events := []string{
 		`{"id":"gen_1","choices":[{"index":0,"delta":{"content":"hi"}}]}`,
@@ -201,8 +198,6 @@ func TestStreamTurnRequestShape(t *testing.T) {
 	}
 }
 
-// TestStreamTurnRequestPath uses a base URL with a path and verifies the
-// client POSTs to it unchanged.
 func TestStreamTurnRequestPath(t *testing.T) {
 	events := []string{`[DONE]`}
 	srv, captured := captureServer(t, events...)
@@ -217,7 +212,6 @@ func TestStreamTurnRequestPath(t *testing.T) {
 	}
 }
 
-// TestBuildMessages verifies the wire conversion of every message variant.
 func TestBuildMessages(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -299,8 +293,6 @@ func TestBuildMessages(t *testing.T) {
 	}
 }
 
-// TestBuildTools verifies the tool wire conversion, including the empty
-// case which must omit the field entirely.
 func TestBuildTools(t *testing.T) {
 	empty := buildTools(nil)
 	if empty != nil {
@@ -320,7 +312,6 @@ func TestBuildTools(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNilArguments guards the nil contract of StreamTurn.
 func TestStreamTurnNilArguments(t *testing.T) {
 	srv, _ := captureServer(t, `[DONE]`)
 	defer srv.Close()
@@ -336,8 +327,6 @@ func TestStreamTurnNilArguments(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200 verifies the HTTP error envelope is parsed and the
-// status code and message surface in the error.
 func TestStreamTurnNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -365,8 +354,6 @@ func TestStreamTurnNon200(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200NonJSON verifies the fallback for error bodies that
-// are not the OpenRouter envelope.
 func TestStreamTurnNon200NonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
@@ -384,9 +371,6 @@ func TestStreamTurnNon200NonJSON(t *testing.T) {
 	}
 }
 
-// captureServer serves the given SSE events and records the request it
-// received. Events are flushed one by one so the client reads them
-// incrementally.
 func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedRequest) {
 	t.Helper()
 	captured := &capturedRequest{}
@@ -412,7 +396,6 @@ func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedR
 	return srv, captured
 }
 
-// capturedRequest holds what captureServer recorded about a request.
 type capturedRequest struct {
 	method string
 	path   string

@@ -8,16 +8,8 @@ import (
 	"testing"
 )
 
-// goldenPiV3Rel is the committed sanitized Pi 0.84.2 session fixture
-// shared by the internal/session and internal/sessionimport golden
-// tests: 69 entries (67 messages, one thinking_level_change, one
-// model_change) in a single parentId chain.
 const goldenPiV3Rel = "../session/testdata/pi-v3/session-basic.jsonl"
 
-// TestRunImportGoldenPiV3Fixture runs the full CLI import path against
-// the real-shaped Pi session fixture: it must succeed, print the
-// destination and the per-type stats, land the file at the canonical
-// Store location, and re-import idempotently.
 func TestRunImportGoldenPiV3Fixture(t *testing.T) {
 	src, err := filepath.Abs(goldenPiV3Rel)
 	if err != nil {
@@ -49,8 +41,6 @@ func TestRunImportGoldenPiV3Fixture(t *testing.T) {
 		t.Errorf("stdout = %q, fixture has no opaque entries", out)
 	}
 
-	// The destination is the canonical Store location and is
-	// byte-identical to the source.
 	dest := filepath.Join(sessDir, "--var-home-example-project--",
 		"2026-08-24T10-14-35-177Z_0196b87c-7a2b-7000-8000-0000000000a1.jsonl")
 	got, err := os.ReadFile(dest)
@@ -61,7 +51,6 @@ func TestRunImportGoldenPiV3Fixture(t *testing.T) {
 		t.Error("imported bytes differ from the source fixture")
 	}
 
-	// Re-importing the same source is idempotent.
 	stdout.Reset()
 	stderr.Reset()
 	if err := run([]string{"import", src, "--session-dir", sessDir}, testDeps("", &stdout, &stderr)); err != nil {

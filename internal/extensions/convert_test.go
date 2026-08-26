@@ -11,10 +11,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// TestDefaultContextZeroValueAccessors pins the zero-value run state of
-// the default handler context: every accessor that the HostContext wave
-// will back returns its documented zero value today, and the fire-
-// and-forget UI methods are no-ops.
 func TestDefaultContextZeroValueAccessors(t *testing.T) {
 	c := &defaultContext{API: &stubAPI{}, signal: context.Background()}
 
@@ -42,9 +38,9 @@ func TestDefaultContextZeroValueAccessors(t *testing.T) {
 	if got := c.SystemPrompt(); got != "" {
 		t.Errorf("SystemPrompt = %q, want empty", got)
 	}
-	c.Abort()                       // must not panic
-	c.Shutdown()                    // must not panic
-	c.Compact(sdk.CompactOptions{}) // must not panic
+	c.Abort()
+	c.Shutdown()
+	c.Compact(sdk.CompactOptions{})
 
 	ui := c.UI()
 	if got := c.Mode(); got != sdk.ModePrint {
@@ -62,17 +58,14 @@ func TestDefaultContextZeroValueAccessors(t *testing.T) {
 	if _, err := ui.Editor("t", ""); !errors.Is(err, sdk.ErrModeUnsupported) {
 		t.Errorf("Editor error = %v, want ErrModeUnsupported", err)
 	}
-	ui.Notify("n", sdk.NotifyInfo)   // must not panic
-	ui.SetStatus("k", "v")           // must not panic
-	ui.SetWidget("k", []string{"a"}) // must not panic
-	ui.SetWorkingMessage("m")        // must not panic
-	ui.SetTitle("t")                 // must not panic
+	ui.Notify("n", sdk.NotifyInfo)
+	ui.SetStatus("k", "v")
+	ui.SetWidget("k", []string{"a"})
+	ui.SetWorkingMessage("m")
+	ui.SetTitle("t")
 }
 
-// TestConversionRoundTrips pins the agent <-> sdk boundary conversions
-// for every message role and the content/usage shapes.
 func TestConversionRoundTrips(t *testing.T) {
-	// Assistant with usage and mixed blocks.
 	assistant := &agent.Message{Assistant: &agent.AssistantMessage{
 		Role: string(agent.RoleAssistant),
 		Content: []agent.ContentBlock{
@@ -102,13 +95,11 @@ func TestConversionRoundTrips(t *testing.T) {
 		back.Assistant.Content[1].Thinking != "reasoning" || back.Assistant.Usage.TotalTokens != 35 {
 		t.Fatalf("assistant round trip = %+v", back)
 	}
-	// The round trip must not alias the original arguments slice.
 	asSDK.Content[2].Arguments[0] = 'X'
 	if assistant.Assistant.Content[2].Arguments[0] == 'X' {
 		t.Fatal("conversion aliases the input arguments")
 	}
 
-	// User: single text block encodes as a JSON string.
 	user := &agent.Message{User: &agent.UserMessage{
 		Role:      string(agent.RoleUser),
 		Content:   json.RawMessage(`"plain text"`),
@@ -123,7 +114,6 @@ func TestConversionRoundTrips(t *testing.T) {
 		t.Fatalf("user round trip = %+v", userBack)
 	}
 
-	// User: multi-block content encodes as a JSON array.
 	multi := &agent.Message{User: &agent.UserMessage{
 		Role:    string(agent.RoleUser),
 		Content: json.RawMessage(`[{"type":"text","text":"a"},{"type":"text","text":"b"}]`),
@@ -138,7 +128,6 @@ func TestConversionRoundTrips(t *testing.T) {
 		t.Fatalf("multi-block user round trip = %s, %v", multiBack.User.Content, err)
 	}
 
-	// ToolResult: text blocks only.
 	toolRes := &agent.Message{ToolResult: &agent.ToolResultMessage{
 		Role:       string(agent.RoleToolResult),
 		ToolCallID: "call_9",
@@ -154,7 +143,6 @@ func TestConversionRoundTrips(t *testing.T) {
 		t.Fatalf("tool result round trip = %+v", toolBack)
 	}
 
-	// Nil and unknown-role edge cases.
 	if got := messageToSDK(nil); got.Role != "" {
 		t.Fatalf("nil conversion = %+v, want the zero message", got)
 	}
@@ -167,8 +155,6 @@ func TestConversionRoundTrips(t *testing.T) {
 	}
 }
 
-// TestRawContentEdgeCases pins the user-content conversions for empty
-// and null inputs.
 func TestRawContentEdgeCases(t *testing.T) {
 	if got := rawContentToBlocks(nil); got != nil {
 		t.Fatalf("nil raw content = %v, want nil", got)

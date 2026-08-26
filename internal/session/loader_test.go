@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// treeFixture is a v3 session with a branch: entry b0000001 has two
-// children (b0000002 on the main branch and b0000003 on a side branch),
-// and the physical leaf is b0000005.
 var treeFixture = []string{
 	`{"type":"session","version":3,"id":"tree-session","timestamp":"2026-08-25T11:00:00.000Z","cwd":"/tmp/tree"}`,
 	`{"type":"message","id":"b0000001","parentId":null,"timestamp":"2026-08-25T11:00:01.000Z","message":{"role":"user","content":"root","timestamp":1}}`,
@@ -33,7 +30,6 @@ func TestLoaderTreeAndBranching(t *testing.T) {
 		t.Errorf("header id = %q", l.Header().ID)
 	}
 
-	// Leaf is the last physical entry.
 	if l.Leaf() == nil {
 		t.Fatal("Leaf is nil")
 	}
@@ -42,7 +38,6 @@ func TestLoaderTreeAndBranching(t *testing.T) {
 		t.Errorf("leaf = %q, want b0000005", leafID)
 	}
 
-	// Exactly one root: the first entry (parentId null).
 	roots := l.Roots()
 	if len(roots) != 1 {
 		t.Fatalf("roots = %d, want 1", len(roots))
@@ -52,7 +47,6 @@ func TestLoaderTreeAndBranching(t *testing.T) {
 		t.Errorf("root = %q, want b0000001", rootID)
 	}
 
-	// Branching: the root has two children, timestamp-ordered.
 	children := l.Children("b0000001")
 	if len(children) != 2 {
 		t.Fatalf("children of root = %d, want 2", len(children))
@@ -63,7 +57,6 @@ func TestLoaderTreeAndBranching(t *testing.T) {
 		t.Errorf("children order = %q, %q; want b0000002, b0000003", c0, c1)
 	}
 
-	// Active branch follows the leaf path to root.
 	active, err := l.ActiveBranch()
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +65,6 @@ func TestLoaderTreeAndBranching(t *testing.T) {
 		t.Errorf("active branch = %v", ids)
 	}
 
-	// Branch reconstruction from the side branch.
 	side, err := l.Branch("b0000004")
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +73,6 @@ func TestLoaderTreeAndBranching(t *testing.T) {
 		t.Errorf("side branch = %v", ids)
 	}
 
-	// Get resolves by id.
 	if _, ok := l.Get("b0000005"); !ok {
 		t.Error("Get(b0000005) not found")
 	}
@@ -99,7 +90,6 @@ func TestLoaderBranchErrors(t *testing.T) {
 		t.Error("Branch(unknown): want error, got nil")
 	}
 
-	// A cyclic parent chain must not hang: Load succeeds, Branch errors.
 	cycle := []string{
 		treeFixture[0],
 		`{"type":"message","id":"c0000001","parentId":"c0000002","timestamp":"2026-08-25T11:01:01.000Z","message":{"role":"user","content":"a","timestamp":1}}`,
@@ -132,9 +122,6 @@ func TestLoaderBuildContextEntriesCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The compaction summary is included; entries before the first kept
-	// entry (c0000001, c0000002) are omitted; c0000003 and everything
-	// after the compaction are kept.
 	if ids := entryIDs(ctx); strings.Join(ids, ",") != "c0000004,c0000003,c0000005,c0000006" {
 		t.Errorf("context entries = %v", ids)
 	}
@@ -190,7 +177,7 @@ func TestLoaderCRLFAndNoTrailingNewline(t *testing.T) {
 	for i, line := range treeFixture {
 		b.WriteString(line)
 		if i == len(treeFixture)-1 {
-			b.WriteString("\r") // last line: CR only, no trailing newline
+			b.WriteString("\r")
 		} else {
 			b.WriteString("\r\n")
 		}
@@ -230,9 +217,6 @@ func TestLoadInvalidFiles(t *testing.T) {
 }
 
 func TestLoadHeaderOnlySession(t *testing.T) {
-	// A header-only file is a valid session in Pi's semantics (for
-	// example a forked session before its first entry): it loads with
-	// zero entries.
 	path := writeFixture(t, []string{
 		`{"type":"session","version":3,"id":"hdr-only","timestamp":"2026-08-25T00:00:00.000Z","cwd":"/tmp"}`,
 	})
@@ -261,7 +245,6 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 }
 
-// entryIDs extracts the ids of entries in order.
 func entryIDs(entries []Entry) []string {
 	ids := make([]string, 0, len(entries))
 	for _, e := range entries {

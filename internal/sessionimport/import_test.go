@@ -12,9 +12,6 @@ import (
 	"github.com/digitalygo/smidja/internal/session"
 )
 
-// importFixture is a sanitized Pi session covering every known entry type,
-// an unknown future type, and a branch (aaaa00ff is a second child of
-// aaaa0003, alongside aaaa0004).
 var importFixture = []string{
 	`{"type":"session","version":3,"id":"0196b87c-7a2b-7000-8000-000000000001","timestamp":"2026-08-25T10:00:00.000Z","cwd":"/tmp/imports/project"}`,
 	`{"type":"message","id":"aaaa0001","parentId":null,"timestamp":"2026-08-25T10:00:01.000Z","message":{"role":"user","content":"hello smidja","timestamp":1000}}`,
@@ -32,7 +29,6 @@ var importFixture = []string{
 	`{"type":"future_entry","id":"ff000001","parentId":"aaaa0001","timestamp":"2026-08-25T10:00:12.000Z","futureField":{"nested":[1,2],"flag":true}}`,
 }
 
-// canonicalDestName mirrors the Store naming for the fixture header.
 const canonicalDestName = "2026-08-25T10-00-00-000Z_0196b87c-7a2b-7000-8000-000000000001.jsonl"
 
 func writeSource(t *testing.T, data []byte) string {
@@ -57,8 +53,6 @@ func TestImportByteExactAndStats(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The imported file is byte-identical to the source: raw lines were
-	// copied, never re-marshaled.
 	got, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +61,6 @@ func TestImportByteExactAndStats(t *testing.T) {
 		t.Errorf("imported bytes differ:\n got %s\nwant %s", got, srcData)
 	}
 
-	// Destination is the canonical name under the munged cwd directory.
 	wantDir := filepath.Join(store.Root(), "--tmp-imports-project--")
 	if filepath.Dir(dest) != wantDir {
 		t.Errorf("dest dir = %q, want %q", filepath.Dir(dest), wantDir)
@@ -76,7 +69,6 @@ func TestImportByteExactAndStats(t *testing.T) {
 		t.Errorf("dest name = %q, want %q", filepath.Base(dest), canonicalDestName)
 	}
 
-	// File is 0600.
 	fi, err := os.Stat(dest)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +77,6 @@ func TestImportByteExactAndStats(t *testing.T) {
 		t.Errorf("dest perms = %o, want 600", perm)
 	}
 
-	// Stats: 13 entries, one opaque future type, per-type counts.
 	if stats.Entries != 13 {
 		t.Errorf("Entries = %d, want 13", stats.Entries)
 	}
@@ -116,7 +107,6 @@ func TestImportByteExactAndStats(t *testing.T) {
 		t.Errorf("PerType has %d types, want %d: %v", len(stats.PerType), len(wantPerType), stats.PerType)
 	}
 
-	// The imported file loads as a session with a branch.
 	l, err := session.Load(dest)
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +149,6 @@ func TestImportIdempotent(t *testing.T) {
 		t.Error("first import: Idempotent = true, want false")
 	}
 
-	// The file is untouched by the second import, and no temp files remain.
 	after, err := os.ReadFile(second)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +179,6 @@ func TestImportConflict(t *testing.T) {
 	if _, _, err := Import(src, store); !errors.Is(err, ErrConflict) {
 		t.Fatalf("Import: err = %v, want ErrConflict", err)
 	}
-	// The existing file is never overwritten.
 	got, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatal(err)
@@ -201,21 +189,12 @@ func TestImportConflict(t *testing.T) {
 	assertNoTempFiles(t, dir)
 }
 
-// TestImportConcurrentSameDestination races two imports of different
-// content against the same canonical destination. The assertions are
-// deterministic (not flaky) because link(2) serializes the commit:
-// exactly one import wins the link, and the other gets EEXIST, finds
-// different content, and fails with ErrConflict. Every possible
-// interleaving produces the same invariants, so no sleeps or retries are
-// needed.
 func TestImportConcurrentSameDestination(t *testing.T) {
 	store, err := session.NewStore(filepath.Join(t.TempDir(), "sessions"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Two sources with the same header (same canonical destination) and
-	// different entry content.
 	base := []byte(strings.Join(importFixture, "\n") + "\n")
 	contentA := base
 	contentB := bytes.Replace(base, []byte("hello smidja"), []byte("concurrent write B"), 1)
@@ -256,8 +235,6 @@ func TestImportConcurrentSameDestination(t *testing.T) {
 		t.Fatalf("wins = %d, conflicts = %d, want 1 and 1", wins, conflicts)
 	}
 
-	// The surviving destination is byte-identical to one whole racing
-	// source, never a mix, and no temp files remain.
 	dir, err := store.DirForCwd("/tmp/imports/project")
 	if err != nil {
 		t.Fatal(err)
@@ -295,12 +272,10 @@ func TestImportMalformedInput(t *testing.T) {
 		})
 	}
 
-	// A missing source file is an I/O error, not an invalid-source error.
 	if _, _, err := Import(filepath.Join(t.TempDir(), "nope.jsonl"), store); err == nil {
 		t.Error("Import(missing source): want error, got nil")
 	}
 
-	// A nil store is rejected up front.
 	src := writeSource(t, []byte(strings.Join(importFixture, "\n")+"\n"))
 	if _, _, err := Import(src, nil); err == nil {
 		t.Error("Import(nil store): want error, got nil")
@@ -339,7 +314,6 @@ func TestImportSkipsBlankAndMalformedLines(t *testing.T) {
 }
 
 func TestImportPreservesLineEndings(t *testing.T) {
-	// CRLF source: the imported file keeps the CRLF bytes verbatim.
 	crlf := []byte(strings.Join(importFixture, "\r\n") + "\r\n")
 	store, err := session.NewStore(filepath.Join(t.TempDir(), "sessions"))
 	if err != nil {
@@ -357,8 +331,6 @@ func TestImportPreservesLineEndings(t *testing.T) {
 		t.Errorf("CRLF not preserved:\n got %q", got)
 	}
 
-	// A final line without a trailing newline is preserved too, in a
-	// fresh store so both imports target a clean destination.
 	noNL := []byte(strings.Join(importFixture, "\n"))
 	store2, err := session.NewStore(filepath.Join(t.TempDir(), "sessions"))
 	if err != nil {
@@ -459,8 +431,6 @@ func TestImportRejectsHostileIdentity(t *testing.T) {
 		})
 	}
 
-	// The hostile imports created nothing outside the store root: the
-	// only paths that may exist under base are inside the sessions dir.
 	filepath.WalkDir(base, func(p string, de os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -477,7 +447,6 @@ func TestImportRejectsHostileIdentity(t *testing.T) {
 	})
 }
 
-// assertNoTempFiles fails the test when any import temp file remains in dir.
 func assertNoTempFiles(t *testing.T, dir string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

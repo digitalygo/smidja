@@ -12,12 +12,6 @@ import (
 	"github.com/digitalygo/smidja/internal/sessionimport"
 )
 
-// runImport implements "smidja import <file> [--session-dir <dir>]": it
-// imports a Pi-format session file into the session store and prints the
-// destination plus a per-type breakdown. It exits 0 on success (including
-// an idempotent import whose destination already held identical content)
-// and 1 on a conflict or any error, matching the CLI's general error
-// mapping in cmd/smidja.
 func runImport(args []string, d *Deps) error {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -73,13 +67,6 @@ func runImport(args []string, d *Deps) error {
 	return nil
 }
 
-// sanitizeTerm renders a string safe to print to a terminal. Strings
-// without control characters pass through unchanged; strings containing
-// C0 or C1 control characters (including ESC 0x1b, the CSI/OSC
-// introducer) are quoted with %q so the bytes print as inert escapes
-// instead of terminal control sequences. An entry type or destination
-// path parsed from a hostile JSONL can carry such bytes, and printing
-// them verbatim would let the source spoof or hijack the terminal.
 func sanitizeTerm(s string) string {
 	for _, r := range s {
 		if isTermControl(r) {
@@ -89,14 +76,10 @@ func sanitizeTerm(s string) string {
 	return s
 }
 
-// isTermControl reports whether r is a C0 control (< 0x20, including ESC
-// 0x1b), DEL (0x7f), or a C1 control (0x80-0x9f, including CSI 0x9b).
 func isTermControl(r rune) bool {
 	return r < 0x20 || r == 0x7f || (0x80 <= r && r <= 0x9f)
 }
 
-// sortedKeys returns the keys of m in sorted order, for deterministic
-// output.
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

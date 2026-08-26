@@ -14,8 +14,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// TestStreamTurnText feeds a text turn with named events and verifies
-// blocks, deltas, response id, and the completed usage mapping.
 func TestStreamTurnText(t *testing.T) {
 	events := []string{
 		`{"type":"response.created","response":{"id":"resp_1"}}`,
@@ -67,9 +65,6 @@ func TestStreamTurnText(t *testing.T) {
 	}
 }
 
-// TestStreamTurnFunctionCall feeds a function call whose arguments arrive
-// as deltas and verifies the accumulated toolCall block with the split
-// call|item id pair and the toolUse stop reason.
 func TestStreamTurnFunctionCall(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_abc","call_id":"call_1","name":"read","arguments":""}}`,
@@ -102,9 +97,6 @@ func TestStreamTurnFunctionCall(t *testing.T) {
 	}
 }
 
-// TestStreamTurnFunctionCallDoneFirstOrder verifies that an output_item
-// done arriving with full arguments before the arguments.done event still
-// materializes the arguments.
 func TestStreamTurnFunctionCallDoneFirstOrder(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_xyz","call_id":"call_2","name":"exec","arguments":""}}`,
@@ -125,9 +117,6 @@ func TestStreamTurnFunctionCallDoneFirstOrder(t *testing.T) {
 	}
 }
 
-// TestStreamTurnReasoningSummary feeds a reasoning item with summary
-// deltas and verifies the thinking block, the persisted signature, and
-// the thinking callback forwarding.
 func TestStreamTurnReasoningSummary(t *testing.T) {
 	reasoningItem := `{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Thinking out loud"}],"content":[{"type":"reasoning_text","text":"raw","annotations":[]}],"encrypted_content":"enc_1"}`
 	events := []string{
@@ -161,11 +150,9 @@ func TestStreamTurnReasoningSummary(t *testing.T) {
 	if msg.Content[0].Type != agent.BlockTypeThinking {
 		t.Fatalf("block[0] = %+v, want thinking block", msg.Content[0])
 	}
-	// The done event's summary replaces the accumulated deltas.
 	if msg.Content[0].Thinking != "Thinking out loud" {
 		t.Errorf("block[0].thinking = %q, want summary text", msg.Content[0].Thinking)
 	}
-	// The full reasoning item is persisted for replay.
 	var persisted map[string]any
 	if err := json.Unmarshal([]byte(msg.Content[0].ThinkingSignature), &persisted); err != nil {
 		t.Fatalf("signature is not the persisted item: %v", err)
@@ -178,8 +165,6 @@ func TestStreamTurnReasoningSummary(t *testing.T) {
 	}
 }
 
-// TestStreamTurnReasoningContentFallback verifies the thinking block
-// falls back to the item content when no summary is present.
 func TestStreamTurnReasoningContentFallback(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_2","content":[{"type":"reasoning_text","text":"raw reasoning","annotations":[]}],"encrypted_content":"enc_2"}}`,
@@ -198,8 +183,6 @@ func TestStreamTurnReasoningContentFallback(t *testing.T) {
 	}
 }
 
-// TestStreamTurnFailed verifies the response.failed event surfaces as an
-// error with the provider message.
 func TestStreamTurnFailed(t *testing.T) {
 	events := []string{
 		`{"type":"response.failed","response":{"id":"resp_9","status":"failed","error":{"code":"server_error","message":"The server had an error"}}}`,
@@ -219,8 +202,6 @@ func TestStreamTurnFailed(t *testing.T) {
 	}
 }
 
-// TestStreamTurnErrorEvent verifies the top-level error event aborts the
-// stream.
 func TestStreamTurnErrorEvent(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_text.delta","output_index":0,"delta":"partial"}`,
@@ -241,8 +222,6 @@ func TestStreamTurnErrorEvent(t *testing.T) {
 	}
 }
 
-// TestStreamTurnIncompleteLength verifies an incomplete response with
-// max_output_tokens maps to the length stop reason.
 func TestStreamTurnIncompleteLength(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"m","role":"assistant","content":[{"type":"output_text","text":"","annotations":[]}],"status":"completed"}}`,
@@ -261,8 +240,6 @@ func TestStreamTurnIncompleteLength(t *testing.T) {
 	}
 }
 
-// TestStreamTurnIncompleteError verifies an incomplete response without
-// max_output_tokens surfaces as an error.
 func TestStreamTurnIncompleteError(t *testing.T) {
 	events := []string{
 		`{"type":"response.incomplete","response":{"id":"r","status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[]}}`,
@@ -279,8 +256,6 @@ func TestStreamTurnIncompleteError(t *testing.T) {
 	}
 }
 
-// TestStreamTurnUsageLastWins verifies a second terminal event's usage
-// overwrites the first (Azure-style duplicate terminals).
 func TestStreamTurnUsageLastWins(t *testing.T) {
 	events := []string{
 		`{"type":"response.completed","response":{"id":"r","status":"completed","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12},"output":[]}}`,
@@ -298,8 +273,6 @@ func TestStreamTurnUsageLastWins(t *testing.T) {
 	}
 }
 
-// TestStreamTurnPrematureEOF verifies the error when the stream ends
-// without a terminal response event.
 func TestStreamTurnPrematureEOF(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"m","role":"assistant","content":[{"type":"output_text","text":"half","annotations":[]}],"status":"completed"}}`,
@@ -319,8 +292,6 @@ func TestStreamTurnPrematureEOF(t *testing.T) {
 	}
 }
 
-// TestStreamTurnMalformedSSE verifies a malformed event payload aborts
-// the stream with a decode error.
 func TestStreamTurnMalformedSSE(t *testing.T) {
 	events := []string{
 		`not json at all`,
@@ -337,8 +308,6 @@ func TestStreamTurnMalformedSSE(t *testing.T) {
 	}
 }
 
-// TestStreamTurnDoneSentinel verifies the [DONE] sentinel is skipped and
-// the stream still requires a terminal event.
 func TestStreamTurnDoneSentinel(t *testing.T) {
 	events := []string{
 		`[DONE]`,
@@ -356,8 +325,6 @@ func TestStreamTurnDoneSentinel(t *testing.T) {
 	}
 }
 
-// TestStreamTurnCancellation verifies that cancelling the context aborts
-// a stalled stream and returns context.Canceled.
 func TestStreamTurnCancellation(t *testing.T) {
 	firstChunk := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -401,9 +368,6 @@ func TestStreamTurnCancellation(t *testing.T) {
 	}
 }
 
-// TestStreamTurnBackfillReasoningSignatures verifies Azure-style
-// backfill: the done event persists a reasoning item without
-// encrypted_content, and the terminal response patches it in.
 func TestStreamTurnBackfillReasoningSignatures(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_9","summary":[{"type":"summary_text","text":"t"}]}}`,
@@ -426,8 +390,6 @@ func TestStreamTurnBackfillReasoningSignatures(t *testing.T) {
 	}
 }
 
-// TestStreamTurnRefusalDelta verifies refusal deltas land in the text
-// block like output_text deltas.
 func TestStreamTurnRefusalDelta(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"m","role":"assistant","content":[{"type":"refusal","refusal":""}],"status":"completed"}}`,
@@ -452,8 +414,6 @@ func TestStreamTurnRefusalDelta(t *testing.T) {
 	}
 }
 
-// TestStreamTurnUnknownEventsIgnored verifies unknown event types are
-// skipped without aborting the stream.
 func TestStreamTurnUnknownEventsIgnored(t *testing.T) {
 	events := []string{
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"m","role":"assistant","content":[{"type":"output_text","text":"","annotations":[]}],"status":"completed"}}`,

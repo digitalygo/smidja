@@ -9,11 +9,6 @@ import (
 	"github.com/digitalygo/smidja/internal/providers/responses"
 )
 
-// TestWireSkippedUnconfigured verifies that Wire registers every spec
-// whose mandatory build-time environment is present, skipping only the
-// cloudflare and azure specs, and reports them without failing the
-// wiring. Credential resolution stays lazy: specs without a key are
-// still registered and fail the turn with a clear error.
 func TestWireSkippedUnconfigured(t *testing.T) {
 	reg := providers.NewRegistry()
 	skipped, err := Wire(reg, Deps{Env: envOf(map[string]string{
@@ -57,9 +52,6 @@ func TestWireSkippedUnconfigured(t *testing.T) {
 	}
 }
 
-// TestWireFullEnv verifies that Wire registers all 32 specs when the
-// cloudflare and azure env is present, and that the registered drivers
-// carry their provider id.
 func TestWireFullEnv(t *testing.T) {
 	env := map[string]string{}
 	for _, spec := range All {
@@ -98,15 +90,12 @@ func TestWireFullEnv(t *testing.T) {
 	}
 }
 
-// TestWireNilRegistry covers the nil registry guard.
 func TestWireNilRegistry(t *testing.T) {
 	if _, err := Wire(nil, Deps{}); err == nil {
 		t.Fatal("Wire with a nil registry returned no error")
 	}
 }
 
-// TestWireRegisteredDriverTypes verifies the wired drivers are the
-// concrete drivers of their dialect, one per dialect sample.
 func TestWireRegisteredDriverTypes(t *testing.T) {
 	env := map[string]string{
 		"DEEPSEEK_API_KEY":  "sk-deepseek",

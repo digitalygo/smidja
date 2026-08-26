@@ -10,8 +10,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// TestHostAPIReachesHandlers verifies that the API from the HostAPI seam
-// is what handlers receive through their handler context.
 func TestHostAPIReachesHandlers(t *testing.T) {
 	reg := NewRegistry()
 	api := &stubAPI{}
@@ -35,8 +33,6 @@ func TestHostAPIReachesHandlers(t *testing.T) {
 	}
 }
 
-// TestHostContextPassthrough verifies that a host-provided handler
-// context is what handlers receive, bypassing the default context.
 func TestHostContextPassthrough(t *testing.T) {
 	reg := NewRegistry()
 	fake := &fakeContext{mode: sdk.ModeInteractive}
@@ -64,9 +60,6 @@ func TestHostContextPassthrough(t *testing.T) {
 	}
 }
 
-// TestDefaultContextPrintSemantics verifies the default handler context:
-// print-mode behavior with the API exposed and the dialogs reporting
-// ErrModeUnsupported.
 func TestDefaultContextPrintSemantics(t *testing.T) {
 	reg := NewRegistry()
 	api := &stubAPI{}
@@ -101,8 +94,6 @@ func TestDefaultContextPrintSemantics(t *testing.T) {
 	}
 }
 
-// TestDefaultContextSignal verifies the default context exposes the
-// dispatch signal as the abort context.
 func TestDefaultContextSignal(t *testing.T) {
 	reg := NewRegistry()
 	signal, cancel := context.WithCancel(context.Background())
@@ -125,9 +116,6 @@ func TestDefaultContextSignal(t *testing.T) {
 	}
 }
 
-// TestStartRunsSetupWithHostAPI verifies the full runtime wiring: Start
-// runs the setup phase with the API from the host seam, and a second
-// Start is rejected.
 func TestStartRunsSetupWithHostAPI(t *testing.T) {
 	reg := NewRegistry()
 	api := &stubAPI{}
@@ -161,8 +149,6 @@ func TestStartRunsSetupWithHostAPI(t *testing.T) {
 	}
 }
 
-// TestRuntimeWithoutRegistryErrors verifies Start on a runtime without a
-// registry returns an error instead of panicking.
 func TestRuntimeWithoutRegistryErrors(t *testing.T) {
 	var rt Runtime
 	if err := rt.Start(); err == nil {
@@ -170,8 +156,6 @@ func TestRuntimeWithoutRegistryErrors(t *testing.T) {
 	}
 }
 
-// TestLoggerIsInjectable verifies SetLogger installs the logger used for
-// dispatch diagnostics.
 func TestLoggerIsInjectable(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}

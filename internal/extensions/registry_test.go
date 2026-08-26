@@ -8,9 +8,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// TestRegisterInOrder verifies that extensions are kept in registration
-// order and that each extension's handlers are collected in the order the
-// extension registered them.
 func TestRegisterInOrder(t *testing.T) {
 	reg := NewRegistry()
 
@@ -38,7 +35,6 @@ func TestRegisterInOrder(t *testing.T) {
 			reg.extensions[0].id, reg.extensions[1].id)
 	}
 
-	// Handler slices are kept in in-extension registration order.
 	if len(reg.extensions[0].context) != 2 {
 		t.Fatalf("first.context = %d handlers, want 2", len(reg.extensions[0].context))
 	}
@@ -47,8 +43,6 @@ func TestRegisterInOrder(t *testing.T) {
 	}
 }
 
-// TestRegisterDuplicateIDRejected verifies that a duplicate ID returns
-// ErrDuplicateExtension and leaves the registry unchanged.
 func TestRegisterDuplicateIDRejected(t *testing.T) {
 	reg := NewRegistry()
 	if err := reg.Register(ext("a").build()); err != nil {
@@ -63,7 +57,6 @@ func TestRegisterDuplicateIDRejected(t *testing.T) {
 	}
 }
 
-// TestRegisterNilAndEmptyID verifies the invalid-registration guards.
 func TestRegisterNilAndEmptyID(t *testing.T) {
 	reg := NewRegistry()
 	if err := reg.Register(nil); !errors.Is(err, ErrNilExtension) {
@@ -75,8 +68,6 @@ func TestRegisterNilAndEmptyID(t *testing.T) {
 	}
 }
 
-// TestSetupRunsOncePerExtensionInOrder verifies that Setup is called once
-// per SetupHook extension, in registration order, with the host API.
 func TestSetupRunsOncePerExtensionInOrder(t *testing.T) {
 	reg := NewRegistry()
 	api := &stubAPI{}
@@ -86,7 +77,7 @@ func TestSetupRunsOncePerExtensionInOrder(t *testing.T) {
 		order = append(order, "a")
 		return api.SetSessionName("a")
 	}).build())
-	reg.Register(ext("plain").build()) // no SetupHook
+	reg.Register(ext("plain").build())
 	reg.Register(ext("b").setup(func(api sdk.API) error {
 		order = append(order, "b")
 		return nil
@@ -107,15 +98,11 @@ func TestSetupRunsOncePerExtensionInOrder(t *testing.T) {
 		t.Fatalf("setup logs = %d, want 0 for a clean setup", log.count())
 	}
 
-	// The setup phase runs exactly once.
 	if err := reg.Setup(api, log); !errors.Is(err, ErrSetupAlreadyRun) {
 		t.Fatalf("second setup error = %v, want ErrSetupAlreadyRun", err)
 	}
 }
 
-// TestSetupErrorIsolation verifies that a failing setup is logged once
-// with the extension id, disables the extension's hooks, and does not
-// stop the remaining extensions.
 func TestSetupErrorIsolation(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -153,7 +140,6 @@ func TestSetupErrorIsolation(t *testing.T) {
 		t.Fatalf("setup logs = %v, want one line naming extension bad", lines)
 	}
 
-	// The failed extension's hooks are disabled; the good one still runs.
 	rt := NewRuntime(reg).SetLogger(log)
 	d := rt.Dispatcher()
 	_, _ = d.Context(t.Context(), reqWith("hi"))
@@ -162,8 +148,6 @@ func TestSetupErrorIsolation(t *testing.T) {
 	}
 }
 
-// TestSetupPanicIsolation verifies that a panicking setup is recovered,
-// logged once, and does not stop the remaining extensions.
 func TestSetupPanicIsolation(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -188,8 +172,6 @@ func TestSetupPanicIsolation(t *testing.T) {
 	}
 }
 
-// TestSetupNilLoggerIsSafe verifies that a nil logger does not crash the
-// setup phase.
 func TestSetupNilLoggerIsSafe(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("bad").setup(func(sdk.API) error { return errors.New("boom") }).build())
@@ -199,8 +181,6 @@ func TestSetupNilLoggerIsSafe(t *testing.T) {
 	}
 }
 
-// TestRegisterAfterSetupSkipsSetup pins the documented behavior: an
-// extension registered after the setup phase never receives Setup.
 func TestRegisterAfterSetupSkipsSetup(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").build())

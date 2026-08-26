@@ -13,11 +13,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// TestConcurrentDispatchAndRegister runs many dispatches in parallel
-// while new extensions register concurrently, then verifies per-dispatch
-// handler ordering from the shared log. Run with -race; the assertions
-// only rely on the snapshot semantics (each dispatch sees a consistent
-// snapshot) and on per-handler ordering within one dispatch.
 func TestConcurrentDispatchAndRegister(t *testing.T) {
 	reg := NewRegistry()
 
@@ -29,9 +24,6 @@ func TestConcurrentDispatchAndRegister(t *testing.T) {
 		logMu.Unlock()
 	}
 
-	// markerHandler returns a context handler that logs
-	// "<marker>:<name>" where the marker travels inside the request
-	// message, so the test can group log lines per dispatch.
 	markerHandler := func(name string) sdk.ContextHandler {
 		return func(ctx sdk.HandlerContext, e sdk.ContextEvent) (*sdk.ContextEventResult, error) {
 			marker := ""
@@ -85,8 +77,6 @@ func TestConcurrentDispatchAndRegister(t *testing.T) {
 		}(g)
 	}
 
-	// Register new extensions while dispatches are in flight. They must
-	// never corrupt a dispatch's snapshot, only affect later events.
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -103,9 +93,6 @@ func TestConcurrentDispatchAndRegister(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Every dispatch of one goroutine must observe the handlers of a and
-	// b in the exact registration order; late registrations add no
-	// logging handlers. Tool calls must have run once per dispatch.
 	byMarker := make(map[string][]string)
 	toolCount := 0
 	for _, line := range log {
@@ -138,10 +125,6 @@ func TestConcurrentDispatchAndRegister(t *testing.T) {
 	}
 }
 
-// TestConcurrentSetupAndDispatch runs the setup phase while dispatches
-// are in flight, which must be race-free: Setup snapshots the extensions
-// under the lock and runs extension code outside it, exactly like
-// dispatch.
 func TestConcurrentSetupAndDispatch(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").

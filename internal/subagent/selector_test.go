@@ -10,7 +10,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// stubClient is a programmable agent.Client for selector tests.
 type stubClient struct {
 	answers   []string
 	errs      []error
@@ -50,8 +49,6 @@ func cand(ref string, text string) Candidate {
 	}}}
 }
 
-// singleChunk builds a one-chunk request over refs r1..r3 with a given
-// budget.
 func singleChunk(budget int64) SelectionRequest {
 	cs := []Candidate{cand("r1", "alpha"), cand("r2", "beta"), cand("r3", "gamma")}
 	return SelectionRequest{
@@ -150,8 +147,6 @@ func TestSelectValidationErrors(t *testing.T) {
 }
 
 func TestSelectOverBudget(t *testing.T) {
-	// A single candidate costs more than the budget: keeping r1 exceeds
-	// it and must be rejected.
 	big := cand("r1", strings.Repeat("x", 3000))
 	cost := estimateTokens(big.Message)
 	req := SelectionRequest{
@@ -285,5 +280,29 @@ func TestSelectCancelledContext(t *testing.T) {
 	}
 	if len(client.turns) != 0 {
 		t.Fatalf("no turn must run on a cancelled context, got %d", len(client.turns))
+	}
+}
+
+type cancelOnErrorClient struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (c *cancelOnErrorClient) StreamTurn(_ context.Context, _ *agent.TurnRequest, _, _ func(string)) (*agent.AssistantMessage, error) {
+	c.calls++
+	c.cancel()
+	return nil, errors.New("transient failure")
+}
+
+func TestSelectCancelDuringRetrySleep(t *testing.T) {
+	req := singleChunk(100)
+	ctx, cancel := context.WithCancel(context.Background())
+	client := &cancelOnErrorClient{cancel: cancel}
+	_, err := NewOpenRouterSelector(client).Select(ctx, req)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled from the retry sleep", err)
+	}
+	if client.calls != 1 {
+		t.Fatalf("client invoked %d times, want 1 (cancellation aborts the retry backoff)", client.calls)
 	}
 }

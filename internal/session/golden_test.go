@@ -9,17 +9,8 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// goldenPiV3Path is the committed sanitized fixture mirroring the
-// envelope structure of a real Pi 0.84.2 session: one header, one
-// model_change, one thinking_level_change, and 67 messages (2 user, 31
-// assistant, 34 toolResult) chained in a single parentId chain, with
-// usage/cost shapes and assistant payload fields smidja does not model
-// (rawStopReason) kept in place. The fixture is derived from a real
-// session with every content value replaced by synthetic placeholders.
 const goldenPiV3Path = "testdata/pi-v3/session-basic.jsonl"
 
-// goldenPiV3Counts pins the structural entry mix of the fixture: exact
-// entry counts by type and message counts by role.
 var goldenPiV3Counts = struct {
 	entries              int
 	perType              map[string]int
@@ -42,7 +33,6 @@ var goldenPiV3Counts = struct {
 	toolResultWithDetail: 3,
 }
 
-// readGoldenLines returns the non-empty lines of the committed fixture.
 func readGoldenLines(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(goldenPiV3Path)
@@ -147,9 +137,6 @@ func TestGoldenPiV3FixtureTreeIntegrity(t *testing.T) {
 	}
 	entries := l.Entries()
 
-	// Every entry i > 0 has parentId == entry i-1's id; the first entry
-	// has parentId null. The physical file is one unbranched chain, which
-	// is exactly how the source Pi session was written.
 	for i, e := range entries {
 		_, parentID, _ := envelopeOf(e)
 		if i == 0 {
@@ -164,7 +151,6 @@ func TestGoldenPiV3FixtureTreeIntegrity(t *testing.T) {
 		}
 	}
 
-	// One root: the first entry.
 	roots := l.Roots()
 	if len(roots) != 1 {
 		t.Fatalf("roots = %d, want 1", len(roots))
@@ -174,14 +160,12 @@ func TestGoldenPiV3FixtureTreeIntegrity(t *testing.T) {
 		t.Errorf("root = %q, want a0000001", rootID)
 	}
 
-	// The leaf is the last physical entry.
 	leafID, _, _ := envelopeOf(l.Leaf())
 	lastID, _, _ := envelopeOf(entries[len(entries)-1])
 	if leafID != lastID {
 		t.Errorf("leaf = %q, want last entry %q", leafID, lastID)
 	}
 
-	// Every id resolves via Get.
 	for _, e := range entries {
 		id, _, _ := envelopeOf(e)
 		if _, ok := l.Get(id); !ok {
@@ -197,8 +181,6 @@ func TestGoldenPiV3FixtureActiveBranchAndContext(t *testing.T) {
 	}
 	entries := l.Entries()
 
-	// The active branch (leaf to root) is the whole physical chain in
-	// order: the session never branched.
 	active, err := l.ActiveBranch()
 	if err != nil {
 		t.Fatal(err)
@@ -210,8 +192,6 @@ func TestGoldenPiV3FixtureActiveBranchAndContext(t *testing.T) {
 		t.Errorf("active branch ids differ from physical order")
 	}
 
-	// No compaction entry in the fixture: the compaction-free context
-	// build returns exactly the active branch.
 	for _, e := range entries {
 		if _, isCompaction := e.(*CompactionEntry); isCompaction {
 			t.Fatalf("fixture contains compaction entry, want none")
@@ -229,10 +209,6 @@ func TestGoldenPiV3FixtureActiveBranchAndContext(t *testing.T) {
 	}
 }
 
-// TestGoldenPiV3FixtureByteExactRoundTrip proves opaque-field tolerance:
-// decoding every line and re-marshaling reproduces the original bytes,
-// including the assistant payload fields smidja does not model
-// (rawStopReason) and the toolResult details payloads.
 func TestGoldenPiV3FixtureByteExactRoundTrip(t *testing.T) {
 	lines := readGoldenLines(t)
 	l, err := Load(goldenPiV3Path)
@@ -251,9 +227,6 @@ func TestGoldenPiV3FixtureByteExactRoundTrip(t *testing.T) {
 	}
 }
 
-// TestGoldenPiV3FixtureMessageOpaqueFields confirms the unknown fields
-// survive at the decoded-message level: known fields project into the
-// agent types while the raw payload keeps the extra fields intact.
 func TestGoldenPiV3FixtureMessageOpaqueFields(t *testing.T) {
 	l, err := Load(goldenPiV3Path)
 	if err != nil {
@@ -277,9 +250,6 @@ func TestGoldenPiV3FixtureMessageOpaqueFields(t *testing.T) {
 			t.Errorf("usage = %+v", msg.Assistant.Usage)
 		}
 		usageCount++
-		// The raw payload must still carry rawStopReason, which smidja
-		// does not model: proof the extra field is preserved at message
-		// level, not dropped by the decode.
 		var payload map[string]json.RawMessage
 		if err := json.Unmarshal(me.Message, &payload); err != nil {
 			t.Fatal(err)
@@ -294,9 +264,6 @@ func TestGoldenPiV3FixtureMessageOpaqueFields(t *testing.T) {
 	}
 }
 
-// TestGoldenPiV3FixtureContentBlockMix pins the content block types in
-// the fixture: thinking blocks carry a thinkingSignature and toolCall
-// blocks carry id/name/arguments, matching the shapes Pi writes.
 func TestGoldenPiV3FixtureContentBlockMix(t *testing.T) {
 	l, err := Load(goldenPiV3Path)
 	if err != nil {
@@ -326,10 +293,6 @@ func TestGoldenPiV3FixtureContentBlockMix(t *testing.T) {
 			}
 		}
 	}
-	// Only assistant content is counted here; user and toolResult text
-	// blocks are excluded. The real file's assistant turns carry 29
-	// thinking blocks and 34 toolCall blocks with only 2 plain text
-	// blocks, which the fixture mirrors.
 	if counts[agent.BlockTypeText] != 2 ||
 		counts[agent.BlockTypeThinking] != 29 ||
 		counts[agent.BlockTypeToolCall] != 34 {
@@ -337,7 +300,6 @@ func TestGoldenPiV3FixtureContentBlockMix(t *testing.T) {
 	}
 }
 
-// equalIDs compares two id slices in order.
 func equalIDs(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

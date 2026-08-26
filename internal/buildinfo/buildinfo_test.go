@@ -32,7 +32,6 @@ func TestInfoJSON(t *testing.T) {
 	if got != want {
 		t.Errorf("JSON() = %s, want %s", got, want)
 	}
-	// Defaults also produce sorted keys.
 	got = Current().JSON()
 	want = `{"commit":"none","origin":"github.com/digitalygo/smidja","version":"dev"}`
 	if got != want {

@@ -8,7 +8,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// marshalInput re-marshals a raw item for assertions.
 func marshalInput(t *testing.T, items []json.RawMessage) []map[string]any {
 	t.Helper()
 	out := make([]map[string]any, 0, len(items))
@@ -22,9 +21,6 @@ func marshalInput(t *testing.T, items []json.RawMessage) []map[string]any {
 	return out
 }
 
-// TestBuildInput verifies the wire conversion of every message variant:
-// user items, assistant message ids, function call split ids, reasoning
-// replay, and tool outputs.
 func TestBuildInput(t *testing.T) {
 	reasoningItem := `{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"t"}],"encrypted_content":"enc_1"}`
 	assistant := &agent.AssistantMessage{
@@ -63,7 +59,6 @@ func TestBuildInput(t *testing.T) {
 		t.Fatalf("items = %d, want 8", len(items))
 	}
 
-	// [0] user message
 	if items[0]["type"] != "message" || items[0]["role"] != "user" {
 		t.Errorf("items[0] = %v, want user message", items[0])
 	}
@@ -73,12 +68,10 @@ func TestBuildInput(t *testing.T) {
 		t.Errorf("items[0] part = %v", part)
 	}
 
-	// [1] reasoning replay verbatim
 	if items[1]["type"] != "reasoning" || items[1]["id"] != "rs_1" || items[1]["encrypted_content"] != "enc_1" {
 		t.Errorf("items[1] = %v, want verbatim reasoning item", items[1])
 	}
 
-	// [2] and [3] assistant messages with deterministic ids
 	if items[2]["type"] != "message" || items[2]["id"] != "msg_pi_1" || items[2]["status"] != "completed" {
 		t.Errorf("items[2] = %v, want msg_pi_1", items[2])
 	}
@@ -94,7 +87,6 @@ func TestBuildInput(t *testing.T) {
 		t.Error("items[2] annotations = nil, want empty array")
 	}
 
-	// [4] function_call with split ids and stringified arguments
 	if items[4]["type"] != "function_call" || items[4]["call_id"] != "call_1" || items[4]["id"] != "fc_item_1" || items[4]["name"] != "read" {
 		t.Errorf("items[4] = %v, want function_call with split ids", items[4])
 	}
@@ -102,7 +94,6 @@ func TestBuildInput(t *testing.T) {
 		t.Errorf("items[4] arguments = %v, want JSON string", items[4]["arguments"])
 	}
 
-	// [5] function_call with a bare id: the non-fc item id is dropped
 	if items[5]["type"] != "function_call" || items[5]["call_id"] != "bare_call" {
 		t.Errorf("items[5] = %v, want function_call with bare call id", items[5])
 	}
@@ -110,7 +101,6 @@ func TestBuildInput(t *testing.T) {
 		t.Errorf("items[5] id = %v, want omitted for non-fc id", items[5]["id"])
 	}
 
-	// [6] and [7] function_call_output items
 	if items[6]["type"] != "function_call_output" || items[6]["call_id"] != "call_1" || items[6]["output"] != "a\nb" {
 		t.Errorf("items[6] = %v, want newline-joined output", items[6])
 	}
@@ -119,8 +109,6 @@ func TestBuildInput(t *testing.T) {
 	}
 }
 
-// TestBuildInputUserBlockArray verifies block-array user content
-// flattens into input_text parts and empty arrays drop the message.
 func TestBuildInputUserBlockArray(t *testing.T) {
 	items := marshalInput(t, BuildInput([]*agent.Message{
 		{User: &agent.UserMessage{Role: string(agent.RoleUser), Content: json.RawMessage(
@@ -145,8 +133,6 @@ func TestBuildInputUserBlockArray(t *testing.T) {
 	}
 }
 
-// TestBuildInputEmptyAssistant verifies an assistant message with no
-// renderable blocks contributes nothing.
 func TestBuildInputEmptyAssistant(t *testing.T) {
 	items := marshalInput(t, BuildInput([]*agent.Message{
 		{Assistant: &agent.AssistantMessage{Role: string(agent.RoleAssistant), Content: []agent.ContentBlock{
@@ -158,8 +144,6 @@ func TestBuildInputEmptyAssistant(t *testing.T) {
 	}
 }
 
-// TestBuildTools verifies the tool wire conversion, including the empty
-// case and the strict field difference between plain and Codex modes.
 func TestBuildTools(t *testing.T) {
 	if empty := BuildTools(nil, false); empty != nil {
 		t.Errorf("BuildTools(nil) = %v, want nil", empty)
@@ -189,7 +173,6 @@ func TestBuildTools(t *testing.T) {
 	}
 }
 
-// TestSplitToolCallID pins the id pair splitting.
 func TestSplitToolCallID(t *testing.T) {
 	callID, itemID := splitToolCallID("call_1|fc_item_1")
 	if callID != "call_1" || itemID != "fc_item_1" {
@@ -205,7 +188,6 @@ func TestSplitToolCallID(t *testing.T) {
 	}
 }
 
-// TestCodexURL pins the Codex endpoint resolution.
 func TestCodexURL(t *testing.T) {
 	cases := []struct {
 		base string
@@ -223,7 +205,6 @@ func TestCodexURL(t *testing.T) {
 	}
 }
 
-// TestMapStatus pins the terminal status mapping.
 func TestMapStatus(t *testing.T) {
 	cases := []struct {
 		status  string
@@ -251,8 +232,6 @@ func TestMapStatus(t *testing.T) {
 	}
 }
 
-// TestAssistantItemsEmptyToolArgs verifies tool calls without arguments
-// default to an empty object string.
 func TestAssistantItemsEmptyToolArgs(t *testing.T) {
 	items := marshalInput(t, BuildInput([]*agent.Message{
 		{Assistant: &agent.AssistantMessage{Role: string(agent.RoleAssistant), Content: []agent.ContentBlock{
@@ -264,8 +243,6 @@ func TestAssistantItemsEmptyToolArgs(t *testing.T) {
 	}
 }
 
-// TestBuildInputJoin verifies the joined output of multi-block results
-// uses a newline separator.
 func TestBuildInputJoin(t *testing.T) {
 	result := &agent.ToolResultMessage{
 		Role:       string(agent.RoleToolResult),

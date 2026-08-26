@@ -23,7 +23,6 @@ func envOf(m map[string]string) func(string) string {
 	return func(name string) string { return m[name] }
 }
 
-// baseTurnReq returns a minimal turn request with one user message.
 func baseTurnReq(model string) *agent.TurnRequest {
 	return &agent.TurnRequest{
 		Model: model,
@@ -33,8 +32,6 @@ func baseTurnReq(model string) *agent.TurnRequest {
 	}
 }
 
-// captureServer serves the given raw SSE frames, flushing each one, and
-// records the request it received.
 func captureServer(t *testing.T, frames ...string) (*httptest.Server, *capturedRequest) {
 	t.Helper()
 	captured := &capturedRequest{}
@@ -69,9 +66,6 @@ type capturedRequest struct {
 	body   []byte
 }
 
-// rewriteTransport reroutes every request to the target server while
-// preserving the original path and query, so a driver built from the
-// frozen spec URLs can be exercised against a capture server.
 type rewriteTransport struct {
 	target *url.URL
 }
@@ -82,7 +76,6 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return http.DefaultTransport.RoundTrip(clone)
 }
 
-// clientFor returns a client that reroutes requests to the given server.
 func clientFor(srv *httptest.Server) *http.Client {
 	target, err := url.Parse(srv.URL)
 	if err != nil {
@@ -117,11 +110,6 @@ var (
 	}
 )
 
-// TestAllSpecsValid freezes the manifest shape: every spec carries a
-// non-empty id, env var, dialect, and default model, the dialects are
-// the four supported ones, ids are unique, and every base URL parses as
-// an http(s) endpoint. The azure spec is the documented exception: its
-// base URL is empty because the endpoint is env-driven.
 func TestAllSpecsValid(t *testing.T) {
 	validDialects := map[string]bool{
 		DialectOpenAICompletions: true,
@@ -167,7 +155,6 @@ func TestAllSpecsValid(t *testing.T) {
 	}
 }
 
-// TestLookup covers the spec lookup.
 func TestLookup(t *testing.T) {
 	spec, ok := Lookup("deepseek")
 	if !ok || spec.EnvVar != "DEEPSEEK_API_KEY" {
@@ -178,8 +165,6 @@ func TestLookup(t *testing.T) {
 	}
 }
 
-// TestBuildDialectDrivers builds one driver per dialect and verifies the
-// concrete driver type, the identity it streams, and the wire endpoint.
 func TestBuildDialectDrivers(t *testing.T) {
 	tests := []struct {
 		id       string
@@ -250,9 +235,6 @@ func TestBuildDialectDrivers(t *testing.T) {
 	}
 }
 
-// TestBuildCredentialResolution verifies the env-over-store resolution:
-// a driver built with both sources sends the environment key, and falls
-// back to the store key when the environment is empty.
 func TestBuildCredentialResolution(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	store, err := authstore.Load(path)
@@ -294,9 +276,6 @@ func TestBuildCredentialResolution(t *testing.T) {
 	}
 }
 
-// TestBuildMissingCredential verifies the lazy credential error: a
-// driver with no env and no store entry fails the turn with a clear
-// message before any request is sent.
 func TestBuildMissingCredential(t *testing.T) {
 	d, err := Build("groq", Deps{Env: envOf(map[string]string{})})
 	if err != nil {
@@ -311,15 +290,12 @@ func TestBuildMissingCredential(t *testing.T) {
 	}
 }
 
-// TestBuildUnknown covers the unknown provider error.
 func TestBuildUnknown(t *testing.T) {
 	if _, err := Build("no-such-provider", Deps{}); err == nil {
 		t.Fatal("Build on an unknown provider returned no error")
 	}
 }
 
-// TestBuildCloudflareWorkersAI verifies the account-id requirement and
-// the placeholder materialization in the wire endpoint.
 func TestBuildCloudflareWorkersAI(t *testing.T) {
 	if _, err := Build("cloudflare-workers-ai", Deps{Env: envOf(map[string]string{})}); err == nil {
 		t.Fatal("Build without CLOUDFLARE_ACCOUNT_ID returned no error")
@@ -348,8 +324,6 @@ func TestBuildCloudflareWorkersAI(t *testing.T) {
 	}
 }
 
-// TestBuildCloudflareAIGateway verifies the account, gateway, and key
-// requirements and the cf-aig-authorization header.
 func TestBuildCloudflareAIGateway(t *testing.T) {
 	if _, err := Build("cloudflare-ai-gateway", Deps{Env: envOf(map[string]string{})}); err == nil {
 		t.Fatal("Build without cloudflare env returned no error")
@@ -382,9 +356,6 @@ func TestBuildCloudflareAIGateway(t *testing.T) {
 	}
 }
 
-// TestBuildAzure verifies the env-driven endpoint: the resource name
-// forms the base URL, the api-version and the deployment map land in
-// the wire path.
 func TestBuildAzure(t *testing.T) {
 	if _, err := Build("azure-openai-responses", Deps{Env: envOf(map[string]string{})}); err == nil {
 		t.Fatal("Build without azure endpoint env returned no error")
@@ -419,9 +390,6 @@ func TestBuildAzure(t *testing.T) {
 	}
 }
 
-// TestBuildAzureDefaults verifies the fallback deployment (the model id
-// itself) and the default api version when the map and version env are
-// unset.
 func TestBuildAzureDefaults(t *testing.T) {
 	env := map[string]string{
 		"AZURE_OPENAI_BASE_URL": "https://my-resource.openai.azure.com",
@@ -444,8 +412,6 @@ func TestBuildAzureDefaults(t *testing.T) {
 	}
 }
 
-// TestBuildAnthropicAuth verifies the API-key auth header of the
-// anthropic dialect and the extra headers pass-through.
 func TestBuildAnthropicAuth(t *testing.T) {
 	srv, captured := captureServer(t, anthropicFrames...)
 	defer srv.Close()
@@ -464,7 +430,6 @@ func TestBuildAnthropicAuth(t *testing.T) {
 	}
 }
 
-// TestParseDeploymentMap covers the map parser shape.
 func TestParseDeploymentMap(t *testing.T) {
 	m := parseDeploymentMap("gpt-4=my-gpt4, gpt-4o=my-gpt4o, broken, =x, y=")
 	if len(m) != 2 || m["gpt-4"] != "my-gpt4" || m["gpt-4o"] != "my-gpt4o" {

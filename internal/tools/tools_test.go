@@ -14,8 +14,6 @@ import (
 	"github.com/digitalygo/smidja/internal/workspace"
 )
 
-// newTestDeps builds Deps over a fresh temp-dir workspace with default
-// exec settings.
 func newTestDeps(t *testing.T) Deps {
 	t.Helper()
 	ws, err := workspace.New(t.TempDir())
@@ -25,7 +23,6 @@ func newTestDeps(t *testing.T) Deps {
 	return Deps{Workspace: ws}
 }
 
-// toolByName finds a tool in All(deps) by name.
 func toolByName(t *testing.T, deps Deps, name string) agent.Tool {
 	t.Helper()
 	for _, tl := range All(deps) {
@@ -37,13 +34,11 @@ func toolByName(t *testing.T, deps Deps, name string) agent.Tool {
 	return nil
 }
 
-// run executes a tool with the given raw args and returns its result.
 func run(t *testing.T, tl agent.Tool, args string) agent.Result {
 	t.Helper()
 	return tl.Exec(context.Background(), json.RawMessage(args))
 }
 
-// text returns the concatenated text of a result's content blocks.
 func text(t *testing.T, r agent.Result) string {
 	t.Helper()
 	if len(r.Content) == 0 {
@@ -55,7 +50,6 @@ func text(t *testing.T, r agent.Result) string {
 	return r.Content[0].Text
 }
 
-// mustWriteTo writes a file under root, creating parents.
 func mustWriteTo(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))
@@ -161,8 +155,6 @@ func TestReadOffsetBeyondEOF(t *testing.T) {
 
 func TestReadTruncatesAtLineCap(t *testing.T) {
 	deps := newTestDeps(t)
-	// 5000 short lines: well under the 50 KB byte cap, so only the 2000
-	// line cap applies.
 	var sb strings.Builder
 	for i := 1; i <= 5000; i++ {
 		fmt.Fprintf(&sb, "line%d\n", i)
@@ -184,7 +176,6 @@ func TestReadTruncatesAtLineCap(t *testing.T) {
 	if !strings.Contains(got, "[Showing lines 1-2000 of 5000. Use offset=2001 to continue. Full output: ") {
 		t.Errorf("read missing Pi-style truncation marker: %q", got)
 	}
-	// The temp file holds the full window, numbered output only the head.
 	path := fullOutputPath(t, got)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -201,8 +192,6 @@ func TestReadTruncatesAtLineCap(t *testing.T) {
 func TestReadTruncatesAtByteCap(t *testing.T) {
 	deps := newTestDeps(t)
 	deps.MaxReadBytes = 4096
-	// 100 lines of 100 bytes: 10100 raw bytes exceed the 4 KB cap while
-	// the 2000-line cap is untouched, so the byte cap must win.
 	var sb strings.Builder
 	for i := 1; i <= 100; i++ {
 		sb.WriteString(strings.Repeat("a", 100))
@@ -225,12 +214,10 @@ func TestReadTruncatesAtByteCap(t *testing.T) {
 	if !strings.Contains(got, "[Showing lines 1-") {
 		t.Errorf("read missing Showing-lines marker: %q", got)
 	}
-	// Numbered content (prefix + line + newline) stays near the byte cap.
 	contentPart := strings.SplitN(got, "\n[Showing", 2)[0]
 	if len(contentPart) > int(deps.MaxReadBytes)+512 {
 		t.Errorf("read returned %d bytes, want capped near %d", len(contentPart), deps.MaxReadBytes)
 	}
-	// The temp file holds the whole window.
 	path := fullOutputPath(t, got)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -267,8 +254,6 @@ func TestReadFirstLineExceedsByteCap(t *testing.T) {
 	}
 }
 
-// fullOutputPath extracts the temp file path from a "Full output: <path>"
-// marker in a tool result.
 func fullOutputPath(t *testing.T, res string) string {
 	t.Helper()
 	const prefix = "Full output: "
@@ -371,7 +356,6 @@ func TestWriteRejectsTraversal(t *testing.T) {
 
 func TestWriteAcceptsLargeContent(t *testing.T) {
 	deps := newTestDeps(t)
-	// Well over the former 2 MiB cap: content has no size limit, matching Pi.
 	big := strings.Repeat("x", 3<<20)
 	res := run(t, toolByName(t, deps, "write"), `{"path": "big.txt", "content": "`+big+`"}`)
 	if res.IsError {
@@ -508,8 +492,6 @@ func TestExecTimeoutKillsProcessGroup(t *testing.T) {
 func TestExecOutputTruncatesAtByteCap(t *testing.T) {
 	deps := newTestDeps(t)
 	deps.MaxOutputBytes = 4096
-	// ~9 KB of output against a 4 KB cap: the byte cap must win and the
-	// result must show the tail (last lines), not the head.
 	res := run(t, toolByName(t, deps, "exec"), `{"command": "seq 1 2000"}`)
 	if res.IsError {
 		t.Fatalf("exec failed: %s", text(t, res))
@@ -530,7 +512,6 @@ func TestExecOutputTruncatesAtByteCap(t *testing.T) {
 	if !strings.Contains(got, "[Showing lines ") || !strings.Contains(got, "(4.0KB limit). Full output: ") {
 		t.Errorf("exec missing Pi-style marker with temp file path: %q", got)
 	}
-	// The temp file holds the full, untruncated output.
 	path := fullOutputPath(t, got)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -545,8 +526,6 @@ func TestExecOutputTruncatesAtByteCap(t *testing.T) {
 func TestExecOutputTruncatesAtLineCap(t *testing.T) {
 	deps := newTestDeps(t)
 	deps.MaxExecLines = 100
-	// 500 short lines: well under the 50 KB byte cap, so the 100-line cap
-	// must win and the last 100 lines are shown.
 	res := run(t, toolByName(t, deps, "exec"), `{"command": "seq 1 500"}`)
 	if res.IsError {
 		t.Fatalf("exec failed: %s", text(t, res))
@@ -581,8 +560,6 @@ func TestExecOutputTruncatesAtLineCap(t *testing.T) {
 func TestExecOutputSingleHugeLine(t *testing.T) {
 	deps := newTestDeps(t)
 	deps.MaxOutputBytes = 4096
-	// A single 20 KB line cannot be shown without splitting it; the result
-	// must carry the marker and point at the temp file.
 	res := run(t, toolByName(t, deps, "exec"), `{"command": "head -c 20000 /dev/zero | tr '\\0' a"}`)
 	if res.IsError {
 		t.Fatalf("exec failed: %s", text(t, res))

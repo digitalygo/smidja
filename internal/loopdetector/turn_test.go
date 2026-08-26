@@ -8,9 +8,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// ---------------------------------------------------------------------------
-// ExtractTurn
-
 func TestExtractTurn(t *testing.T) {
 	msg := &agent.AssistantMessage{
 		Role: string(agent.RoleAssistant),
@@ -70,7 +67,6 @@ func TestExtractTurnResultRequiresMatchingToolName(t *testing.T) {
 		},
 		StopReason: "toolUse",
 	}
-	// The result exists but names a different tool: it must not count.
 	results := []*agent.ToolResultMessage{
 		{Role: string(agent.RoleToolResult), ToolCallID: "call_1", ToolName: "bash", Timestamp: 1},
 	}
@@ -86,9 +82,6 @@ func TestExtractTurnNilMessage(t *testing.T) {
 		t.Errorf("zero Turn expected, got %+v", tr)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Fingerprints
 
 func TestCallFingerprintDeterministic(t *testing.T) {
 	k1 := callFingerprint("read", map[string]any{"path": "/a", "mode": "r"})
@@ -133,23 +126,15 @@ func TestResultFingerprint(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Normalization
-
 func TestNormalizeThinking(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
 		want string
 	}{
-		// Note: the extension's short-word removal runs after the
-		// placeholders are inserted and only strips lowercase words, so
-		// "code" inside "<code>" is removed exactly as in the source.
 		{"code fence collapses", "explain ```go\nfmt.Println(x)\n``` now", "explain <>"},
 		{"inline code collapses", "use `strings.Fields` here", "<>"},
 		{"paths collapse", "read /home/luca/file.go and ~/.env now", "<>  <>"},
-		// Uppercase words survive the short-word removal, which runs
-		// before lowercasing; lowercase "fox" is dropped.
 		{"short words dropped", "The quick brown fox", "the quick brown"},
 		{"short words only lowercase", "The QUICK brown FOX", "the quick brown fox"},
 		{"case folded", "Hello WORLD", "hello world"},
@@ -173,14 +158,11 @@ func TestNormalizeText(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Display summaries
-
 func TestDisplaySummary(t *testing.T) {
 	t.Run("bash truncated to 40", func(t *testing.T) {
 		cmd := "echo " + strings.Repeat("x", 60)
 		got := displaySummary("bash", map[string]any{"command": cmd})
-		want := "echo " + strings.Repeat("x", 35) // 40 runes total
+		want := "echo " + strings.Repeat("x", 35)
 		if got != want {
 			t.Errorf("displaySummary = %q, want %q", got, want)
 		}
@@ -244,8 +226,6 @@ func TestSummarizeSubagent(t *testing.T) {
 		}
 	})
 	t.Run("empty agent falls back to default", func(t *testing.T) {
-		// The extension's `agent || "default"` fallback applies to an
-		// empty string agent, not to a missing one.
 		got := displaySummary("subagent", map[string]any{"agent": "", "task": "Do a thing"})
 		if !strings.HasPrefix(got, "subagent(default#") {
 			t.Errorf("displaySummary = %q, want a default agent pair", got)
@@ -279,7 +259,6 @@ func TestTruncate(t *testing.T) {
 	if got := truncate("abcdefghijklm", 5); got != "abcde" {
 		t.Errorf("truncate = %q, want %q", got, "abcde")
 	}
-	// Rune-safe: a 4-rune string truncated to 3 must stay valid UTF-8.
 	if got := truncate("héllo", 3); got != "hél" {
 		t.Errorf("truncate runes = %q, want %q", got, "hél")
 	}

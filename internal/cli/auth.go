@@ -368,17 +368,25 @@ func authOptionsFor(d *Deps, p oauthProvider) oauth.Options {
 	}
 }
 
-func openBrowserURL(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
+var currentOS = runtime.GOOS
+
+func browserCommand(os string) (string, []string) {
+	switch os {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		return "open", nil
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		return "rundll32", []string{"url.dll,FileProtocolHandler"}
 	default:
-		cmd = exec.Command("xdg-open", url)
+		return "xdg-open", nil
 	}
-	return cmd.Start()
+}
+
+func openBrowserURL(url string) error {
+	binary, args := browserCommand(currentOS)
+	if _, err := exec.LookPath(binary); err != nil {
+		return fmt.Errorf("open browser: %s not found in PATH: %w", binary, err)
+	}
+	return exec.Command(binary, append(args, url)...).Start()
 }
 
 type oauthCredential struct {

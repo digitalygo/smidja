@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// envFrom wraps a map as an env lookup function; nil means no variables set.
 func envFrom(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
@@ -92,8 +91,6 @@ func TestLoadEnvOverrides(t *testing.T) {
 }
 
 func TestLoadInvalidValuesFallBackToDefaults(t *testing.T) {
-	// Each invalid value must fall back to the compiled-in default:
-	// below-minimum integers, unparsable integers, and empty strings.
 	env := map[string]string{
 		"SMIDJA_MODEL":             "",
 		"SMIDJA_OPENROUTER_URL":    "",
@@ -168,8 +165,6 @@ func TestLoadNilFunctions(t *testing.T) {
 	}
 }
 
-// withDotEnv stubs the .env reader for the duration of a test so tests can
-// inject content without touching the filesystem.
 func withDotEnv(t *testing.T, content string) {
 	t.Helper()
 	orig := readDotEnvFile
@@ -368,8 +363,6 @@ func TestLoadContextEnvOverrides(t *testing.T) {
 }
 
 func TestLoadContextInvalidValuesFallBack(t *testing.T) {
-	// Invalid, negative, and out-of-range values fall back to 0 (or the
-	// boolean default), letting the contextmanager defaults apply.
 	env := map[string]string{
 		"SMIDJA_CONTEXT":                       "banana",
 		"SMIDJA_CONTEXT_WINDOW_TOKENS":         "-5",
@@ -408,8 +401,6 @@ func TestLoadContextInvalidValuesFallBack(t *testing.T) {
 }
 
 func TestLoadWithBundleDefaults(t *testing.T) {
-	// The fallback chain is env > .env > bundle default > compiled
-	// default. Each field exercises one layer.
 	defaults := map[string]string{
 		"SMIDJA_MODEL":             "bundle/model",
 		"SMIDJA_OPENROUTER_URL":    "https://bundle.test/v1",
@@ -455,8 +446,6 @@ func TestLoadWithBundleDefaults(t *testing.T) {
 }
 
 func TestLoadWithBundleDefaultsBelowCompiledDefaults(t *testing.T) {
-	// A bundle default for an unknown model still applies; keys the
-	// bundle does not define keep the compiled-in default.
 	c, err := LoadWithDefaults(
 		envFrom(nil),
 		func() (string, error) { return "/work", nil },
@@ -498,8 +487,6 @@ func TestConfigDefaultLookupChain(t *testing.T) {
 }
 
 func TestLoadDefaultsKeepsCompiledDefaults(t *testing.T) {
-	// Load (no bundle) behaves exactly as before: Default reports only
-	// what the env and .env sources define.
 	c, err := Load(
 		envFrom(nil),
 		func() (string, error) { return "/work", nil },

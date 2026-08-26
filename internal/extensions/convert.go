@@ -7,17 +7,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// The functions in this file convert between the internal session
-// representation (internal/agent) and the public SDK boundary shape
-// (sdk) at the extension boundary. The SDK shape is documented as the
-// conversion target: it carries role, content, and usage, and the fields
-// the internal representation keeps beyond that (provider, model, stop
-// reason, response id, timestamps) are not part of the extension contract
-// and take fresh zero values when an SDK message is converted back.
-
-// messageToSDK converts one internal message to the SDK boundary shape.
-// Every slice is copied, so handlers cannot mutate the internal message
-// through the event.
 func messageToSDK(m *agent.Message) sdk.Message {
 	if m == nil {
 		return sdk.Message{}
@@ -36,9 +25,6 @@ func messageToSDK(m *agent.Message) sdk.Message {
 	return out
 }
 
-// messageFromSDK converts an SDK message back to the internal shape.
-// Reconstructed messages carry fresh timestamps; the internal fields the
-// SDK shape does not model keep their zero values.
 func messageFromSDK(m *sdk.Message) *agent.Message {
 	if m == nil {
 		return nil
@@ -74,8 +60,6 @@ func messageFromSDK(m *sdk.Message) *agent.Message {
 	}
 }
 
-// blocksToSDK converts internal content blocks to the SDK block shape,
-// copying every slice so handlers cannot mutate the internal blocks.
 func blocksToSDK(blocks []agent.ContentBlock) []sdk.Block {
 	if blocks == nil {
 		return nil
@@ -94,8 +78,6 @@ func blocksToSDK(blocks []agent.ContentBlock) []sdk.Block {
 	return out
 }
 
-// blocksFromSDK converts SDK blocks back to the internal content block
-// shape.
 func blocksFromSDK(blocks []sdk.Block) []agent.ContentBlock {
 	if blocks == nil {
 		return nil
@@ -114,10 +96,6 @@ func blocksFromSDK(blocks []sdk.Block) []agent.ContentBlock {
 	return out
 }
 
-// rawContentToBlocks converts a user message's raw JSON content to SDK
-// blocks. The harness stores user content either as a JSON string (one
-// text block) or as an array of content blocks; anything else converts to
-// no blocks.
 func rawContentToBlocks(raw json.RawMessage) []sdk.Block {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -133,9 +111,6 @@ func rawContentToBlocks(raw json.RawMessage) []sdk.Block {
 	return nil
 }
 
-// blocksToRawContent converts SDK blocks to a user message's raw JSON
-// content: a JSON string for a single plain text block, otherwise a JSON
-// array of blocks.
 func blocksToRawContent(blocks []sdk.Block) json.RawMessage {
 	if len(blocks) == 0 {
 		return nil
@@ -153,7 +128,6 @@ func blocksToRawContent(blocks []sdk.Block) json.RawMessage {
 	return nil
 }
 
-// usageToSDK converts the internal token accounting to the SDK shape.
 func usageToSDK(u agent.Usage) sdk.Usage {
 	return sdk.Usage{
 		Input:       u.Input,
@@ -172,8 +146,6 @@ func usageToSDK(u agent.Usage) sdk.Usage {
 	}
 }
 
-// usageFromSDK converts the SDK token accounting back to the internal
-// shape; a nil SDK usage converts to the zero usage.
 func usageFromSDK(u *sdk.Usage) agent.Usage {
 	if u == nil {
 		return agent.Usage{}
@@ -195,8 +167,6 @@ func usageFromSDK(u *sdk.Usage) agent.Usage {
 	}
 }
 
-// cloneRaw deep-copies a raw JSON value so handlers cannot mutate the
-// caller's bytes in place.
 func cloneRaw(r json.RawMessage) json.RawMessage {
 	if r == nil {
 		return nil

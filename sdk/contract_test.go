@@ -8,11 +8,6 @@ import (
 	"testing"
 )
 
-// testExtension is a compile fixture proving one type can implement the
-// base contract plus every optional capability group. If the exact
-// signatures of the registries or handler func types change, this file
-// stops compiling, which is the point: later waves implement against these
-// signatures.
 type testExtension struct{}
 
 var (
@@ -52,9 +47,6 @@ func (testExtension) RegisterSessionHooks(r SessionHookRegistry) {
 	r.OnSessionShutdown(func(ctx HandlerContext, e SessionShutdownEvent) error { return nil })
 }
 
-// fakeAPI is a compile fixture for the harness side: one type must be able
-// to implement API, HandlerContext, and CommandContext together. Every
-// method is a stub; only the signatures are under test.
 type fakeAPI struct{}
 
 var (
@@ -118,18 +110,12 @@ func (fakeAPI) SwitchSession(path string, opts SwitchOptions) (*SessionSwitchRes
 }
 func (fakeAPI) Reload() error { return nil }
 
-// TestToolCallDecisionZeroValueAllows verifies that the zero decision does
-// not block, which is the contract handlers rely on when returning nil.
 func TestToolCallDecisionZeroValueAllows(t *testing.T) {
 	if got := (ToolCallDecision{}); got.Block {
 		t.Fatal("zero ToolCallDecision must not block")
 	}
 }
 
-// TestToolCallDecisionFinalArgs verifies that the decision carries the
-// chain's final tool arguments alongside the allow/deny decision, the
-// additive field the dispatcher and the loop use to execute exactly the
-// patched bytes.
 func TestToolCallDecisionFinalArgs(t *testing.T) {
 	dec := ToolCallDecision{Block: true, Reason: "denied", FinalArgs: json.RawMessage(`{"path":"safe"}`)}
 	if !dec.Block || dec.Reason != "denied" || string(dec.FinalArgs) != `{"path":"safe"}` {
@@ -137,8 +123,6 @@ func TestToolCallDecisionFinalArgs(t *testing.T) {
 	}
 }
 
-// TestEventTypeConstantsMatchPi verifies the event type constants keep
-// Pi's exact event strings.
 func TestEventTypeConstantsMatchPi(t *testing.T) {
 	want := map[string]string{
 		EventContext:         "context",
@@ -157,9 +141,6 @@ func TestEventTypeConstantsMatchPi(t *testing.T) {
 	}
 }
 
-// TestToolResultEventResultPartialPatch verifies that a patch with a nil
-// IsError leaves the error flag untouched, matching Pi's per-field
-// undefined checks.
 func TestToolResultEventResultPartialPatch(t *testing.T) {
 	res := Result{Content: []Block{{Type: "text", Text: "original"}}, IsError: true}
 	patch := &ToolResultEventResult{Content: []Block{{Type: "text", Text: "patched"}}}
@@ -169,9 +150,6 @@ func TestToolResultEventResultPartialPatch(t *testing.T) {
 	_ = res
 }
 
-// printModeUI is a minimal UI used to verify the print-mode sentinel
-// contract: dialogs return ErrModeUnsupported, fire-and-forget methods
-// are no-ops.
 type printModeUI struct{}
 
 var _ UI = printModeUI{}
@@ -194,8 +172,6 @@ func (printModeUI) SetWidget(key string, content []string) {}
 func (printModeUI) SetWorkingMessage(message string)       {}
 func (printModeUI) SetTitle(title string)                  {}
 
-// TestPrintModeDialogSemantics verifies that dialogs report the sentinel
-// and that HasUI false is the recommended guard.
 func TestPrintModeDialogSemantics(t *testing.T) {
 	ui := printModeUI{}
 	if _, err := ui.Confirm("t", "m"); !errors.Is(err, ErrModeUnsupported) {
@@ -212,9 +188,6 @@ func TestPrintModeDialogSemantics(t *testing.T) {
 	}
 }
 
-// TestModelAndUsageShapes verifies the public data shapes carry the fields
-// the extension boundary converts to and from the internal session
-// representation.
 func TestModelAndUsageShapes(t *testing.T) {
 	m := Model{ID: "anthropic/claude-sonnet-4.5", Name: "Claude Sonnet 4.5", Provider: "openrouter"}
 	if m.ID == "" || m.Name == "" || m.Provider == "" {
@@ -230,9 +203,6 @@ func TestModelAndUsageShapes(t *testing.T) {
 	}
 }
 
-// TestBundleShape verifies the bundle and build info carry the packaging
-// contract fields. Origins use the canonical "github.com/owner/repo"
-// form the harness validates (no scheme).
 func TestBundleShape(t *testing.T) {
 	b := Bundle{ID: "digitalygo", Origin: "github.com/digitalygo/smidja", MinimumHarness: "0.1.0"}
 	if b.ID != "digitalygo" || b.MinimumHarness != "0.1.0" {

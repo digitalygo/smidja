@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-// runVersion implements the "version" subcommand: the plain form prints
-// the human-readable "smidja <version>" line (the same line -version
-// prints), and "version --json" prints the full build identity as
-// compact JSON.
 func runVersion(args []string, d *Deps) error {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -33,19 +29,6 @@ func runVersion(args []string, d *Deps) error {
 	return nil
 }
 
-// splitSubcommandArgs partitions args into flag tokens (with their
-// values) and positional arguments, so flags may appear before, between,
-// or after positionals. The import command's usage form
-// "smidja import <file> [--session-dir <dir>]" puts the positional first,
-// which flag.Parse alone cannot handle: it stops at the first non-flag
-// token and leaves trailing flags unparsed. The returned flags slice is
-// what the caller passes to fs.Parse; positionals keep their order.
-//
-// A flag takes the next token as its value unless it is a boolean flag or
-// the value is attached with "=". "--" terminates flag parsing, exactly
-// like flag.Parse. Unknown flags and missing values are reported as
-// errors; -h and -help (when the flagset does not define them) return
-// flag.ErrHelp so callers render their usage.
 func splitSubcommandArgs(fs *flag.FlagSet, args []string) (flags, positionals []string, err error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -70,7 +53,6 @@ func splitSubcommandArgs(fs *flag.FlagSet, args []string) (flags, positionals []
 		}
 		flags = append(flags, a)
 		if !strings.Contains(a, "=") && !isBoolFlag(f) {
-			// The flag consumes the next token as its value.
 			if i+1 >= len(args) {
 				return nil, nil, fmt.Errorf("flag needs an argument: -%s", name)
 			}
@@ -81,14 +63,11 @@ func splitSubcommandArgs(fs *flag.FlagSet, args []string) (flags, positionals []
 	return flags, positionals, nil
 }
 
-// isBoolFlag reports whether f is a boolean flag (it takes no separate
-// value token).
 func isBoolFlag(f *flag.Flag) bool {
 	b, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return ok && b.IsBoolFlag()
 }
 
-// printImportUsage writes the import subcommand usage to w.
 func printImportUsage(w io.Writer) {
 	fmt.Fprintf(w, `usage: smidja import <file> [--session-dir <dir>]
 
@@ -103,7 +82,6 @@ flags:
 `)
 }
 
-// printUpdateUsage writes the update subcommand usage to w.
 func printUpdateUsage(w io.Writer) {
 	fmt.Fprintf(w, `usage: smidja update [--check] [--version <version>]
 

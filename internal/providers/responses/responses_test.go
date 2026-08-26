@@ -14,7 +14,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// stubTool is a minimal agent.Tool for request-shape tests.
 type stubTool struct {
 	name   string
 	desc   string
@@ -26,7 +25,6 @@ func (s stubTool) Description() string                                { return s
 func (s stubTool) Schema() json.RawMessage                            { return s.schema }
 func (s stubTool) Exec(context.Context, json.RawMessage) agent.Result { return agent.Result{} }
 
-// baseTurnReq returns a minimal turn request with one user message.
 func baseTurnReq() *agent.TurnRequest {
 	return &agent.TurnRequest{
 		Model: "gpt-5",
@@ -36,8 +34,6 @@ func baseTurnReq() *agent.TurnRequest {
 	}
 }
 
-// testDriver returns a plain-mode driver pointed at the given base URL
-// with a fixed credential.
 func testDriver(t *testing.T, baseURL string) *Responses {
 	t.Helper()
 	return New(Config{
@@ -50,8 +46,6 @@ func testDriver(t *testing.T, baseURL string) *Responses {
 	}, nil)
 }
 
-// codexToken returns a JWT-shaped ChatGPT access token whose payload
-// carries the given account id.
 func codexToken(accountID string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
 	payload := base64.RawURLEncoding.EncodeToString([]byte(
@@ -59,9 +53,6 @@ func codexToken(accountID string) string {
 	return header + "." + payload + ".signature"
 }
 
-// captureServer serves the given SSE events and records the request it
-// received. Events are flushed one by one so the client reads them
-// incrementally.
 func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedRequest) {
 	t.Helper()
 	captured := &capturedRequest{}
@@ -88,7 +79,6 @@ func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedR
 	return srv, captured
 }
 
-// capturedRequest holds what captureServer recorded about a request.
 type capturedRequest struct {
 	method string
 	path   string
@@ -97,7 +87,6 @@ type capturedRequest struct {
 	body   []byte
 }
 
-// equalStrings compares two string slices.
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -110,7 +99,6 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// TestNewDefaultClient checks URL defaulting per variant.
 func TestNewDefaultClient(t *testing.T) {
 	d := New(Config{ProviderID: "openai"}, nil)
 	if d.baseURL != defaultBaseURL {
@@ -132,9 +120,6 @@ func TestNewDefaultClient(t *testing.T) {
 	}
 }
 
-// TestStreamTurnRequestShape drives one full turn in plain mode and
-// verifies the exact request the driver sends: method, path, headers,
-// and body shape.
 func TestStreamTurnRequestShape(t *testing.T) {
 	events := []string{
 		`{"type":"response.created","response":{"id":"resp_1"}}`,
@@ -293,8 +278,6 @@ func TestStreamTurnRequestShape(t *testing.T) {
 	}
 }
 
-// TestStreamTurnSessionHeaders verifies the session affinity headers in
-// plain and Codex modes.
 func TestStreamTurnSessionHeaders(t *testing.T) {
 	events := []string{
 		`{"type":"response.created","response":{"id":"resp_1"}}`,
@@ -344,8 +327,6 @@ func TestStreamTurnSessionHeaders(t *testing.T) {
 	}
 }
 
-// TestCodexModeDifferences drives a turn in Codex mode and verifies the
-// header and body differences versus plain mode.
 func TestCodexModeDifferences(t *testing.T) {
 	events := []string{
 		`{"type":"response.created","response":{"id":"resp_1"}}`,
@@ -439,8 +420,6 @@ func TestCodexModeDifferences(t *testing.T) {
 	}
 }
 
-// TestCodexModeDefaultInstructions verifies the Codex fallback
-// instructions when the turn carries no system prompt.
 func TestCodexModeDefaultInstructions(t *testing.T) {
 	events := []string{
 		`{"type":"response.created","response":{"id":"r"}}`,
@@ -470,8 +449,6 @@ func TestCodexModeDefaultInstructions(t *testing.T) {
 	}
 }
 
-// TestCodexModeBadToken verifies that a non-JWT credential in Codex mode
-// aborts the turn before any request is sent.
 func TestCodexModeBadToken(t *testing.T) {
 	d := New(Config{
 		BaseURL:    "https://example.com",
@@ -486,8 +463,6 @@ func TestCodexModeBadToken(t *testing.T) {
 	}
 }
 
-// TestAzureMode verifies the Azure knobs: deployment URL shape,
-// api-key auth header, and the deployment as model field.
 func TestAzureMode(t *testing.T) {
 	events := []string{
 		`{"type":"response.created","response":{"id":"r"}}`,
@@ -532,7 +507,6 @@ func TestAzureMode(t *testing.T) {
 	}
 }
 
-// TestAzureModeRequiresDeployment verifies the deployment guard.
 func TestAzureModeRequiresDeployment(t *testing.T) {
 	d := New(Config{
 		BaseURL:    "https://example.com",
@@ -547,7 +521,6 @@ func TestAzureModeRequiresDeployment(t *testing.T) {
 	}
 }
 
-// TestExtractAccountID pins the JWT account id extraction.
 func TestExtractAccountID(t *testing.T) {
 	got, err := extractAccountID(codexToken("acct_7"))
 	if err != nil || got != "acct_7" {
@@ -560,8 +533,6 @@ func TestExtractAccountID(t *testing.T) {
 	}
 }
 
-// TestClampPromptCacheKey pins the prompt_cache_key normalization,
-// mirroring pi-ai's clampOpenAIPromptCacheKey.
 func TestClampPromptCacheKey(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -579,8 +550,6 @@ func TestClampPromptCacheKey(t *testing.T) {
 	}
 }
 
-// TestCodexModeDefaultInclude verifies the Codex body always requests
-// encrypted reasoning items even without an explicit include list.
 func TestCodexModeDefaultInclude(t *testing.T) {
 	events := []string{
 		`{"type":"response.created","response":{"id":"r"}}`,
@@ -610,8 +579,6 @@ func TestCodexModeDefaultInclude(t *testing.T) {
 	}
 }
 
-// TestStreamTurnAuthError verifies that a failing Auth func aborts the
-// turn before any request is sent.
 func TestStreamTurnAuthError(t *testing.T) {
 	authCalled := false
 	d := New(Config{
@@ -631,7 +598,6 @@ func TestStreamTurnAuthError(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNilArguments guards the nil contract of StreamTurn.
 func TestStreamTurnNilArguments(t *testing.T) {
 	d := testDriver(t, "https://example.com")
 	if _, err := d.StreamTurn(context.Background(), nil, nil, nil); err == nil {
@@ -644,8 +610,6 @@ func TestStreamTurnNilArguments(t *testing.T) {
 	}
 }
 
-// TestStreamTurnErrorPrefix verifies every error is prefixed with the
-// provider id.
 func TestStreamTurnErrorPrefix(t *testing.T) {
 	d := New(Config{BaseURL: "https://example.com", ProviderID: "openai"}, nil)
 	_, err := d.StreamTurn(context.Background(), nil, nil, nil)
@@ -654,8 +618,6 @@ func TestStreamTurnErrorPrefix(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200 verifies the HTTP error envelope is parsed and the
-// status code and message surface in the error.
 func TestStreamTurnNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -683,8 +645,6 @@ func TestStreamTurnNon200(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200NonJSON verifies the fallback for error bodies that
-// are not the provider envelope.
 func TestStreamTurnNon200NonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

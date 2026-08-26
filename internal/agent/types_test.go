@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// jsonKeys marshals v and returns the set of top-level JSON keys. It guards
-// the exact JSON tag contract that the session and provider packages depend
-// on: any accidental tag rename or omission fails the tests.
 func jsonKeys(t *testing.T, v any) map[string]bool {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -54,7 +51,6 @@ func TestContentBlockJSON(t *testing.T) {
 		"type", "text", "thinking", "thinkingSignature", "redacted",
 		"id", "name", "arguments")
 
-	// Round-trip must be lossless.
 	b, err := json.Marshal(full)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
@@ -67,7 +63,6 @@ func TestContentBlockJSON(t *testing.T) {
 		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", back, full)
 	}
 
-	// Empty optional fields must be omitted.
 	minimal := ContentBlock{Type: BlockTypeText, Text: "hi"}
 	wantJSONKeys(t, jsonKeys(t, minimal), "type", "text")
 }
@@ -104,7 +99,6 @@ func TestUsageCostJSON(t *testing.T) {
 		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", back, usage)
 	}
 
-	// Reasoning is omitted when zero.
 	wantJSONKeys(t, jsonKeys(t, Usage{}),
 		"input", "output", "cacheRead", "cacheWrite", "totalTokens", "cost")
 }
@@ -158,7 +152,6 @@ func TestAssistantMessageJSON(t *testing.T) {
 		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", back, m)
 	}
 
-	// Optional fields are omitted when empty.
 	noOpts := AssistantMessage{
 		Role:       string(RoleAssistant),
 		Content:    nil,

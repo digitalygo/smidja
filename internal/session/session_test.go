@@ -22,7 +22,6 @@ var (
 	isoStampRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
 )
 
-// readLines returns the non-empty lines of a file.
 func readLines(t *testing.T, path string) []string {
 	t.Helper()
 	b, err := os.ReadFile(path)
@@ -38,7 +37,6 @@ func readLines(t *testing.T, path string) []string {
 	return lines
 }
 
-// parseObj unmarshals one line into a generic JSON object.
 func parseObj(t *testing.T, line string) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -48,7 +46,6 @@ func parseObj(t *testing.T, line string) map[string]any {
 	return m
 }
 
-// assertKeys asserts that m has exactly the given keys, ignoring order.
 func assertKeys(t *testing.T, m map[string]any, want ...string) {
 	t.Helper()
 	var got []string
@@ -63,10 +60,6 @@ func assertKeys(t *testing.T, m map[string]any, want ...string) {
 	}
 }
 
-// checkUUIDv7 parses id as a UUID and asserts the RFC 9562 version and
-// variant nibbles (version 7 in the high nibble of byte 6, variant 10 in
-// the top two bits of byte 8) and that the embedded 48-bit millisecond
-// timestamp is close to now.
 func checkUUIDv7(t *testing.T, id string) {
 	t.Helper()
 	if !uuidV7Re.MatchString(id) {
@@ -142,7 +135,6 @@ func TestHeaderGolden(t *testing.T) {
 		t.Errorf("cwd = %v, want %q", hdr["cwd"], cwd)
 	}
 
-	// File name embeds the header timestamp and session id.
 	base := filepath.Base(sess.Path())
 	wantPrefix := strings.ReplaceAll(strings.ReplaceAll(ts, ":", "-"), ".", "-") + "_" + id
 	if !strings.HasPrefix(base, wantPrefix) || !strings.HasSuffix(base, ".jsonl") {
@@ -214,9 +206,7 @@ func TestAppendChainingAndMessageShapes(t *testing.T) {
 		t.Fatalf("lines = %d, want 5 (header + 4 entries)", len(lines))
 	}
 
-	// Entries chain: each parentId equals the previous entry id, the first
-	// is null, ids are 8 lowercase hex, timestamps are ISO.
-	var prevID any // nil for the first entry
+	var prevID any
 	for i, line := range lines[1:] {
 		e := parseObj(t, line)
 		assertKeys(t, e, "type", "id", "parentId", "timestamp", "message")
@@ -241,7 +231,6 @@ func TestAppendChainingAndMessageShapes(t *testing.T) {
 		}
 	}
 
-	// User message: verbatim raw content.
 	msg0 := parseObj(t, lines[1])["message"].(map[string]any)
 	assertKeys(t, msg0, "role", "content", "timestamp")
 	if msg0["role"] != "user" {
@@ -254,7 +243,6 @@ func TestAppendChainingAndMessageShapes(t *testing.T) {
 		t.Errorf("timestamp = %v, want 1000", msg0["timestamp"])
 	}
 
-	// Assistant message: verbatim agent.AssistantMessage tags.
 	msg1 := parseObj(t, lines[2])["message"].(map[string]any)
 	assertKeys(t, msg1, "role", "content", "api", "provider", "model", "responseId",
 		"usage", "stopReason", "timestamp")
@@ -301,7 +289,6 @@ func TestAppendChainingAndMessageShapes(t *testing.T) {
 		t.Errorf("cost.total = %v, want 0.0001", cost["total"])
 	}
 
-	// Tool result message.
 	msg2 := parseObj(t, lines[3])["message"].(map[string]any)
 	assertKeys(t, msg2, "role", "toolCallId", "toolName", "content", "isError", "timestamp")
 	if msg2["role"] != "toolResult" || msg2["toolCallId"] != "tc-1" ||
@@ -315,7 +302,6 @@ func TestAppendChainingAndMessageShapes(t *testing.T) {
 	}
 	assertKeys(t, trBlocks[0].(map[string]any), "type", "text")
 
-	// Last user message: parentId chains to the tool result entry.
 	msg3 := parseObj(t, lines[4])["message"].(map[string]any)
 	if msg3["content"] != "again" || msg3["timestamp"] != float64(4000) {
 		t.Errorf("last user message = %v", msg3)
@@ -323,7 +309,6 @@ func TestAppendChainingAndMessageShapes(t *testing.T) {
 }
 
 func TestUUIDv7Bits(t *testing.T) {
-	// Session ids from Create carry the RFC 9562 version and variant bits.
 	st, err := NewStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +319,6 @@ func TestUUIDv7Bits(t *testing.T) {
 	}
 	checkUUIDv7(t, sess.id)
 
-	// Direct generator sanity over a few draws.
 	for i := 0; i < 10; i++ {
 		id, err := newUUIDv7()
 		if err != nil {
@@ -366,8 +350,6 @@ func TestMungedDirNameAndList(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The munged directory name follows the documented transformation:
-	// "--" + absolute cwd, leading '/' stripped, '/' and ':' to '-', "--".
 	cleaned := filepath.Clean(cwd)
 	munged := "--" + strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(cleaned, "/"), "/", "-"), ":", "-") + "--"
 	wantDir := filepath.Join(root, munged)
@@ -383,7 +365,6 @@ func TestMungedDirNameAndList(t *testing.T) {
 		t.Fatalf("List = %v, want [%s]", listed, sess.Path())
 	}
 
-	// A cwd without sessions lists empty, not an error.
 	other, err := st.List(filepath.Join(t.TempDir(), "no-sessions"))
 	if err != nil {
 		t.Fatal(err)
@@ -424,16 +405,12 @@ func TestListNewestFirst(t *testing.T) {
 	if len(listed) != 3 {
 		t.Fatalf("List = %d sessions, want 3", len(listed))
 	}
-	// Newest first: the last created session is the last created file, so
-	// it has the newest modification time.
 	if listed[0] != paths[2] {
 		t.Fatalf("List[0] = %q, want newest %q", listed[0], paths[2])
 	}
 }
 
 func TestLazyCreationAndPerms(t *testing.T) {
-	// A fresh store root (not an existing t.TempDir, which is 0755):
-	// NewStore must create it with 0700.
 	st, err := NewStore(filepath.Join(t.TempDir(), "sessions"))
 	if err != nil {
 		t.Fatal(err)
@@ -489,8 +466,6 @@ func TestMarshalFailureLeavesLeafUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// An invalid raw JSON content makes the entry unmarshalable; the
-	// append must fail without creating the file or advancing the leaf.
 	bad := &agent.UserMessage{Role: "user", Content: json.RawMessage("not-json"), Timestamp: 1}
 	if err := sess.AppendUser(bad); err == nil {
 		t.Fatal("AppendUser with invalid raw content: want error, got nil")
@@ -499,8 +474,6 @@ func TestMarshalFailureLeavesLeafUnchanged(t *testing.T) {
 		t.Fatalf("file exists after failed append (err = %v), want not-exist", err)
 	}
 
-	// The leaf never moved: the next successful append is the first entry
-	// (header + exactly one entry in the file) with parentId null.
 	if err := sess.AppendUser(&agent.UserMessage{
 		Role:      "user",
 		Content:   json.RawMessage(`"ok"`),
@@ -549,8 +522,6 @@ func TestUserContentPassthrough(t *testing.T) {
 			}
 			msg := parseObj(t, readLines(t, sess.Path())[1])["message"].(map[string]any)
 
-			// The content field must round-trip to the exact same JSON
-			// value (ordering-insensitive comparison).
 			var want, got any
 			if err := json.Unmarshal([]byte(raw), &want); err != nil {
 				t.Fatal(err)
@@ -649,7 +620,6 @@ func TestSessionFilePathContainment(t *testing.T) {
 	id := "0196b87c-7a2b-7000-8000-000000000001"
 	name := "2026-08-25T10-00-00-000Z_0196b87c-7a2b-7000-8000-000000000001.jsonl"
 
-	// A valid identity resolves to exactly the canonical joined path.
 	got, err := SessionFilePath(dir, ts, id)
 	if err != nil {
 		t.Fatalf("SessionFilePath: %v", err)
@@ -658,20 +628,16 @@ func TestSessionFilePathContainment(t *testing.T) {
 		t.Errorf("SessionFilePath = %q, want %q", got, want)
 	}
 
-	// A hostile id is rejected before any path is derived.
 	if _, err := SessionFilePath(dir, ts, "../../../evil"); err == nil {
 		t.Error("SessionFilePath with traversal id: want error")
 	}
 
-	// The containment guard itself: a crafted name must never escape dir,
-	// even when it is fed in directly (the belt-and-braces layer).
 	for _, hostile := range []string{"../escape.jsonl", "../../x", "a/../../x", "/abs/escape.jsonl", ""} {
 		if _, err := filePathUnder(dir, hostile); err == nil {
 			t.Errorf("filePathUnder(%q, %q): want error", dir, hostile)
 		}
 	}
 
-	// A nested safe name inside dir is allowed.
 	nested, err := filePathUnder(dir, "sub/x.jsonl")
 	if err != nil {
 		t.Errorf("filePathUnder nested: %v", err)
@@ -696,14 +662,12 @@ func TestClose(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Close is idempotent.
 	if err := sess.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := sess.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
-	// Appending after Close fails without touching the file.
 	if err := sess.AppendUser(&agent.UserMessage{
 		Role:      "user",
 		Content:   json.RawMessage(`"y"`),

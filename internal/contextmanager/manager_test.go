@@ -13,9 +13,6 @@ import (
 	"github.com/digitalygo/smidja/internal/subagent"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture helpers
-
 func userMsg(text string) *agent.Message {
 	content, _ := json.Marshal(text)
 	return &agent.Message{User: &agent.UserMessage{Role: string(agent.RoleUser), Content: content, Timestamp: 1}}
@@ -50,8 +47,6 @@ func toolResult(id, name, out string, isErr bool) *agent.Message {
 	}}
 }
 
-// baseConfig returns a valid enabled config; tests override fields as
-// needed.
 func baseConfig() Config {
 	return Config{
 		Enabled:                true,
@@ -65,12 +60,10 @@ func baseConfig() Config {
 	}
 }
 
-// ceilFrac is the window-scaled threshold used by the manager.
 func ceilFrac(w int64, t float64) int64 {
 	return int64(math.Ceil(t * float64(w)))
 }
 
-// windowSearch returns the smallest window for which pred holds.
 func windowSearch(pred func(w int64) bool) int64 {
 	for w := int64(1); w <= 100_000_000; w++ {
 		if pred(w) {
@@ -80,7 +73,6 @@ func windowSearch(pred func(w int64) bool) int64 {
 	return -1
 }
 
-// newTestManager builds a manager with a fixed, advanceable clock.
 func newTestManager(t *testing.T, cfg Config, sel subagent.Selector) (*Manager, *time.Time) {
 	t.Helper()
 	now := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
@@ -100,7 +92,6 @@ func prepare(t *testing.T, m *Manager, req agent.ContextRequest) agent.ContextRe
 	return res
 }
 
-// stubSelector is a programmable Selector for manager tests.
 type stubSelector struct {
 	fn    func(subagent.SelectionRequest) (subagent.Selection, error)
 	reqs  []subagent.SelectionRequest
@@ -115,9 +106,6 @@ func (s *stubSelector) Select(_ context.Context, req subagent.SelectionRequest) 
 	}
 	return s.fn(req)
 }
-
-// ---------------------------------------------------------------------------
-// Config
 
 func TestConfigValidate(t *testing.T) {
 	valid := baseConfig()
@@ -195,9 +183,6 @@ func TestPrepareDisabledPassesThrough(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Estimation
-
 func TestEstimateAnchorVsFull(t *testing.T) {
 	cfg := baseConfig()
 	m, _ := newTestManager(t, cfg, nil)
@@ -247,8 +232,6 @@ func TestEstimateAnchorVsFull(t *testing.T) {
 	})
 
 	t.Run("anchor boundary clamped", func(t *testing.T) {
-		// The boundary is clamped to the message count; the delta adds
-		// only the empty-slice framing token.
 		got := m.estimateOccupancy(req, true, 7000, 99)
 		want := max(7000+rawTokens(msgs[len(msgs):]), full)
 		if got != want {
@@ -264,9 +247,6 @@ func TestEstimateAnchorVsFull(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Prune
 
 func pruneFixture() []*agent.Message {
 	return []*agent.Message{
@@ -334,15 +314,12 @@ func TestPruneCacheStaleGate(t *testing.T) {
 	}
 
 	m, now := newTestManager(t, cfg, nil)
-	// A fresh response means the cache is not stale: nothing fires even
-	// though occupancy is above the prune threshold.
 	m.ObserveResponse(&agent.AssistantMessage{Usage: agent.Usage{}})
 	res := prepare(t, m, agent.ContextRequest{Messages: msgs})
 	if len(res.Pruned) != 0 || res.Compacted {
 		t.Fatalf("fresh cache: expected no action, got Pruned=%v Compacted=%v", res.Pruned, res.Compacted)
 	}
 
-	// Past CacheMissAfter the cache is stale and pruning fires.
 	*now = now.Add(cfg.CacheMissAfter + time.Second)
 	res = prepare(t, m, agent.ContextRequest{Messages: msgs})
 	if len(res.Pruned) != 2 {
@@ -368,27 +345,23 @@ func TestPrunePairIntegrityAndRecentWindow(t *testing.T) {
 	if len(res.Pruned) != 2 || res.Pruned[0] != "call1" || res.Pruned[1] != "call2" {
 		t.Fatalf("Pruned = %v, want [call1 call2]", res.Pruned)
 	}
-	// Assistant toolCall blocks stay intact.
 	for _, idx := range []int{1, 3} {
 		got := res.Messages[idx].Assistant.Content[0]
 		if got.Type != agent.BlockTypeToolCall || got.ID == "" {
 			t.Fatalf("assistant call block at %d modified: %+v", idx, got)
 		}
 	}
-	// Pruned results carry exactly the placeholder.
 	for _, idx := range []int{2, 4} {
 		got := res.Messages[idx].ToolResult.Content
 		if len(got) != 1 || got[0].Text != PrunePlaceholder {
 			t.Fatalf("result at %d not pruned: %+v", idx, got)
 		}
 	}
-	// The recent window is untouched (same pointers, full content).
 	for _, idx := range []int{5, 6} {
 		if res.Messages[idx] != msgs[idx] {
 			t.Fatalf("recent message %d must pass through by pointer", idx)
 		}
 	}
-	// The input slice is never mutated.
 	if msgs[2].ToolResult.Content[0].Text == PrunePlaceholder {
 		t.Fatalf("input message mutated by prune")
 	}
@@ -408,7 +381,6 @@ func TestPruneSkipsPinnedErrorOrphan(t *testing.T) {
 		userMsg("final"),
 		asstText("done"),
 	}
-	// The post-prune list replaces only the two prunable results.
 	postMsgs := make([]*agent.Message, len(msgs))
 	copy(postMsgs, msgs)
 	for _, idx := range []int{6, 8} {
@@ -419,7 +391,7 @@ func TestPruneSkipsPinnedErrorOrphan(t *testing.T) {
 	occ := estimateTokens("", msgs)
 	post := estimateTokens("", postMsgs)
 	cfg := baseConfig()
-	cfg.KeepRecentMessages = 2 // candidates: indices 0..8
+	cfg.KeepRecentMessages = 2
 	cfg.ContextWindowTokens = windowSearch(func(w int64) bool {
 		return occ >= ceilFrac(w, 0.70) && post < ceilFrac(w, 0.85) && occ < ceilFrac(w, 0.95)
 	})
@@ -471,11 +443,6 @@ func TestPruneSkipsAlreadyPruned(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Compaction
-
-// compactFixture returns n user messages whose text is textLen chars, so
-// tests can control the token cost of the candidate window.
 func compactFixture(n, textLen int) []*agent.Message {
 	msgs := make([]*agent.Message, 0, n)
 	for i := 0; i < n; i++ {
@@ -500,8 +467,6 @@ func parseSummary(t *testing.T, res agent.ContextResult) (strategy string, kept 
 	return raw.Strategy, raw.Kept, raw.Dropped
 }
 
-// compactWindow returns a window where the stale-cache compact fires and
-// the safety compact does not.
 func compactWindow(t *testing.T, occ int64) int64 {
 	t.Helper()
 	w := windowSearch(func(w int64) bool {
@@ -531,7 +496,6 @@ func TestCompactSelectorKeepsVerbatim(t *testing.T) {
 	if !res.Compacted || res.Compaction == nil {
 		t.Fatalf("expected compaction, got %+v", res)
 	}
-	// Kept messages restored chronologically and verbatim (same pointers).
 	want := []*agent.Message{msgs[1], msgs[4], msgs[10], msgs[11]}
 	if len(res.Messages) != len(want) {
 		t.Fatalf("Messages len = %d, want %d", len(res.Messages), len(want))
@@ -554,7 +518,6 @@ func TestCompactSelectorKeepsVerbatim(t *testing.T) {
 	if res.Compaction.TokensBefore != occ {
 		t.Fatalf("TokensBefore = %d, want %d", res.Compaction.TokensBefore, occ)
 	}
-	// The request the selector saw.
 	if stub.calls != 1 {
 		t.Fatalf("selector calls = %d, want 1", stub.calls)
 	}
@@ -569,7 +532,6 @@ func TestCompactSelectorKeepsVerbatim(t *testing.T) {
 	if got.BudgetTokens != wantBudget {
 		t.Fatalf("BudgetTokens = %d, want %d", got.BudgetTokens, wantBudget)
 	}
-	// Input is never mutated.
 	if len(msgs) != 12 {
 		t.Fatalf("input slice mutated")
 	}
@@ -604,8 +566,6 @@ func TestCompactChunkingBelowBudget(t *testing.T) {
 	}
 }
 
-// expectedFallback computes the deterministic fallback: the newest
-// candidate refs fitting the target.
 func expectedFallback(candRefs []string, cands []*agent.Message, target int64) []string {
 	var kept []string
 	var used int64
@@ -653,7 +613,6 @@ func TestCompactFallbackDeterminism(t *testing.T) {
 	if res1.Compaction == nil || res2.Compaction == nil {
 		t.Fatalf("expected compaction in both runs")
 	}
-	// Deterministic: identical summaries and identical message counts.
 	if string(res1.Compaction.Summary) != string(res2.Compaction.Summary) {
 		t.Fatalf("summaries differ:\n%s\n%s", res1.Compaction.Summary, res2.Compaction.Summary)
 	}
@@ -673,7 +632,6 @@ func TestCompactFallbackDeterminism(t *testing.T) {
 			t.Fatalf("dropped[%d] = %q, want %q (oldest first)", i, dropped[i], wantDropped[i])
 		}
 	}
-	// Kept messages are a chronological suffix of the candidates.
 	keptSet := make(map[*agent.Message]bool, len(res1.Messages))
 	for _, msg := range res1.Messages {
 		keptSet[msg] = true
@@ -683,7 +641,6 @@ func TestCompactFallbackDeterminism(t *testing.T) {
 			t.Fatalf("kept set must contain candidate message %d", i)
 		}
 	}
-	// FirstKeptEntryID points at the first survivor.
 	if res1.Compaction.FirstKeptEntryID != refs[len(wantDropped)] {
 		t.Fatalf("FirstKeptEntryID = %q, want %q", res1.Compaction.FirstKeptEntryID, refs[len(wantDropped)])
 	}
@@ -733,7 +690,6 @@ func TestCompactSelectorFailureFallsBack(t *testing.T) {
 				t.Fatalf("strategy = %q, want fallback %q", strategy, fallbackStrategy)
 			}
 			if tc.name == "over budget" {
-				// Verify the test premise: all candidates exceed the budget.
 				var used int64
 				for _, c := range stub.reqs[0].Candidates {
 					used += rawTokensOf(c.Message)
@@ -746,9 +702,6 @@ func TestCompactSelectorFailureFallsBack(t *testing.T) {
 	}
 }
 
-// compactWindowMax returns the largest window where the stale-cache
-// compact fires and the safety compact does not, so the compact target
-// (CompactTarget * window) is as generous as possible.
 func compactWindowMax(t *testing.T, occ int64) int64 {
 	t.Helper()
 	w := int64(math.Floor(float64(occ) / 0.85))
@@ -769,7 +722,6 @@ func TestCompactNoopWhenNothingDropped(t *testing.T) {
 	refs := entryRefs(nil, msgs)
 	all := refs[:10]
 	stub := &stubSelector{fn: func(req subagent.SelectionRequest) (subagent.Selection, error) {
-		// Verify the premise: all candidates fit the budget.
 		var used int64
 		for _, c := range req.Candidates {
 			used += rawTokensOf(c.Message)
@@ -798,7 +750,7 @@ func TestCompactNothingToCompact(t *testing.T) {
 	msgs := compactFixture(4, 400)
 	occ := estimateTokens("", msgs)
 	cfg := baseConfig()
-	cfg.KeepRecentMessages = 6 // everything is protected
+	cfg.KeepRecentMessages = 6
 	cfg.ContextWindowTokens = windowSearch(func(w int64) bool { return occ >= ceilFrac(w, 0.85) })
 	m, _ := newTestManager(t, cfg, nil)
 	res := prepare(t, m, agent.ContextRequest{Messages: msgs})
@@ -821,8 +773,6 @@ func TestCompactPinnedCandidatesProtected(t *testing.T) {
 	cfg := baseConfig()
 	cfg.KeepRecentMessages = 2
 	cfg.ContextWindowTokens = compactWindow(t, occ)
-	// Premise: the fallback must have something to drop (candidates
-	// exceed the target) so the pinned pair is actually exercised.
 	keepStart := len(msgs) - cfg.KeepRecentMessages
 	target := int64(math.Round(cfg.CompactTarget * float64(cfg.ContextWindowTokens)))
 	var candCost int64
@@ -834,13 +784,12 @@ func TestCompactPinnedCandidatesProtected(t *testing.T) {
 	if candCost <= target {
 		t.Fatalf("premise broken: candidate cost %d within target %d", candCost, target)
 	}
-	m, _ := newTestManager(t, cfg, nil) // nil selector: fallback path
+	m, _ := newTestManager(t, cfg, nil)
 	m.PinToolCall("pin1")
 	res := prepare(t, m, agent.ContextRequest{Messages: msgs})
 	if !res.Compacted {
 		t.Fatalf("expected compaction")
 	}
-	// The pinned pair survives with original content.
 	if res.Messages[0] != msgs[0] || res.Messages[1] != msgs[1] {
 		t.Fatalf("pinned pair must survive: got %p %p", res.Messages[0], res.Messages[1])
 	}
@@ -874,9 +823,6 @@ func TestCompactUsesEntryIDs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Safety compact
-
 func TestSafetyCompactIgnoresCacheAge(t *testing.T) {
 	msgs := compactFixture(12, 60)
 	occ := estimateTokens("", msgs)
@@ -885,8 +831,6 @@ func TestSafetyCompactIgnoresCacheAge(t *testing.T) {
 	cfg.ContextWindowTokens = windowSearch(func(w int64) bool { return occ >= ceilFrac(w, 0.95) })
 	m, now := newTestManager(t, cfg, nil)
 
-	// Fresh response: the cache is not stale, so the ordinary
-	// prune/compact gates would block; only the safety compact fires.
 	m.ObserveResponse(&agent.AssistantMessage{Usage: agent.Usage{}})
 	res := prepare(t, m, agent.ContextRequest{Messages: msgs})
 	if !res.Compacted || res.Compaction == nil {
@@ -897,7 +841,6 @@ func TestSafetyCompactIgnoresCacheAge(t *testing.T) {
 		t.Fatalf("strategy = %q, want fallback", strategy)
 	}
 
-	// Same occupancy but just under 95% with a fresh cache: nothing.
 	cfg2 := baseConfig()
 	cfg2.KeepRecentMessages = 2
 	cfg2.ContextWindowTokens = windowSearch(func(w int64) bool { return occ < ceilFrac(w, 0.95) })
@@ -908,7 +851,6 @@ func TestSafetyCompactIgnoresCacheAge(t *testing.T) {
 		t.Fatalf("below safety with fresh cache: expected no action, got %+v", res2)
 	}
 
-	// Stale cache + at/above safety still compacts.
 	*now = now.Add(cfg.CacheMissAfter + time.Second)
 	res3 := prepare(t, m, agent.ContextRequest{Messages: msgs})
 	if !res3.Compacted {
@@ -916,12 +858,7 @@ func TestSafetyCompactIgnoresCacheAge(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Prune + compact sequencing
-
 func TestPruneThenCompact(t *testing.T) {
-	// Small tool outputs: pruning saves little, occupancy stays above
-	// the compact threshold.
 	msgs := []*agent.Message{
 		asstCall("c1", "read", `{}`),
 		toolResult("c1", "read", "tiny", false),

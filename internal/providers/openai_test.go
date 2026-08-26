@@ -12,8 +12,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// TestNewOpenAICompletionsDefaultClient checks the default http client
-// shape: custom transport with dial and TLS timeouts, no overall timeout.
 func TestNewOpenAICompletionsDefaultClient(t *testing.T) {
 	d := NewOpenAICompletions(Config{BaseURL: "https://api.example.com/v1/chat/completions/", ProviderID: "p"}, nil)
 	if d.baseURL != "https://api.example.com/v1/chat/completions" {
@@ -40,8 +38,6 @@ func TestNewOpenAICompletionsDefaultClient(t *testing.T) {
 	}
 }
 
-// TestNewOpenAICompletionsGivenClient verifies a provided client is used
-// as-is.
 func TestNewOpenAICompletionsGivenClient(t *testing.T) {
 	given := &http.Client{}
 	d := NewOpenAICompletions(Config{BaseURL: "https://example.com", ProviderID: "p"}, given)
@@ -50,8 +46,6 @@ func TestNewOpenAICompletionsGivenClient(t *testing.T) {
 	}
 }
 
-// TestNewOpenAICompletionsEmptyProvider checks the fallback prefix for a
-// driver without a provider id.
 func TestNewOpenAICompletionsEmptyProvider(t *testing.T) {
 	d := NewOpenAICompletions(Config{BaseURL: "https://example.com"}, nil)
 	if d.prefix != "provider" {
@@ -59,8 +53,6 @@ func TestNewOpenAICompletionsEmptyProvider(t *testing.T) {
 	}
 }
 
-// TestStreamTurnRequestShape drives one full turn and verifies the exact
-// request the driver sends: method, path, headers, and body shape.
 func TestStreamTurnRequestShape(t *testing.T) {
 	events := []string{
 		`{"id":"gen_1","choices":[{"index":0,"delta":{"content":"hi"}}]}`,
@@ -184,8 +176,6 @@ func TestStreamTurnRequestShape(t *testing.T) {
 	}
 }
 
-// TestStreamTurnAuthError verifies that a failing Auth func aborts the
-// turn before any request is sent.
 func TestStreamTurnAuthError(t *testing.T) {
 	authCalled := false
 	d := NewOpenAICompletions(Config{
@@ -205,7 +195,6 @@ func TestStreamTurnAuthError(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNilArguments guards the nil contract of StreamTurn.
 func TestStreamTurnNilArguments(t *testing.T) {
 	d := testDriver(t, "https://example.com")
 	if _, err := d.StreamTurn(context.Background(), nil, nil, nil); err == nil {
@@ -218,8 +207,6 @@ func TestStreamTurnNilArguments(t *testing.T) {
 	}
 }
 
-// TestStreamTurnErrorPrefix verifies every error is prefixed with the
-// provider id.
 func TestStreamTurnErrorPrefix(t *testing.T) {
 	d := NewOpenAICompletions(Config{BaseURL: "https://example.com", ProviderID: "deepseek"}, nil)
 	_, err := d.StreamTurn(context.Background(), nil, nil, nil)
@@ -228,8 +215,6 @@ func TestStreamTurnErrorPrefix(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200 verifies the HTTP error envelope is parsed and the
-// status code and message surface in the error.
 func TestStreamTurnNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -257,8 +242,6 @@ func TestStreamTurnNon200(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200NonJSON verifies the fallback for error bodies that
-// are not the provider envelope.
 func TestStreamTurnNon200NonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
@@ -276,7 +259,6 @@ func TestStreamTurnNon200NonJSON(t *testing.T) {
 	}
 }
 
-// TestBuildMessages verifies the wire conversion of every message variant.
 func TestBuildMessages(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -358,8 +340,6 @@ func TestBuildMessages(t *testing.T) {
 	}
 }
 
-// TestBuildTools verifies the tool wire conversion, including the empty
-// case which must omit the field entirely.
 func TestBuildTools(t *testing.T) {
 	if empty := BuildTools(nil); empty != nil {
 		t.Errorf("BuildTools(nil) = %v, want nil", empty)
@@ -377,8 +357,6 @@ func TestBuildTools(t *testing.T) {
 	}
 }
 
-// TestDefaultHTTPClientShared verifies the shared default client factory
-// produces the transport the facade tests rely on.
 func TestDefaultHTTPClientShared(t *testing.T) {
 	c := DefaultHTTPClient()
 	if c.Timeout != 0 {

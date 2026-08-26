@@ -12,9 +12,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// goldenAllTypes is a hand-written golden v3 session covering every
-// known entry type plus a future unknown type. Lines are written in Go
-// struct field order so re-marshaling reproduces them byte-exact.
 var goldenAllTypes = []string{
 	`{"type":"session","version":3,"id":"0196b87c-7a2b-7000-8000-000000000001","timestamp":"2026-08-25T10:00:00.000Z","cwd":"/tmp/roundtrip"}`,
 	`{"type":"message","id":"aaaa0001","parentId":null,"timestamp":"2026-08-25T10:00:01.000Z","message":{"role":"user","content":"hello smidja","timestamp":1000}}`,
@@ -31,8 +28,6 @@ var goldenAllTypes = []string{
 	`{"type":"future_entry","id":"ff000001","parentId":"aaaa0001","timestamp":"2026-08-25T10:00:12.000Z","futureField":{"nested":[1,2],"flag":true}}`,
 }
 
-// writeFixture writes the lines to a temp file (one per line, trailing
-// newline) and returns the file path.
 func writeFixture(t *testing.T, lines []string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "session.jsonl")
@@ -50,7 +45,6 @@ func TestCodecRoundTripAllEntryTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Header round-trips byte-exact.
 	hdr := l.Header()
 	if hdr.Type != EntryTypeSession || hdr.Version != 3 {
 		t.Errorf("header = %+v", hdr)
@@ -72,7 +66,6 @@ func TestCodecRoundTripAllEntryTypes(t *testing.T) {
 		t.Errorf("header re-marshal:\n got %s\nwant %s", reHdr, goldenAllTypes[0])
 	}
 
-	// Every entry decodes to its typed payload and re-marshals byte-exact.
 	entries := l.Entries()
 	if len(entries) != len(goldenAllTypes)-1 {
 		t.Fatalf("entries = %d, want %d", len(entries), len(goldenAllTypes)-1)
@@ -87,7 +80,6 @@ func TestCodecRoundTripAllEntryTypes(t *testing.T) {
 		}
 	}
 
-	// Spot-check typed payload fields.
 	if e := entries[0].(*MessageEntry); e.MessageRole() != "user" || e.EntryType() != EntryTypeMessage {
 		t.Errorf("entry 0 = %v", e)
 	}
@@ -134,7 +126,6 @@ func TestOpaqueEntryPreservedByteExact(t *testing.T) {
 	if string(line) != goldenAllTypes[len(goldenAllTypes)-1] {
 		t.Errorf("opaque re-marshal:\n got %s\nwant %s", line, goldenAllTypes[len(goldenAllTypes)-1])
 	}
-	// The envelope is still readable for tree reconstruction.
 	if op.EnvelopeID() != "ff000001" || op.EnvelopeParentID() == nil ||
 		*op.EnvelopeParentID() != "aaaa0001" || op.EnvelopeTimestamp() != "2026-08-25T10:00:12.000Z" {
 		t.Errorf("opaque envelope = %q parent %v ts %q",
@@ -143,8 +134,6 @@ func TestOpaqueEntryPreservedByteExact(t *testing.T) {
 }
 
 func TestDecodeEntryShapeMismatchFallsBackToOpaque(t *testing.T) {
-	// A known type whose payload has the wrong JSON shape must not be
-	// lost: it falls back to the opaque form and survives byte-exact.
 	line := `{"type":"compaction","id":"x","parentId":null,"timestamp":"2026-08-25T10:00:00.000Z","summary":42}`
 	e, err := DecodeEntry([]byte(line))
 	if err != nil {
@@ -220,7 +209,6 @@ func TestMessageEntryDecodeMessage(t *testing.T) {
 		t.Errorf("toolResult message = %+v", msg)
 	}
 
-	// A role the agent union does not model stays raw and returns an error.
 	opaque := &MessageEntry{Message: json.RawMessage(`{"role":"custom","content":"x"}`)}
 	if _, err := opaque.DecodeMessage(); err == nil {
 		t.Error("DecodeMessage on custom role: want error, got nil")
@@ -315,7 +303,6 @@ func TestAppendEntryChainsTypedPayloads(t *testing.T) {
 	if len(got) != len(entries) {
 		t.Fatalf("entries = %d, want %d", len(got), len(entries))
 	}
-	// The envelope was assigned by the session: chained parentIds.
 	var prevID any
 	for i, e := range got {
 		id, parentID, ts := envelopeOf(e)
@@ -335,7 +322,6 @@ func TestAppendEntryChainsTypedPayloads(t *testing.T) {
 		}
 	}
 
-	// Typed payloads survive the round-trip.
 	if e := got[0].(*ThinkingLevelChangeEntry); e.ThinkingLevel != level {
 		t.Errorf("thinkingLevel = %q", e.ThinkingLevel)
 	}
@@ -382,14 +368,11 @@ func TestAppendEntryRejectsOpaqueAndNil(t *testing.T) {
 	if err := sess.AppendEntry(op); err == nil {
 		t.Error("AppendEntry(opaque): want error, got nil")
 	}
-	// Nothing was persisted by the rejected appends.
 	if _, err := os.Stat(sess.Path()); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("file exists after rejected appends (err = %v)", err)
 	}
 }
 
-// TestCodecBytesStable asserts that marshaling the golden fixture a second
-// time produces identical bytes (the codec is deterministic).
 func TestCodecBytesStable(t *testing.T) {
 	path := writeFixture(t, goldenAllTypes)
 	l, err := Load(path)

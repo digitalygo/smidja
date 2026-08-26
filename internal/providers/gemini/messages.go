@@ -10,14 +10,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// BuildContents converts the conversation into Gemini contents, mirroring
-// pi-ai's google-shared convertMessages: user messages become user turns,
-// assistant messages become model turns (thinking blocks only stay
-// thought parts when the message came from the same provider and model,
-// otherwise they degrade to plain text), and tool results become user
-// turns with functionResponse parts that merge into a preceding
-// functionResponse turn. It returns the contents and the optional
-// systemInstruction content.
 func BuildContents(system string, messages []*agent.Message, providerID, modelID string) ([]Content, *Content) {
 	needsID := requiresToolCallID(modelID)
 	contents := make([]Content, 0, len(messages))
@@ -43,9 +35,6 @@ func BuildContents(system string, messages []*agent.Message, providerID, modelID
 	return contents, systemInstruction
 }
 
-// userContent renders a user message as a user turn. String content
-// becomes one text part; block arrays are flattened into text parts.
-// A message with no renderable parts is dropped.
 func userContent(u *agent.UserMessage) (Content, bool) {
 	if isJSONString(u.Content) {
 		var text string
@@ -75,18 +64,6 @@ func userContent(u *agent.UserMessage) (Content, bool) {
 	return Content{Role: "user", Parts: parts}, true
 }
 
-// assistantContent renders an assistant message as a model turn, mirroring
-// pi-ai's convertMessages part rules:
-//   - text blocks become text parts; empty text blocks are dropped (pi-ai
-//     keeps signature-bearing empty blocks, but smidja has no text
-//     signature field to persist);
-//   - thinking blocks stay thought parts with their signature only for
-//     same-provider/same-model messages; otherwise they degrade to plain
-//     text so the model does not mimic reasoning tags;
-//   - toolCall blocks become functionCall parts, carrying the id only for
-//     models that require explicit tool call ids.
-//
-// A message with no renderable parts is dropped.
 func assistantContent(a *agent.AssistantMessage, providerID, modelID string, needsID bool) (Content, bool) {
 	isSame := a.Provider == providerID && a.Model == modelID
 	parts := make([]Part, 0, len(a.Content))
@@ -107,8 +84,6 @@ func assistantContent(a *agent.AssistantMessage, providerID, modelID string, nee
 			if isSame {
 				parts = append(parts, Part{Thought: true, Text: &text, ThoughtSignature: signature})
 			} else {
-				// Cross-provider or cross-model: the signature is
-				// unusable, so the thinking degrades to plain text.
 				parts = append(parts, Part{Text: &text})
 			}
 		case agent.BlockTypeToolCall:
@@ -129,9 +104,6 @@ func assistantContent(a *agent.AssistantMessage, providerID, modelID string, nee
 	return Content{Role: "model", Parts: parts}, true
 }
 
-// toolResultContent renders a tool result as a user turn with one
-// functionResponse part: {"output": ...} on success, {"error": ...} on
-// failure. The value is the joined text of the content blocks.
 func toolResultContent(t *agent.ToolResultMessage, needsID bool) Content {
 	var text strings.Builder
 	for _, b := range t.Content {
@@ -151,9 +123,6 @@ func toolResultContent(t *agent.ToolResultMessage, needsID bool) Content {
 	return Content{Role: "user", Parts: []Part{{FunctionResponse: fr}}}
 }
 
-// appendFunctionResponse merges a functionResponse turn into the previous
-// content when that is already a user turn carrying functionResponse
-// parts, mirroring pi-ai's Cloud Code Assist merge rule.
 func appendFunctionResponse(contents []Content, c Content) []Content {
 	if len(contents) > 0 {
 		last := &contents[len(contents)-1]
@@ -165,8 +134,6 @@ func appendFunctionResponse(contents []Content, c Content) []Content {
 	return append(contents, c)
 }
 
-// hasFunctionResponse reports whether any part of the content is a
-// functionResponse part.
 func hasFunctionResponse(c Content) bool {
 	for i := range c.Parts {
 		if c.Parts[i].FunctionResponse != nil {
@@ -176,10 +143,6 @@ func hasFunctionResponse(c Content) bool {
 	return false
 }
 
-// BuildTools converts agent tools into Gemini function declarations
-// exposed through parametersJsonSchema (the modern full JSON Schema
-// field, matching pi-ai's default). It returns nil for an empty tool list
-// so the field is omitted.
 func BuildTools(tools []agent.Tool) []Tool {
 	if len(tools) == 0 {
 		return nil
@@ -195,14 +158,8 @@ func BuildTools(tools []agent.Tool) []Tool {
 	return []Tool{{FunctionDeclarations: decls}}
 }
 
-// geminiMajorVersionRE matches a leading gemini generation, for example
-// "gemini-2.5-pro" or "gemini-live-3".
 var geminiMajorVersionRE = regexp.MustCompile(`^gemini(?:-live)?-(\d+)`)
 
-// requiresToolCallID mirrors pi-ai's google-shared helper: Gemini 3+ and
-// the Claude/gpt-oss models served behind Google APIs require explicit
-// ids on functionCall and functionResponse parts; older Gemini models
-// ignore them.
 func requiresToolCallID(modelID string) bool {
 	id := strings.ToLower(modelID)
 	if strings.HasPrefix(id, "claude-") || strings.HasPrefix(id, "gpt-oss-") {
@@ -219,12 +176,8 @@ func requiresToolCallID(modelID string) bool {
 	return n >= 3
 }
 
-// base64SignaturePattern matches base64 with optional padding, the shape
-// Google uses for TYPE_BYTES thought signatures.
 var base64SignaturePattern = regexp.MustCompile(`^[A-Za-z0-9+/]+={0,2}$`)
 
-// isValidThoughtSignature mirrors pi-ai's google-shared check: a
-// signature must be non-empty, base64, and length-aligned to 4.
 func isValidThoughtSignature(signature string) bool {
 	if signature == "" || len(signature)%4 != 0 {
 		return false
@@ -232,9 +185,6 @@ func isValidThoughtSignature(signature string) bool {
 	return base64SignaturePattern.MatchString(signature)
 }
 
-// resolveThoughtSignature only keeps signatures from the same provider
-// and model that are valid base64, mirroring pi-ai's google-shared
-// helper.
 func resolveThoughtSignature(isSameProviderAndModel bool, signature string) string {
 	if !isSameProviderAndModel || !isValidThoughtSignature(signature) {
 		return ""
@@ -242,10 +192,6 @@ func resolveThoughtSignature(isSameProviderAndModel bool, signature string) stri
 	return signature
 }
 
-// retainThoughtSignature preserves the last non-empty signature seen for
-// a block, because some backends only send thoughtSignature on the first
-// delta of a part and omit it afterwards. It mirrors pi-ai's google-shared
-// helper.
 func retainThoughtSignature(existing, incoming string) string {
 	if incoming != "" {
 		return incoming
@@ -253,9 +199,6 @@ func retainThoughtSignature(existing, incoming string) string {
 	return existing
 }
 
-// mapStopReason mirrors pi-ai's mapStopReasonString for raw API
-// responses: STOP completes, MAX_TOKENS truncates, and every safety,
-// blocklist, or other finish reason is an error.
 func mapStopReason(reason string) string {
 	switch reason {
 	case "STOP":
@@ -267,7 +210,6 @@ func mapStopReason(reason string) string {
 	}
 }
 
-// isJSONString reports whether raw is a JSON string literal.
 func isJSONString(raw json.RawMessage) bool {
 	t := bytes.TrimSpace(raw)
 	return len(t) > 0 && t[0] == '"'

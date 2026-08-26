@@ -16,14 +16,11 @@ import (
 	"github.com/digitalygo/smidja/internal/retry"
 )
 
-// anthropicSSEEvent is one SSE frame: the event name and its data payload.
 type anthropicSSEEvent struct {
 	name string
 	data string
 }
 
-// anthropicCaptureServer serves the given SSE events with event: names,
-// flushing each frame, and records the request it received.
 func anthropicCaptureServer(t *testing.T, events ...anthropicSSEEvent) (*httptest.Server, *capturedRequest) {
 	t.Helper()
 	captured := &capturedRequest{}
@@ -50,8 +47,6 @@ func anthropicCaptureServer(t *testing.T, events ...anthropicSSEEvent) (*httptes
 	return srv, captured
 }
 
-// anthropicTestDriver returns a driver pointed at the given base URL with a
-// fixed credential.
 func anthropicTestDriver(t *testing.T, baseURL string, oauth bool) *Anthropic {
 	t.Helper()
 	return NewAnthropic(AnthropicConfig{
@@ -64,7 +59,6 @@ func anthropicTestDriver(t *testing.T, baseURL string, oauth bool) *Anthropic {
 	}, nil)
 }
 
-// messageStart returns a message_start event with the given id and usage.
 func messageStart(id, usage string) anthropicSSEEvent {
 	if usage == "" {
 		usage = `{"input_tokens":25,"output_tokens":1}`
@@ -75,7 +69,6 @@ func messageStart(id, usage string) anthropicSSEEvent {
 	}
 }
 
-// messageDelta returns a message_delta event with the given stop reason.
 func messageDelta(stopReason string) anthropicSSEEvent {
 	return anthropicSSEEvent{
 		name: "message_delta",
@@ -83,8 +76,6 @@ func messageDelta(stopReason string) anthropicSSEEvent {
 	}
 }
 
-// TestNewAnthropicDefaults checks the constructor defaults: base URL,
-// max_tokens budget, prefix fallback, and default http client.
 func TestNewAnthropicDefaults(t *testing.T) {
 	d := NewAnthropic(AnthropicConfig{ProviderID: "p"}, nil)
 	if d.baseURL != DefaultAnthropicBaseURL {
@@ -104,8 +95,6 @@ func TestNewAnthropicDefaults(t *testing.T) {
 	}
 }
 
-// TestNewAnthropicOverrides verifies BaseURL trimming, MaxTokens override,
-// and a provided http client.
 func TestNewAnthropicOverrides(t *testing.T) {
 	given := &http.Client{}
 	d := NewAnthropic(AnthropicConfig{BaseURL: "https://gateway.example.com/v1/messages/", ProviderID: "p", MaxTokens: 8192}, given)
@@ -124,8 +113,6 @@ func TestNewAnthropicOverrides(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnText drives one full text turn and verifies the
-// accumulated blocks, usage, stop reason, identity, and callbacks.
 func TestAnthropicStreamTurnText(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_01", ""),
@@ -162,8 +149,6 @@ func TestAnthropicStreamTurnText(t *testing.T) {
 	if msg.Timestamp <= 0 {
 		t.Errorf("timestamp = %d, want positive", msg.Timestamp)
 	}
-	// message_start reports input 25/output 1; message_delta overrides
-	// output to 15 and total is recomputed from components.
 	if msg.Usage.Input != 25 || msg.Usage.Output != 15 || msg.Usage.TotalTokens != 40 {
 		t.Errorf("usage = %+v, want input 25 output 15 total 40", msg.Usage)
 	}
@@ -175,8 +160,6 @@ func TestAnthropicStreamTurnText(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnThinkingSignature feeds thinking deltas and
-// signature fragments and verifies both accumulate on the thinking block.
 func TestAnthropicStreamTurnThinkingSignature(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_th", `{"input_tokens":10,"output_tokens":1}`),
@@ -220,8 +203,6 @@ func TestAnthropicStreamTurnThinkingSignature(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnRedactedThinking verifies the redacted_thinking
-// block shape: opaque payload as signature, redacted flag, fixed text.
 func TestAnthropicStreamTurnRedactedThinking(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_red", ""),
@@ -252,9 +233,6 @@ func TestAnthropicStreamTurnRedactedThinking(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnToolUseFragmented feeds one tool use whose input
-// arrives as many input_json_delta fragments and verifies the accumulated
-// arguments and the toolUse stop reason.
 func TestAnthropicStreamTurnToolUseFragmented(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_tool", ""),
@@ -289,9 +267,6 @@ func TestAnthropicStreamTurnToolUseFragmented(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnInterleavedBlocks feeds text, thinking, and tool
-// blocks whose starts, deltas, and stops interleave by index, plus a ping
-// event, and verifies the accumulated order matches first-appearance.
 func TestAnthropicStreamTurnInterleavedBlocks(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_mix", ""),
@@ -354,8 +329,6 @@ func TestAnthropicStreamTurnInterleavedBlocks(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnMaxTokensStop maps max_tokens to the "length"
-// stop reason.
 func TestAnthropicStreamTurnMaxTokensStop(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_len", ""),
@@ -377,8 +350,6 @@ func TestAnthropicStreamTurnMaxTokensStop(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnRefusal maps a refusal stop to an error carrying
-// the stop_details explanation.
 func TestAnthropicStreamTurnRefusal(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_ref", ""),
@@ -399,9 +370,6 @@ func TestAnthropicStreamTurnRefusal(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnUsageMapping verifies the cache and reasoning
-// token mapping across message_start and message_delta, including the
-// recomputed total.
 func TestAnthropicStreamTurnUsageMapping(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_u", `{"input_tokens":100,"output_tokens":5,"cache_read_input_tokens":30,"cache_creation_input_tokens":20}`),
@@ -431,14 +399,11 @@ func TestAnthropicStreamTurnUsageMapping(t *testing.T) {
 	if u.TotalTokens != 190 {
 		t.Errorf("totalTokens = %d, want 190", u.TotalTokens)
 	}
-	// Cost is zero unless the provider reports it.
 	if u.Cost != (agent.Cost{}) {
 		t.Errorf("cost = %+v, want zero", u.Cost)
 	}
 }
 
-// TestAnthropicStreamTurnUsageNullDeltas verifies message_delta usage with
-// null fields does not wipe the counts captured at message_start.
 func TestAnthropicStreamTurnUsageNullDeltas(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_n", `{"input_tokens":7,"output_tokens":3}`),
@@ -457,10 +422,6 @@ func TestAnthropicStreamTurnUsageNullDeltas(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnRequestShape drives a full turn and verifies the
-// exact request the driver sends: headers, method, path, and body shape
-// including system blocks, assistant content replay with signatures and
-// redacted thinking, grouped tool results, tools, and tool_choice.
 func TestAnthropicStreamTurnRequestShape(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_rq", ""),
@@ -575,19 +536,14 @@ func TestAnthropicStreamTurnRequestShape(t *testing.T) {
 	if string(got.Tools[0].InputSchema) != `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}` {
 		t.Errorf("input_schema = %s", got.Tools[0].InputSchema)
 	}
-	// user, assistant, and one user message grouping the two consecutive
-	// tool results: consecutive tool results collapse into a single user
-	// message, exactly as Pi's convertMessages does.
 	if len(got.Messages) != 3 {
 		t.Fatalf("messages = %d, want 3", len(got.Messages))
 	}
 
-	// message[0]: user string content.
 	if got.Messages[0].Role != "user" || string(got.Messages[0].Content) != `"hello"` {
 		t.Errorf("messages[0] = role %q content %s, want user string", got.Messages[0].Role, got.Messages[0].Content)
 	}
 
-	// message[1]: assistant content blocks in order, signatures preserved.
 	if got.Messages[1].Role != "assistant" {
 		t.Errorf("messages[1].role = %q, want assistant", got.Messages[1].Role)
 	}
@@ -621,8 +577,6 @@ func TestAnthropicStreamTurnRequestShape(t *testing.T) {
 		t.Errorf("asst[3] = %+v, want tool_use read", asstBlocks[3])
 	}
 
-	// messages[2]: the two consecutive tool results grouped into one user
-	// message with one tool_result block each.
 	if got.Messages[2].Role != "user" {
 		t.Errorf("messages[2].role = %q, want user", got.Messages[2].Role)
 	}
@@ -646,9 +600,6 @@ func TestAnthropicStreamTurnRequestShape(t *testing.T) {
 	}
 }
 
-// TestAnthropicOAuthHeaders verifies the two auth variants: API key sends
-// x-api-key, OAuth sends the Bearer token plus the Claude Code identity
-// markers and the system prefix.
 func TestAnthropicOAuthHeaders(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_au", ""),
@@ -719,9 +670,6 @@ func TestAnthropicOAuthHeaders(t *testing.T) {
 	})
 }
 
-// TestAnthropicOAuthToolNameCasing verifies the Claude Code tool name
-// casing round-trip under subscription auth: read -> Read on the wire and
-// back to the registered name on receive.
 func TestAnthropicOAuthToolNameCasing(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_cc", ""),
@@ -744,20 +692,14 @@ func TestAnthropicOAuthToolNameCasing(t *testing.T) {
 	if len(msg.Content) != 1 || msg.Content[0].Type != agent.BlockTypeToolCall || msg.Content[0].Name != "read" {
 		t.Errorf("block = %+v, want toolCall name mapped back to read", msg.Content)
 	}
-	// The start event carried the complete input and no input_json_delta
-	// fragments followed: the input must be preserved (eager streaming).
 	if got := string(msg.Content[0].Arguments); got != `{"path":"a.go"}` {
 		t.Errorf("arguments = %s, want start input preserved", got)
 	}
-	// The wire tool list must carry the Claude Code casing.
 	if !strings.Contains(string(captured.body), `"name":"Read"`) {
 		t.Errorf("request body missing Claude Code-cased tool name: %s", captured.body)
 	}
 }
 
-// TestAnthropicStreamTurnNon200 verifies the Anthropic error envelope is
-// parsed with the error type surfaced, so the retry classifier can match
-// overloaded_error.
 func TestAnthropicStreamTurnNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -782,15 +724,11 @@ func TestAnthropicStreamTurnNon200(t *testing.T) {
 	if !strings.Contains(err.Error(), "overloaded_error") {
 		t.Errorf("error %q missing error type", err)
 	}
-	// The surfaced text must classify as retryable: classification lives
-	// in internal/retry, which matches on the provider text alone.
 	if !retry.Classify(err.Error()) {
 		t.Errorf("error %q not classified as retryable", err)
 	}
 }
 
-// TestAnthropicStreamTurnNon200NonJSON verifies the fallback for error
-// bodies that are not the provider envelope.
 func TestAnthropicStreamTurnNon200NonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
@@ -807,8 +745,6 @@ func TestAnthropicStreamTurnNon200NonJSON(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnSSEError verifies an error SSE event mid-stream
-// aborts the turn with the raw provider payload.
 func TestAnthropicStreamTurnSSEError(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_err", ""),
@@ -831,8 +767,6 @@ func TestAnthropicStreamTurnSSEError(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnPrematureEOF verifies the error when the stream
-// ends before message_stop.
 func TestAnthropicStreamTurnPrematureEOF(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_eof", ""),
@@ -854,8 +788,6 @@ func TestAnthropicStreamTurnPrematureEOF(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnEmptyStream treats an immediately closed stream
-// as premature EOF.
 func TestAnthropicStreamTurnEmptyStream(t *testing.T) {
 	srv, _ := anthropicCaptureServer(t)
 	defer srv.Close()
@@ -866,8 +798,6 @@ func TestAnthropicStreamTurnEmptyStream(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnMissingStopReason verifies an error when the
-// stream completes without a message_delta stop reason.
 func TestAnthropicStreamTurnMissingStopReason(t *testing.T) {
 	events := []anthropicSSEEvent{
 		messageStart("msg_ns", ""),
@@ -882,8 +812,6 @@ func TestAnthropicStreamTurnMissingStopReason(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnCancellation verifies that cancelling the context
-// aborts a stalled stream and returns context.Canceled.
 func TestAnthropicStreamTurnCancellation(t *testing.T) {
 	firstChunk := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -928,8 +856,6 @@ func TestAnthropicStreamTurnCancellation(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnNilArguments guards the nil contract of
-// StreamTurn.
 func TestAnthropicStreamTurnNilArguments(t *testing.T) {
 	d := anthropicTestDriver(t, "https://example.com", false)
 	if _, err := d.StreamTurn(context.Background(), nil, nil, nil); err == nil {
@@ -942,8 +868,6 @@ func TestAnthropicStreamTurnNilArguments(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnMissingAPIKey verifies the driver fails clearly
-// without a credential resolver.
 func TestAnthropicStreamTurnMissingAPIKey(t *testing.T) {
 	d := NewAnthropic(AnthropicConfig{BaseURL: "https://example.com", ProviderID: "anthropic"}, nil)
 	_, err := d.StreamTurn(context.Background(), baseTurnReq(), nil, nil)
@@ -952,8 +876,6 @@ func TestAnthropicStreamTurnMissingAPIKey(t *testing.T) {
 	}
 }
 
-// TestAnthropicStreamTurnErrorPrefix verifies every error is prefixed with
-// the provider id.
 func TestAnthropicStreamTurnErrorPrefix(t *testing.T) {
 	d := NewAnthropic(AnthropicConfig{BaseURL: "https://example.com", ProviderID: "anthropic"}, nil)
 	_, err := d.StreamTurn(context.Background(), nil, nil, nil)
@@ -962,10 +884,6 @@ func TestAnthropicStreamTurnErrorPrefix(t *testing.T) {
 	}
 }
 
-// TestAnthropicBuildMessages verifies the wire conversion of every message
-// variant: string and block user content, empty-content dropping, assistant
-// replay with signature rules, grouped tool results, and tool input
-// defaults.
 func TestAnthropicBuildMessages(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -1059,8 +977,6 @@ func TestAnthropicBuildMessages(t *testing.T) {
 	}
 }
 
-// TestAnthropicBuildSystem verifies the system block construction in both
-// auth modes.
 func TestAnthropicBuildSystem(t *testing.T) {
 	if got := buildAnthropicSystem("", false); got != nil {
 		t.Errorf("empty system = %+v, want nil", got)
@@ -1078,8 +994,6 @@ func TestAnthropicBuildSystem(t *testing.T) {
 	}
 }
 
-// TestAnthropicBuildTools verifies the tool wire conversion, including the
-// input_schema shape and the empty case.
 func TestAnthropicBuildTools(t *testing.T) {
 	if empty := buildAnthropicTools(nil, false); empty != nil {
 		t.Errorf("buildAnthropicTools(nil) = %v, want nil", empty)
@@ -1096,8 +1010,6 @@ func TestAnthropicBuildTools(t *testing.T) {
 		t.Errorf("tools = %s\nwant    %s", got, want)
 	}
 
-	// A schema without properties/required still yields a valid object
-	// schema, and an unparseable schema degrades the same way.
 	degraded := buildAnthropicTools([]agent.Tool{
 		stubTool{name: "bare", desc: "d", schema: json.RawMessage(`"not an object"`)},
 	}, false)

@@ -12,8 +12,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// reqWith builds a ContextRequest whose first user message carries the
-// given text, used to observe which handler saw which request.
 func reqWith(text string) agent.ContextRequest {
 	return agent.ContextRequest{
 		Messages: []*agent.Message{{
@@ -23,8 +21,6 @@ func reqWith(text string) agent.ContextRequest {
 	}
 }
 
-// TestContextOrdering verifies that context handlers run in extension
-// registration order, then in in-extension registration order.
 func TestContextOrdering(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -57,7 +53,6 @@ func TestContextOrdering(t *testing.T) {
 	if !reflect.DeepEqual(order, want) {
 		t.Fatalf("handler order = %v, want %v", order, want)
 	}
-	// No handler replaced anything: the input passes through unchanged.
 	if len(res.Messages) != 1 || res.Messages[0] != req.Messages[0] {
 		t.Fatal("context result messages must be the input unchanged")
 	}
@@ -69,8 +64,6 @@ func TestContextOrdering(t *testing.T) {
 	}
 }
 
-// TestContextChainReplacesMessages verifies the mutating chain: handlers
-// see the previous handler's replacement and the final value is returned.
 func TestContextChainReplacesMessages(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
@@ -82,7 +75,6 @@ func TestContextChainReplacesMessages(t *testing.T) {
 		build())
 	reg.Register(ext("b").
 		context(func(ctx sdk.HandlerContext, e sdk.ContextEvent) (*sdk.ContextEventResult, error) {
-			// The previous handler's replacement is visible here.
 			if len(e.Messages) != 1 || e.Messages[0].Content[0].Text != "replaced" {
 				t.Errorf("handler b saw %v, want the replacement from a", e.Messages)
 			}
@@ -101,8 +93,6 @@ func TestContextChainReplacesMessages(t *testing.T) {
 	}
 }
 
-// TestContextPanicAndErrorIsolation verifies that a failing handler is
-// logged exactly once and does not stop the remaining handlers.
 func TestContextPanicAndErrorIsolation(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -133,7 +123,6 @@ func TestContextPanicAndErrorIsolation(t *testing.T) {
 	if !reflect.DeepEqual(order, []string{"a1-error", "a2-panic", "a3"}) {
 		t.Fatalf("handler order = %v, want all three handlers to run", order)
 	}
-	// The surviving handler's replacement is the chain result.
 	if len(res.Messages) != 1 || !strings.Contains(string(res.Messages[0].User.Content), "survivor") {
 		t.Fatalf("result = %+v, want the survivor replacement", res.Messages)
 	}
@@ -149,8 +138,6 @@ func TestContextPanicAndErrorIsolation(t *testing.T) {
 	}
 }
 
-// TestContextRetainsLastValidValue verifies that a failed handler does
-// not discard the previous handler's replacement.
 func TestContextRetainsLastValidValue(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
@@ -180,8 +167,6 @@ func TestContextRetainsLastValidValue(t *testing.T) {
 	}
 }
 
-// TestMessageEndChaining verifies ordering and replacement on the
-// message_end chain.
 func TestMessageEndChaining(t *testing.T) {
 	reg := NewRegistry()
 	var order []string
@@ -219,8 +204,6 @@ func TestMessageEndChaining(t *testing.T) {
 	}
 }
 
-// TestMessageEndRoleViolationKeepsCurrent verifies that a replacement
-// with the wrong role is logged and ignored.
 func TestMessageEndRoleViolationKeepsCurrent(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -246,8 +229,6 @@ func TestMessageEndRoleViolationKeepsCurrent(t *testing.T) {
 	}
 }
 
-// TestToolCallOrderingAndDeny verifies the tool_call chain order and the
-// first-Block-wins short circuit.
 func TestToolCallOrderingAndDeny(t *testing.T) {
 	reg := NewRegistry()
 	var order []string
@@ -255,7 +236,7 @@ func TestToolCallOrderingAndDeny(t *testing.T) {
 	reg.Register(ext("a").
 		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
 			order = append(order, "a1")
-			return nil, nil // allow
+			return nil, nil
 		}).
 		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
 			order = append(order, "a2-deny")
@@ -282,12 +263,11 @@ func TestToolCallOrderingAndDeny(t *testing.T) {
 	}
 }
 
-// TestToolCallAllowsWhenNothingBlocks verifies the allow path.
 func TestToolCallAllowsWhenNothingBlocks(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
 		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
-			return &sdk.ToolCallDecision{}, nil // zero decision: allow
+			return &sdk.ToolCallDecision{}, nil
 		}).
 		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
 			return nil, nil
@@ -304,9 +284,6 @@ func TestToolCallAllowsWhenNothingBlocks(t *testing.T) {
 	}
 }
 
-// TestToolCallErrorsAndPanicsNeverDeny verifies the fail-safe policy: a
-// failing handler is logged, the chain continues, and the call is only
-// denied by a handler that explicitly blocks.
 func TestToolCallErrorsAndPanicsNeverDeny(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -345,8 +322,6 @@ func TestToolCallErrorsAndPanicsNeverDeny(t *testing.T) {
 	}
 }
 
-// TestToolCallPanicAloneAllows verifies that a chain whose only failure
-// is a panic still allows the call.
 func TestToolCallPanicAloneAllows(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -369,9 +344,6 @@ func TestToolCallPanicAloneAllows(t *testing.T) {
 	}
 }
 
-// TestToolCallFinalArgsReplacement verifies that a handler patching the
-// arguments through the decision's FinalArgs commits the replacement:
-// later handlers see it and the returned decision carries it.
 func TestToolCallFinalArgsReplacement(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
@@ -399,14 +371,11 @@ func TestToolCallFinalArgsReplacement(t *testing.T) {
 	}
 }
 
-// TestToolCallInPlaceMutationCommitted verifies that a same-length
-// in-place mutation of the event's Args is committed on success: later
-// handlers see it and the returned decision carries it.
 func TestToolCallInPlaceMutationCommitted(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
 		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
-			copy(e.Args, `{"path":"x.go"}`) // same length as the input
+			copy(e.Args, `{"path":"x.go"}`)
 			return nil, nil
 		}).
 		toolCall(func(ctx sdk.HandlerContext, e sdk.ToolCallEvent) (*sdk.ToolCallDecision, error) {
@@ -427,10 +396,6 @@ func TestToolCallInPlaceMutationCommitted(t *testing.T) {
 	}
 }
 
-// TestToolCallInvalidPatchRejected verifies that a handler returning an
-// invalid-JSON FinalArgs is treated as failed for the mutation: the
-// patch is logged, the last valid arguments are kept, later handlers see
-// them, and the chain still allows the call.
 func TestToolCallInvalidPatchRejected(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -463,9 +428,6 @@ func TestToolCallInvalidPatchRejected(t *testing.T) {
 	}
 }
 
-// TestToolCallInvalidInPlacePatchRejected verifies that a same-length
-// in-place mutation producing invalid JSON is rejected the same way: it
-// is logged and the last valid arguments are kept.
 func TestToolCallInvalidInPlacePatchRejected(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -492,9 +454,6 @@ func TestToolCallInvalidInPlacePatchRejected(t *testing.T) {
 	}
 }
 
-// TestToolCallFailedHandlerPatchDiscarded verifies that a failing
-// handler's patch is discarded: its FinalArgs is never committed, the
-// last valid arguments are kept, and a later handler still denies.
 func TestToolCallFailedHandlerPatchDiscarded(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
@@ -522,10 +481,6 @@ func TestToolCallFailedHandlerPatchDiscarded(t *testing.T) {
 	}
 }
 
-// TestToolCallDenyAfterPatchShortCircuits verifies that a deny still
-// short-circuits the chain after earlier handlers patched the
-// arguments: the decision carries the patched arguments as FinalArgs and
-// no later handler runs.
 func TestToolCallDenyAfterPatchShortCircuits(t *testing.T) {
 	reg := NewRegistry()
 	var order []string
@@ -562,8 +517,6 @@ func TestToolCallDenyAfterPatchShortCircuits(t *testing.T) {
 	}
 }
 
-// TestToolResultPartialPatch verifies the partial-patch semantics: only
-// non-nil patch fields apply, in chain order.
 func TestToolResultPartialPatch(t *testing.T) {
 	reg := NewRegistry()
 	res := agent.Result{Content: []agent.ContentBlock{{Type: "text", Text: "original"}}, IsError: true}
@@ -596,8 +549,6 @@ func TestToolResultPartialPatch(t *testing.T) {
 	}
 }
 
-// TestToolResultRetainsLastValidValue verifies that a failed handler does
-// not discard earlier patches.
 func TestToolResultRetainsLastValidValue(t *testing.T) {
 	reg := NewRegistry()
 	res := agent.Result{Content: []agent.ContentBlock{{Type: "text", Text: "original"}}}
@@ -623,8 +574,6 @@ func TestToolResultRetainsLastValidValue(t *testing.T) {
 	}
 }
 
-// TestRetryAndSessionEvents verifies the event fields reach the handlers
-// and the events dispatch in order.
 func TestRetryAndSessionEvents(t *testing.T) {
 	reg := NewRegistry()
 	var start *sdk.AutoRetryStartEvent
@@ -686,8 +635,6 @@ func TestRetryAndSessionEvents(t *testing.T) {
 	}
 }
 
-// TestRetryEventIsolation verifies failing retry and session handlers
-// are logged and skipped.
 func TestRetryEventIsolation(t *testing.T) {
 	reg := NewRegistry()
 	log := &recLogger{}
@@ -719,8 +666,6 @@ func TestRetryEventIsolation(t *testing.T) {
 	}
 }
 
-// TestNoHandlersPassThrough verifies the no-handlers behavior: every
-// dispatch returns the input unchanged.
 func TestNoHandlersPassThrough(t *testing.T) {
 	reg := NewRegistry()
 	d := NewRuntime(reg).Dispatcher()
@@ -768,8 +713,6 @@ func TestNoHandlersPassThrough(t *testing.T) {
 	}
 }
 
-// TestSnapshotDuringDispatch verifies that handlers registered while a
-// dispatch runs apply to the next event, not the current one.
 func TestSnapshotDuringDispatch(t *testing.T) {
 	reg := NewRegistry()
 	var order []string
@@ -779,7 +722,6 @@ func TestSnapshotDuringDispatch(t *testing.T) {
 	a := ext("a").
 		context(func(hc sdk.HandlerContext, e sdk.ContextEvent) (*sdk.ContextEventResult, error) {
 			order = append(order, "a1")
-			// Register a second extension mid-dispatch, exactly once.
 			registered.Do(func() {
 				if err := reg.Register(ext("b").
 					context(func(hc sdk.HandlerContext, e sdk.ContextEvent) (*sdk.ContextEventResult, error) {
@@ -808,8 +750,6 @@ func TestSnapshotDuringDispatch(t *testing.T) {
 	}
 }
 
-// TestNilDispatcherIsSafe verifies the nil-receiver equivalent: a nil
-// dispatcher behaves as one with no handlers.
 func TestNilDispatcherIsSafe(t *testing.T) {
 	var d *Dispatcher
 	req := reqWith("x")
@@ -829,8 +769,6 @@ func TestNilDispatcherIsSafe(t *testing.T) {
 	}
 }
 
-// TestNilMessageEndIsSafe verifies MessageEnd with a nil message returns
-// nil without panicking.
 func TestNilMessageEndIsSafe(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
@@ -845,14 +783,10 @@ func TestNilMessageEndIsSafe(t *testing.T) {
 	}
 }
 
-// TestInputNeverMutated verifies the deep-copy boundary: handlers cannot
-// mutate the caller's request messages.
 func TestInputNeverMutated(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(ext("a").
 		context(func(ctx sdk.HandlerContext, e sdk.ContextEvent) (*sdk.ContextEventResult, error) {
-			// Aggressively mutate the event in place; the input must not
-			// observe any of it.
 			for i := range e.Messages {
 				e.Messages[i].Role = "hacker"
 				for j := range e.Messages[i].Content {

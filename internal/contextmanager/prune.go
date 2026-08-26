@@ -4,33 +4,13 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// PrunePlaceholder replaces the content of pruned tool results, so the
-// model still sees the call but not the full output. Keeping the exact
-// string stable lets the manager recognize already-pruned results and
-// lets operators grep sessions for pruned context.
 const PrunePlaceholder = "[Tool result pruned to reduce context. Re-run the tool if you need this output.]"
 
-// pruneOutcome is the result of one prune pass.
 type pruneOutcome struct {
 	messages []*agent.Message
 	ids      []agent.ToolCallID
 }
 
-// pruneMessages replaces the content of prunable tool results with the
-// placeholder, operating on tool-call/result pairs: the assistant
-// toolCall block stays intact and only the result content is replaced.
-// A tool result is prunable when all of the following hold:
-//
-//   - it is not an error result (errors are never pruned),
-//   - its ToolCallID is not pinned,
-//   - its ToolCallID matches a toolCall block in the conversation (it is
-//     the result half of a real pair),
-//   - its content is not already the prune placeholder,
-//   - it sits outside the protected recent window (the last
-//     keepRecent messages are untouched).
-//
-// The input slice and messages are not mutated: pruned messages are
-// replaced by copies in the returned list.
 func pruneMessages(messages []*agent.Message, keepRecent int, pinned map[agent.ToolCallID]struct{}) pruneOutcome {
 	out := make([]*agent.Message, len(messages))
 	copy(out, messages)
@@ -66,8 +46,6 @@ func pruneMessages(messages []*agent.Message, keepRecent int, pinned map[agent.T
 	return pruneOutcome{messages: out, ids: ids}
 }
 
-// knownToolCallIDs returns every tool call id that appears in the
-// assistant messages of the conversation.
 func knownToolCallIDs(messages []*agent.Message) map[string]struct{} {
 	known := make(map[string]struct{})
 	for _, msg := range messages {
@@ -83,9 +61,6 @@ func knownToolCallIDs(messages []*agent.Message) map[string]struct{} {
 	return known
 }
 
-// alreadyPruned reports whether a tool result already carries exactly
-// the prune placeholder, so an already-pruned result is never
-// re-reported or re-processed.
 func alreadyPruned(tr *agent.ToolResultMessage) bool {
 	return len(tr.Content) == 1 && tr.Content[0].Type == agent.BlockTypeText && tr.Content[0].Text == PrunePlaceholder
 }

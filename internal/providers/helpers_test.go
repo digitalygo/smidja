@@ -12,7 +12,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// stubTool is a minimal agent.Tool for request-shape tests.
 type stubTool struct {
 	name   string
 	desc   string
@@ -24,7 +23,6 @@ func (s stubTool) Description() string                                { return s
 func (s stubTool) Schema() json.RawMessage                            { return s.schema }
 func (s stubTool) Exec(context.Context, json.RawMessage) agent.Result { return agent.Result{} }
 
-// baseTurnReq returns a minimal turn request with one user message.
 func baseTurnReq() *agent.TurnRequest {
 	return &agent.TurnRequest{
 		Model: "test/model",
@@ -34,8 +32,6 @@ func baseTurnReq() *agent.TurnRequest {
 	}
 }
 
-// testDriver returns a driver pointed at the given base URL with a fixed
-// credential and identity.
 func testDriver(t *testing.T, baseURL string) *OpenAICompletions {
 	t.Helper()
 	return NewOpenAICompletions(Config{
@@ -48,9 +44,6 @@ func testDriver(t *testing.T, baseURL string) *OpenAICompletions {
 	}, nil)
 }
 
-// captureServer serves the given SSE events and records the request it
-// received. Events are flushed one by one so the client reads them
-// incrementally.
 func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedRequest) {
 	t.Helper()
 	captured := &capturedRequest{}
@@ -76,7 +69,6 @@ func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedR
 	return srv, captured
 }
 
-// capturedRequest holds what captureServer recorded about a request.
 type capturedRequest struct {
 	method string
 	path   string
@@ -84,7 +76,6 @@ type capturedRequest struct {
 	body   []byte
 }
 
-// equalStrings compares two string slices.
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

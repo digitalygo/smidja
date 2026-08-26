@@ -8,14 +8,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// Test helpers shared by the extensions package tests: a builder for
-// test extensions, a recording logger, a stub API, and a fake handler
-// context. They live in the package so tests can also exercise
-// unexported internals (snapshot, defaultContext, noopUI).
-
-// builder accumulates the capability groups of one test extension. Call
-// the group methods in the order the handlers should be registered, then
-// build.
 type builder struct {
 	id          string
 	setupFn     func(sdk.API) error
@@ -29,7 +21,6 @@ type builder struct {
 	sessionOffs []sdk.SessionShutdownHandler
 }
 
-// ext starts a test extension builder with the given id.
 func ext(id string) *builder { return &builder{id: id} }
 
 func (b *builder) setup(fn func(sdk.API) error) *builder { b.setupFn = fn; return b }
@@ -66,13 +57,10 @@ func (b *builder) sessionShutdown(fn sdk.SessionShutdownHandler) *builder {
 	return b
 }
 
-// build returns the extension; every registered handler type is present
-// so the compile-time capability assertions hold.
 func (b *builder) build() sdk.Extension {
 	return &hookExtension{b: b}
 }
 
-// hookExtension is the concrete test extension behind builder.
 type hookExtension struct{ b *builder }
 
 var (
@@ -125,8 +113,6 @@ func (e *hookExtension) RegisterSessionHooks(r sdk.SessionHookRegistry) {
 	}
 }
 
-// recLogger records formatted lines for assertions. It is safe for
-// concurrent use.
 type recLogger struct {
 	mu    sync.Mutex
 	lines []string
@@ -152,8 +138,6 @@ func (l *recLogger) all() []string {
 	return out
 }
 
-// stubAPI is a minimal sdk.API implementation that records the calls
-// tests care about.
 type stubAPI struct {
 	calls []string
 }
@@ -213,8 +197,6 @@ func (a *stubAPI) EmitCustomEvent(name string, data any) error {
 	return nil
 }
 
-// fakeContext is a host-provided handler context used to verify that the
-// runtime passes the host context through to handlers.
 type fakeContext struct {
 	sdk.API
 	mode sdk.Mode

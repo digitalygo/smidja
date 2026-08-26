@@ -12,10 +12,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// anthropicMessageEvents is the set of SSE event names the messages API
-// streams. Every other event (ping, ...) is ignored, exactly as Pi's
-// ANTHROPIC_MESSAGE_EVENTS. The messages API does not use a [DONE]
-// sentinel; message_stop terminates the stream.
 var anthropicMessageEvents = map[string]bool{
 	"message_start":       true,
 	"message_delta":       true,
@@ -25,9 +21,6 @@ var anthropicMessageEvents = map[string]bool{
 	"content_block_stop":  true,
 }
 
-// anthropicEvent is the JSON envelope shared by every messages API SSE
-// event. Delta holds the type-specific fragment for content_block_delta
-// and message_delta and is decoded per event type.
 type anthropicEvent struct {
 	Type         string                 `json:"type"`
 	Message      *anthropicMessage      `json:"message,omitempty"`
@@ -37,15 +30,11 @@ type anthropicEvent struct {
 	Usage        *anthropicUsage        `json:"usage,omitempty"`
 }
 
-// anthropicMessage is the message object of a message_start event; only
-// the id and the initial usage are consumed.
 type anthropicMessage struct {
 	ID    string          `json:"id"`
 	Usage *anthropicUsage `json:"usage"`
 }
 
-// anthropicContentBlock is a content_block_start payload: text, thinking,
-// redacted_thinking, or tool_use.
 type anthropicContentBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text,omitempty"`
@@ -57,8 +46,6 @@ type anthropicContentBlock struct {
 	Input     json.RawMessage `json:"input,omitempty"`
 }
 
-// anthropicDelta is a content_block_delta payload; exactly one field is
-// set per delta type.
 type anthropicDelta struct {
 	Type        string `json:"type"`
 	Text        string `json:"text,omitempty"`
@@ -67,8 +54,6 @@ type anthropicDelta struct {
 	PartialJSON string `json:"partial_json,omitempty"`
 }
 
-// anthropicMessageDelta is a message_delta payload carrying the stop
-// reason and its optional explanation.
 type anthropicMessageDelta struct {
 	StopReason  string `json:"stop_reason"`
 	StopDetails struct {
@@ -76,9 +61,6 @@ type anthropicMessageDelta struct {
 	} `json:"stop_details"`
 }
 
-// anthropicUsage is the token accounting. Counts are pointers so null
-// fields (which proxies send in message_delta) decode without error; nil
-// means "not present", mirroring Pi's null checks.
 type anthropicUsage struct {
 	InputTokens              *int64                  `json:"input_tokens"`
 	OutputTokens             *int64                  `json:"output_tokens"`
@@ -87,23 +69,13 @@ type anthropicUsage struct {
 	OutputTokensDetails      *anthropicOutputDetails `json:"output_tokens_details,omitempty"`
 }
 
-// anthropicOutputDetails breaks down output tokens; thinking_tokens is the
-// reasoning subset reported on the final message_delta.
 type anthropicOutputDetails struct {
 	ThinkingTokens *int64 `json:"thinking_tokens"`
 }
 
-// readStream reads and parses the SSE stream of one messages response,
-// delivering text and thinking deltas to the callbacks and accumulating
-// content blocks, tool calls, usage, and the stop reason. It returns the
-// completed assistant message, or nil and an error when the stream aborts
-// or ends prematurely. Error messages are prefixed with the driver's
-// provider prefix.
 func (d *Anthropic) readStream(ctx context.Context, resp *http.Response, req *agent.TurnRequest, onText func(string), onThinking func(string)) (*agent.AssistantMessage, error) {
 	state := newAnthropicStreamState(d.prefix, d.providerID, req.Model, d.oauth, req.Tools, onText, onThinking)
 
-	// The stream may stall with the connection open; closing the body when
-	// the context is cancelled unblocks the reader below.
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -133,14 +105,12 @@ func (d *Anthropic) readStream(ctx context.Context, resp *http.Response, req *ag
 			}
 			eventName = ""
 		case strings.HasPrefix(line, ":"):
-			// SSE comment line; ignore.
 		case strings.HasPrefix(line, "event:"):
 			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		case strings.HasPrefix(line, "data:"):
 			dataLines = append(dataLines, strings.TrimPrefix(line, "data:"))
 		}
 	}
-	// Flush a trailing event whose terminating blank line never arrived.
 	if len(dataLines) > 0 {
 		if err := state.handleEvent(eventName, strings.Join(dataLines, "\n")); err != nil {
 			return nil, err
@@ -156,10 +126,6 @@ func (d *Anthropic) readStream(ctx context.Context, resp *http.Response, req *ag
 	return state.finish()
 }
 
-// anthropicStreamState accumulates the parsed output of one streaming
-// messages response. Content blocks are keyed by their wire index
-// (byIndex) so deltas and stops land on the right block regardless of
-// interleaving.
 type anthropicStreamState struct {
 	prefix     string
 	providerID string
@@ -167,8 +133,8 @@ type anthropicStreamState struct {
 	oauth      bool
 	tools      []agent.Tool
 	blocks     []agent.ContentBlock
-	args       []*strings.Builder // tool-call argument fragments, aligned with blocks
-	byIndex    map[int]int        // wire content index -> block position
+	args       []*strings.Builder
+	byIndex    map[int]int
 	sawStart   bool
 	sawEnd     bool
 	sawStop    bool
@@ -180,9 +146,6 @@ type anthropicStreamState struct {
 	onThinking func(string)
 }
 
-// newAnthropicStreamState returns an empty state for the given provider
-// identity, model, and callbacks. prefix is the driver's error-message
-// prefix.
 func newAnthropicStreamState(prefix, providerID, model string, oauth bool, tools []agent.Tool, onText func(string), onThinking func(string)) *anthropicStreamState {
 	return &anthropicStreamState{
 		prefix:     prefix,
@@ -196,16 +159,11 @@ func newAnthropicStreamState(prefix, providerID, model string, oauth bool, tools
 	}
 }
 
-// handleEvent routes one flushed SSE event. The error event aborts the
-// stream with its raw payload, exactly as Pi throws the error data; named
-// message events are parsed and applied; everything else is ignored.
 func (s *anthropicStreamState) handleEvent(name, data string) error {
 	if name == "error" {
 		return fmt.Errorf("%s: provider stream error: %s", s.prefix, data)
 	}
 	if name == "" {
-		// Data without an event name: dispatch only when the payload is a
-		// recognized message event; anything else is ignored.
 		var probe struct {
 			Type string `json:"type"`
 		}
@@ -214,7 +172,7 @@ func (s *anthropicStreamState) handleEvent(name, data string) error {
 		}
 		name = probe.Type
 	} else if !anthropicMessageEvents[name] {
-		return nil // ping and other non-message events are ignored
+		return nil
 	}
 
 	var ev anthropicEvent
@@ -227,7 +185,6 @@ func (s *anthropicStreamState) handleEvent(name, data string) error {
 	return s.apply(&ev)
 }
 
-// apply folds one parsed message event into the state.
 func (s *anthropicStreamState) apply(ev *anthropicEvent) error {
 	switch ev.Type {
 	case "message_start":
@@ -278,11 +235,6 @@ func (s *anthropicStreamState) apply(ev *anthropicEvent) error {
 	return nil
 }
 
-// applyUsage folds a usage payload into the running accounting.
-// message_start usage overwrites every field; message_delta usage only
-// updates fields that are present, so a proxy that omits input counts does
-// not wipe the values captured at start. TotalTokens is always recomputed
-// from the components, since Anthropic does not report it.
 func (s *anthropicStreamState) applyUsage(u *anthropicUsage, overwrite bool) {
 	if overwrite {
 		s.usage.Input = ptrOrZero(u.InputTokens)
@@ -309,7 +261,6 @@ func (s *anthropicStreamState) applyUsage(u *anthropicUsage, overwrite bool) {
 	s.usage.TotalTokens = s.usage.Input + s.usage.Output + s.usage.CacheRead + s.usage.CacheWrite
 }
 
-// ptrOrZero dereferences a nullable token count.
 func ptrOrZero(p *int64) int64 {
 	if p == nil {
 		return 0
@@ -317,9 +268,6 @@ func ptrOrZero(p *int64) int64 {
 	return *p
 }
 
-// startBlock opens a content block at the wire index. Blocks are appended
-// in first-appearance order and the index map keeps later deltas and stops
-// on the right position even when blocks interleave.
 func (s *anthropicStreamState) startBlock(index int, cb *anthropicContentBlock) {
 	block := agent.ContentBlock{}
 	switch cb.Type {
@@ -332,7 +280,7 @@ func (s *anthropicStreamState) startBlock(index int, cb *anthropicContentBlock) 
 	case "tool_use":
 		block = agent.ContentBlock{Type: agent.BlockTypeToolCall, ID: cb.ID, Name: toolNameFromWire(cb.Name, s.oauth, s.tools), Arguments: toolInput(cb.Input)}
 	default:
-		return // unknown block types are ignored, as in Pi
+		return
 	}
 	s.blocks = append(s.blocks, block)
 	pos := len(s.blocks) - 1
@@ -344,8 +292,6 @@ func (s *anthropicStreamState) startBlock(index int, cb *anthropicContentBlock) 
 	}
 }
 
-// applyDelta folds one content_block_delta fragment into the block at the
-// wire index. Unknown delta types are ignored, as in Pi.
 func (s *anthropicStreamState) applyDelta(index int, d *anthropicDelta) {
 	pos, ok := s.byIndex[index]
 	if !ok {
@@ -377,9 +323,6 @@ func (s *anthropicStreamState) applyDelta(index int, d *anthropicDelta) {
 	}
 }
 
-// stopBlock finalizes the block at the wire index: the accumulated
-// input_json_delta fragments become the tool arguments when they assemble
-// into valid JSON, otherwise the start input is kept.
 func (s *anthropicStreamState) stopBlock(index int) {
 	pos, ok := s.byIndex[index]
 	if !ok {
@@ -395,11 +338,6 @@ func (s *anthropicStreamState) stopBlock(index int) {
 	}
 }
 
-// mapStopReason maps a messages API stop_reason onto agent stop reasons,
-// ported from Pi's mapStopReason: end_turn, pause_turn, and stop_sequence
-// become "stop", tool_use becomes "toolUse", max_tokens becomes "length",
-// and refusal and sensitive stops become errors. Unknown stop reasons abort
-// the turn, exactly as Pi throws.
 func (s *anthropicStreamState) mapStopReason(reason, explanation string) (string, string, error) {
 	switch reason {
 	case "end_turn":
@@ -425,10 +363,6 @@ func (s *anthropicStreamState) mapStopReason(reason, explanation string) (string
 	}
 }
 
-// finish assembles the final assistant message, validating that the stream
-// terminated cleanly: a message_stop event and a stop reason must have been
-// observed, and a refused or otherwise failed turn surfaces as an error,
-// mirroring Pi.
 func (s *anthropicStreamState) finish() (*agent.AssistantMessage, error) {
 	if !s.sawEnd {
 		if !s.sawStart {

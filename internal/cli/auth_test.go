@@ -5,13 +5,17 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -839,9 +843,45 @@ func TestAuthOptionsForSeam(t *testing.T) {
 	}
 }
 
-func TestOpenBrowserURL(t *testing.T) {
+func TestBrowserCommand(t *testing.T) {
+	tests := []struct {
+		name       string
+		goos       string
+		wantBinary string
+		wantArgs   []string
+	}{
+		{name: "linux", goos: "linux", wantBinary: "xdg-open", wantArgs: nil},
+		{name: "darwin", goos: "darwin", wantBinary: "open", wantArgs: nil},
+		{name: "windows", goos: "windows", wantBinary: "rundll32", wantArgs: []string{"url.dll,FileProtocolHandler"}},
+		{name: "unknown defaults to xdg-open", goos: "plan9", wantBinary: "xdg-open", wantArgs: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binary, args := browserCommand(tt.goos)
+			if binary != tt.wantBinary {
+				t.Errorf("browserCommand(%q) binary = %q, want %q", tt.goos, binary, tt.wantBinary)
+			}
+			if !slices.Equal(args, tt.wantArgs) {
+				t.Errorf("browserCommand(%q) args = %v, want %v", tt.goos, args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestOpenBrowserURLMissingOpener(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	currentOS = "windows"
+	t.Cleanup(func() { currentOS = runtime.GOOS })
 	err := openBrowserURL("https://127.0.0.1:1/")
-	_ = err
+	if err == nil {
+		t.Fatal("openBrowserURL succeeded with an empty PATH")
+	}
+	if !errors.Is(err, exec.ErrNotFound) {
+		t.Errorf("err = %v, want a PATH lookup error", err)
+	}
+	if !strings.Contains(err.Error(), "rundll32") {
+		t.Errorf("err = %v, want the windows opener binary in the error", err)
+	}
 }
 
 func TestStatusHelpers(t *testing.T) {

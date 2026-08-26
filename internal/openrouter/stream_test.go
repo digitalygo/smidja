@@ -14,7 +14,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// baseTurnReq returns a minimal turn request with one user message.
 func baseTurnReq() *agent.TurnRequest {
 	return &agent.TurnRequest{
 		Model: "test/model",
@@ -71,9 +70,6 @@ func TestStreamTurnText(t *testing.T) {
 	}
 }
 
-// TestStreamTurnUsageOnlyFinalChunk exercises the final chunk with an
-// empty choices array: it must contribute usage without touching content,
-// and cost/detail fields must map into agent.Usage.
 func TestStreamTurnUsageOnlyFinalChunk(t *testing.T) {
 	events := []string{
 		`{"id":"gen_2","choices":[{"index":0,"delta":{"content":"hi there"}}]}`,
@@ -106,20 +102,15 @@ func TestStreamTurnUsageOnlyFinalChunk(t *testing.T) {
 	if u.Cost.Input != 0.01 || u.Cost.Output != 0.02 || u.Cost.Total != 0.03 {
 		t.Errorf("cost = %+v, want 0.01/0.02/0.03", u.Cost)
 	}
-	// No finish_reason was sent: the completed turn defaults to stop.
 	if msg.StopReason != "stop" {
 		t.Errorf("stopReason = %q, want stop default", msg.StopReason)
 	}
 }
 
-// TestStreamTurnCostVariants is a regression test for the live-stream
-// failure where OpenRouter reported usage.cost as a bare number and the
-// wire decoder aborted the turn mid-stream. Every cost shape must decode
-// without error and map to sane agent.Usage values.
 func TestStreamTurnCostVariants(t *testing.T) {
 	tests := []struct {
 		name string
-		cost string // raw JSON for usage.cost; "" omits the key
+		cost string
 		want agent.Cost
 	}{
 		{
@@ -174,9 +165,6 @@ func TestStreamTurnCostVariants(t *testing.T) {
 	}
 }
 
-// TestStreamTurnUsageDetailVariants verifies that the optional usage
-// breakdowns never abort the stream: absent or null details, alternate key
-// spellings, and non-object shapes all decode to sane agent.Usage values.
 func TestStreamTurnUsageDetailVariants(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -230,8 +218,6 @@ func TestStreamTurnUsageDetailVariants(t *testing.T) {
 	}
 }
 
-// TestStreamTurnToolCallSplit feeds one tool call whose arguments arrive
-// in fragments and verifies the accumulated raw JSON.
 func TestStreamTurnToolCallSplit(t *testing.T) {
 	events := []string{
 		`{"id":"gen_3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"read","arguments":""}}]}}]}`,
@@ -263,9 +249,6 @@ func TestStreamTurnToolCallSplit(t *testing.T) {
 	}
 }
 
-// TestStreamTurnInterleavedToolCalls feeds two tool calls whose fragments
-// interleave by index and verifies first-appearance order and per-index
-// accumulation.
 func TestStreamTurnInterleavedToolCalls(t *testing.T) {
 	events := []string{
 		`{"id":"gen_4","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_0","type":"function","function":{"name":"read","arguments":"{\"path\":"}}]}}]}`,
@@ -297,8 +280,6 @@ func TestStreamTurnInterleavedToolCalls(t *testing.T) {
 	}
 }
 
-// TestStreamTurnReasoning feeds reasoning deltas and verifies they are
-// forwarded and accumulated as thinking blocks ahead of the text.
 func TestStreamTurnReasoning(t *testing.T) {
 	events := []string{
 		`{"id":"gen_5","choices":[{"index":0,"delta":{"reasoning":"Let me think"}}]}`,
@@ -333,8 +314,6 @@ func TestStreamTurnReasoning(t *testing.T) {
 	}
 }
 
-// TestStreamTurnDoneSentinel verifies clean termination on [DONE] alone,
-// without any finish_reason chunk.
 func TestStreamTurnDoneSentinel(t *testing.T) {
 	events := []string{
 		`{"id":"gen_6","choices":[{"index":0,"delta":{"content":"done!"}}]}`,
@@ -355,8 +334,6 @@ func TestStreamTurnDoneSentinel(t *testing.T) {
 	}
 }
 
-// TestStreamTurnMissingDoneWithFinishReason verifies that a stream ending
-// without [DONE] is accepted when a finish_reason was observed.
 func TestStreamTurnMissingDoneWithFinishReason(t *testing.T) {
 	events := []string{
 		`{"id":"gen_7","choices":[{"index":0,"delta":{"content":"ok"}}]}`,
@@ -374,8 +351,6 @@ func TestStreamTurnMissingDoneWithFinishReason(t *testing.T) {
 	}
 }
 
-// TestStreamTurnPrematureEOF verifies the error when the stream ends
-// without [DONE] and without a finish_reason.
 func TestStreamTurnPrematureEOF(t *testing.T) {
 	events := []string{
 		`{"id":"gen_8","choices":[{"index":0,"delta":{"content":"half"}}]}`,
@@ -395,8 +370,6 @@ func TestStreamTurnPrematureEOF(t *testing.T) {
 	}
 }
 
-// TestStreamTurnEmptyStream treats an immediately closed stream as
-// premature EOF.
 func TestStreamTurnEmptyStream(t *testing.T) {
 	srv, _ := captureServer(t)
 	defer srv.Close()
@@ -407,8 +380,6 @@ func TestStreamTurnEmptyStream(t *testing.T) {
 	}
 }
 
-// TestStreamTurnSSEErrorEvent verifies that an error envelope arriving as
-// an SSE data event after a 200 status aborts the stream.
 func TestStreamTurnSSEErrorEvent(t *testing.T) {
 	events := []string{
 		`{"id":"gen_9","choices":[{"index":0,"delta":{"content":"partial"}}]}`,
@@ -432,8 +403,6 @@ func TestStreamTurnSSEErrorEvent(t *testing.T) {
 	}
 }
 
-// TestStreamTurnDecodeError verifies a malformed SSE payload aborts the
-// stream with a decode error.
 func TestStreamTurnDecodeError(t *testing.T) {
 	events := []string{
 		`not json at all`,
@@ -450,8 +419,6 @@ func TestStreamTurnDecodeError(t *testing.T) {
 	}
 }
 
-// TestStreamTurnCancellation verifies that cancelling the context aborts a
-// stalled stream and returns context.Canceled.
 func TestStreamTurnCancellation(t *testing.T) {
 	firstChunk := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -495,17 +462,11 @@ func TestStreamTurnCancellation(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNoCapsLargeInterleaved is a regression test for the
-// removed per-turn caps: a stream with many interleaved text and thinking
-// blocks plus several tool calls whose arguments exceed the old per-call
-// cap must complete fully. The old defaults capped a turn at 4 MiB of
-// text, 4 MiB of thinking, 1 MiB of arguments per tool call, and 100000
-// data events; this stream exceeds all four and every block must survive.
 func TestStreamTurnNoCapsLargeInterleaved(t *testing.T) {
-	const cycles = 50001 // 100002 data events: over the old 100000-event cap
+	const cycles = 50001
 	textDelta := strings.Repeat("x", 100)
 	thinkDelta := strings.Repeat("y", 100)
-	bigArgs := strings.Repeat("z", 1200*1024) // 1.2 MiB: over the old 1 MiB per-call cap
+	bigArgs := strings.Repeat("z", 1200*1024)
 
 	events := make([]string, 0, 2*cycles+4)
 	for i := 0; i < cycles; i++ {
@@ -514,7 +475,6 @@ func TestStreamTurnNoCapsLargeInterleaved(t *testing.T) {
 		events = append(events, fmt.Sprintf(
 			`{"id":"gen_nc","choices":[{"index":0,"delta":{"reasoning":%q}}]}`, thinkDelta))
 		if i == 1000 || i == 25000 || i == 40000 {
-			// Distinct delta indexes keep the three calls separate.
 			idx := map[int]int{1000: 0, 25000: 1, 40000: 2}[i]
 			events = append(events, fmt.Sprintf(
 				`{"id":"gen_nc","choices":[{"index":0,"delta":{"tool_calls":[{"index":%d,"id":"c%d","type":"function","function":{"name":"read","arguments":%q}}]}}]}`, idx, i, bigArgs))
@@ -566,7 +526,6 @@ func TestStreamTurnNoCapsLargeInterleaved(t *testing.T) {
 	}
 }
 
-// equalStrings compares two string slices.
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

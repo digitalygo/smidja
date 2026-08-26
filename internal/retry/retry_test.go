@@ -10,9 +10,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture helpers
-
 func errMsg(text string) *agent.AssistantMessage {
 	return &agent.AssistantMessage{Role: string(agent.RoleAssistant), StopReason: "error", ErrorMessage: text}
 }
@@ -38,7 +35,6 @@ type finishedEvent struct {
 	finalError string
 }
 
-// recordingCallbacks implements Callbacks and records every event.
 type recordingCallbacks struct {
 	scheduled     []scheduledEvent
 	attemptStarts int
@@ -55,7 +51,6 @@ func (c *recordingCallbacks) OnRetryFinished(success bool, attempt int, finalErr
 	c.finished = append(c.finished, finishedEvent{success, attempt, finalError})
 }
 
-// immediateSleeper records every delay and returns immediately.
 func immediateSleeper(record *[]time.Duration) SleepFunc {
 	return func(_ context.Context, d time.Duration) error {
 		*record = append(*record, d)
@@ -63,7 +58,6 @@ func immediateSleeper(record *[]time.Duration) SleepFunc {
 	}
 }
 
-// cancellingSleeper aborts the context as soon as a backoff sleep starts.
 func cancellingSleeper(cancel context.CancelFunc) SleepFunc {
 	return func(ctx context.Context, _ time.Duration) error {
 		cancel()
@@ -72,16 +66,12 @@ func cancellingSleeper(cancel context.CancelFunc) SleepFunc {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Classify: every pattern category, both directions.
-
 func TestClassifyPatterns(t *testing.T) {
 	tests := []struct {
 		name string
 		msg  string
 		want bool
 	}{
-		// Non-retryable: quota/billing exhaustion.
 		{"go usage limit", "GoUsageLimitError: monthly limit reached", false},
 		{"free usage limit", "FreeUsageLimitError", false},
 		{"monthly usage limit", "Monthly usage limit reached for your plan", false},
@@ -90,10 +80,8 @@ func TestClassifyPatterns(t *testing.T) {
 		{"out of budget", "request out of budget", false},
 		{"quota exceeded", "quota exceeded", false},
 		{"billing", "billing issue on your account", false},
-		// Non-retryable wins over retryable.
 		{"billing beats overloaded", "billing overloaded endpoint", false},
 		{"quota beats 429", "quota exceeded (429)", false},
-		// Retryable: provider load and HTTP status codes.
 		{"overloaded", "model is overloaded", true},
 		{"rate limit spaced", "rate limit hit", true},
 		{"ratelimit", "ratelimit", true},
@@ -110,7 +98,6 @@ func TestClassifyPatterns(t *testing.T) {
 		{"internal error", "internal error", true},
 		{"provider returned error", "Provider returned error: 500 from upstream", true},
 		{"buffer limit", "exceeded request buffer limit while retrying upstream", true},
-		// Network and transport failures.
 		{"network error", "network error", true},
 		{"connection error", "connection error", true},
 		{"connection refused", "connection refused", true},
@@ -139,11 +126,9 @@ func TestClassifyPatterns(t *testing.T) {
 		{"try again", "try your request again", true},
 		{"please retry", "please retry your request", true},
 		{"ResourceExhausted", "ResourceExhausted: grpc status", true},
-		// Case-insensitive matching on both lists.
 		{"case retryable", "RATE LIMIT", true},
 		{"case retryable mixed", "Overloaded", true},
 		{"case non-retryable", "BILLING", false},
-		// No match.
 		{"empty", "", false},
 		{"random text", "some unrelated error", false},
 	}
@@ -177,12 +162,10 @@ func TestIsContextOverflow(t *testing.T) {
 		{"cerebras no body", "400 status code (no body)", true},
 		{"generic too many tokens", "too many tokens", true},
 		{"generic token limit", "token limit exceeded", true},
-		// Non-overflow exclusions win: throttling must stay retryable.
 		{"bedrock throttling", "Throttling error: Too many tokens, please wait before trying again", false},
 		{"bedrock service unavailable", "Service unavailable: too many tokens", false},
 		{"rate limit", "rate limit: too many tokens", false},
 		{"too many requests", "too many requests", false},
-		// No match.
 		{"empty", "", false},
 		{"unrelated", "model crashed", false},
 	}
@@ -194,9 +177,6 @@ func TestIsContextOverflow(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Retry loop semantics.
 
 func TestRetrySuccessNoRetry(t *testing.T) {
 	calls := 0
@@ -383,7 +363,7 @@ func TestRetryBudgetExhaustionAtMaxRetries(t *testing.T) {
 		calls++
 		return errMsg("overloaded"), nil
 	}
-	policy := Default() // MaxRetries 10
+	policy := Default()
 	var delays []time.Duration
 	cbs := &recordingCallbacks{}
 	got, err := Retry(context.Background(), produce, policy, cbs, WithSleeper(immediateSleeper(&delays)))
@@ -587,8 +567,6 @@ func TestRetryContextCancelAtProduce(t *testing.T) {
 }
 
 func TestRetryDefaultSleepTimer(t *testing.T) {
-	// Exercise the production sleep path (real timer) instead of an
-	// injected sleeper: a 1ms backoff must elapse and the retry run.
 	calls := 0
 	produce := func(ctx context.Context) (*agent.AssistantMessage, error) {
 		calls++
@@ -613,9 +591,6 @@ func TestRetryDefaultSleepTimer(t *testing.T) {
 }
 
 func TestRetryDefaultSleepCancellation(t *testing.T) {
-	// With the context already cancelled, the default sleep must return
-	// ctx.Err() immediately and the failed message normalizes to an
-	// aborted result, mirroring an abort before/during the backoff.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	produce := func(ctx context.Context) (*agent.AssistantMessage, error) {
@@ -642,11 +617,6 @@ func TestRetryNilProduce(t *testing.T) {
 }
 
 func TestRetryUnknownErrorMessageFallback(t *testing.T) {
-	// A retryable-classified message with an empty error message is not
-	// retryable at all (Pi requires errorMessage to classify), so the
-	// "Unknown error" fallback only matters for scheduled retries with a
-	// message that has an error text. Exercise the fallback through a
-	// transport error path where Classify matches the error text.
 	produce := func(ctx context.Context) (*agent.AssistantMessage, error) {
 		return nil, errors.New("overloaded")
 	}

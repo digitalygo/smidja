@@ -7,9 +7,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// TestBuildContents verifies the wire conversion of every message
-// variant: roles, thinking preservation rules, tool call ids, and
-// functionResponse merging.
 func TestBuildContents(t *testing.T) {
 	sameAssistant := &agent.AssistantMessage{
 		Role:     string(agent.RoleAssistant),
@@ -64,18 +61,14 @@ func TestBuildContents(t *testing.T) {
 		t.Fatalf("system = %+v, want one text part", system)
 	}
 
-	// user, assistant, merged tool results, cross assistant: the empty
-	// thinking message is dropped entirely.
 	if len(contents) != 4 {
 		t.Fatalf("contents = %d, want 4 (empty thinking message dropped)", len(contents))
 	}
 
-	// [0] user text
 	if contents[0].Role != "user" || len(contents[0].Parts) != 1 || *contents[0].Parts[0].Text != "hi" {
 		t.Errorf("contents[0] = %+v, want user text", contents[0])
 	}
 
-	// [1] same-provider model turn: text, thought+signature, functionCall
 	c1 := contents[1]
 	if c1.Role != "model" || len(c1.Parts) != 3 {
 		t.Fatalf("contents[1] = %+v, want model with 3 parts", c1)
@@ -91,7 +84,6 @@ func TestBuildContents(t *testing.T) {
 		t.Errorf("parts[2] = %+v, want functionCall read", c1.Parts[2])
 	}
 
-	// [2] and [3] merge into one user turn with two functionResponses
 	c2 := contents[2]
 	if c2.Role != "user" || len(c2.Parts) != 2 {
 		t.Fatalf("contents[2] = %+v, want merged user turn with 2 functionResponses", c2)
@@ -105,16 +97,12 @@ func TestBuildContents(t *testing.T) {
 		t.Errorf("parts[1] = %+v, want exec error boom", c2.Parts[1])
 	}
 
-	// [3] cross-provider thinking degrades to plain text
 	c4 := contents[3]
 	if c4.Role != "model" || len(c4.Parts) != 1 || *c4.Parts[0].Text != "cross thinking" || c4.Parts[0].Thought {
 		t.Errorf("contents[3] = %+v, want plain text degradation", c4)
 	}
 }
 
-// TestBuildContentsGemini3ToolCallIDs verifies that Gemini 3+ models
-// carry ids on functionCall and functionResponse parts, and that
-// signature-bearing thinking is kept.
 func TestBuildContentsGemini3ToolCallIDs(t *testing.T) {
 	assistant := &agent.AssistantMessage{
 		Role:     string(agent.RoleAssistant),
@@ -143,8 +131,6 @@ func TestBuildContentsGemini3ToolCallIDs(t *testing.T) {
 	}
 }
 
-// TestBuildContentsInvalidSignature verifies that an invalid base64
-// signature is dropped even for same-provider messages.
 func TestBuildContentsInvalidSignature(t *testing.T) {
 	assistant := &agent.AssistantMessage{
 		Role:     string(agent.RoleAssistant),
@@ -160,8 +146,6 @@ func TestBuildContentsInvalidSignature(t *testing.T) {
 	}
 }
 
-// TestBuildContentsEmptyToolArgs verifies tool calls without arguments
-// default to an empty object.
 func TestBuildContentsEmptyToolArgs(t *testing.T) {
 	assistant := &agent.AssistantMessage{
 		Role:     string(agent.RoleAssistant),
@@ -177,8 +161,6 @@ func TestBuildContentsEmptyToolArgs(t *testing.T) {
 	}
 }
 
-// TestBuildContentsUserBlockArray verifies block-array user content
-// flattens into text parts and empty arrays drop the message.
 func TestBuildContentsUserBlockArray(t *testing.T) {
 	contents, _ := BuildContents("", []*agent.Message{
 		{User: &agent.UserMessage{Role: string(agent.RoleUser), Content: json.RawMessage(
@@ -199,8 +181,6 @@ func TestBuildContentsUserBlockArray(t *testing.T) {
 	}
 }
 
-// TestBuildTools verifies the tool wire conversion, including the empty
-// case which must omit the field entirely.
 func TestBuildTools(t *testing.T) {
 	if empty := BuildTools(nil); empty != nil {
 		t.Errorf("BuildTools(nil) = %v, want nil", empty)
@@ -218,8 +198,6 @@ func TestBuildTools(t *testing.T) {
 	}
 }
 
-// TestRequiresToolCallID pins the model families that need explicit tool
-// call ids, mirroring pi-ai's google-shared helper.
 func TestRequiresToolCallID(t *testing.T) {
 	cases := []struct {
 		model string
@@ -242,7 +220,6 @@ func TestRequiresToolCallID(t *testing.T) {
 	}
 }
 
-// TestMapStopReason pins the finish reason mapping.
 func TestMapStopReason(t *testing.T) {
 	cases := []struct {
 		reason string
@@ -263,7 +240,6 @@ func TestMapStopReason(t *testing.T) {
 	}
 }
 
-// TestRetainThoughtSignature verifies last-non-empty semantics.
 func TestRetainThoughtSignature(t *testing.T) {
 	if got := retainThoughtSignature("", "new"); got != "new" {
 		t.Errorf("empty then new = %q, want new", got)
@@ -276,7 +252,6 @@ func TestRetainThoughtSignature(t *testing.T) {
 	}
 }
 
-// TestIsValidThoughtSignature pins the base64 signature check.
 func TestIsValidThoughtSignature(t *testing.T) {
 	if !isValidThoughtSignature("c2lnbmF0dXJl") {
 		t.Error("valid base64 signature rejected")

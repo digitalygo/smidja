@@ -6,12 +6,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// estimateTokens mirrors the context manager's occupancy heuristic (ceil
-// of the marshaled bytes over four) for one message, so the selector can
-// reject over-budget kept sets before the caller falls back. The manager
-// re-validates selections authoritatively; this local copy exists
-// because the selector package cannot import the manager (the manager
-// imports the selector).
 func estimateTokens(m *agent.Message) int64 {
 	b, err := json.Marshal([]*agent.Message{m})
 	if err != nil {
@@ -20,11 +14,9 @@ func estimateTokens(m *agent.Message) int64 {
 	return ceilDiv(int64(len(b)), 4)
 }
 
-// roughBytes sums the length of the string-carrying fields of one
-// message, as the marshal-failure fallback.
 func roughBytes(m *agent.Message) int64 {
 	if m == nil {
-		return 4 // "null"
+		return 4
 	}
 	var n int64
 	switch {
@@ -44,7 +36,6 @@ func roughBytes(m *agent.Message) int64 {
 	return n
 }
 
-// ceilDiv returns ceil(a/b) for a >= 0 and b > 0.
 func ceilDiv(a, b int64) int64 {
 	return (a + b - 1) / b
 }

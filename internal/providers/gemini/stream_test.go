@@ -14,8 +14,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// TestStreamTurnText feeds a text turn and verifies blocks, deltas,
-// response id, and usage mapping.
 func TestStreamTurnText(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}],"responseId":"resp_1"}`,
@@ -61,8 +59,6 @@ func TestStreamTurnText(t *testing.T) {
 	}
 }
 
-// TestStreamTurnUsageLastWins verifies that cumulative usageMetadata
-// chunks overwrite, never sum: the last chunk is authoritative.
 func TestStreamTurnUsageLastWins(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"a"}]}}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}}`,
@@ -88,13 +84,9 @@ func TestStreamTurnUsageLastWins(t *testing.T) {
 	}
 }
 
-// TestStreamTurnThinking feeds thinking parts with a thought signature
-// and verifies the thinking block, signature retention across deltas, and
-// callback forwarding.
 func TestStreamTurnThinking(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"Let me think","thought":true,"thoughtSignature":"c2lnX2ZpcnN0"}]}}]}`,
-		// Second delta omits the signature; the retained one must win.
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":" step by step","thought":true}]}}]}`,
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"Answer"}]}}]}`,
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":""}]},"finishReason":"STOP"}]}`,
@@ -131,8 +123,6 @@ func TestStreamTurnThinking(t *testing.T) {
 	}
 }
 
-// TestStreamTurnThinkingSignatureReplacement verifies that a later
-// non-empty signature replaces an earlier one (last non-empty wins).
 func TestStreamTurnThinkingSignatureReplacement(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"a","thought":true,"thoughtSignature":"c2lnXzE"}]}}]}`,
@@ -151,18 +141,12 @@ func TestStreamTurnThinkingSignatureReplacement(t *testing.T) {
 	}
 }
 
-// synthesizedIDRE matches the pi-ai synthesized tool call id shape
-// name_timestamp_counter.
 var synthesizedIDRE = regexp.MustCompile(`^read_\d+_\d+$`)
 
-// TestStreamTurnFunctionCallSynthesizedIDs verifies that function calls
-// without a reliable id get stable, unique synthesized ids of the pi-ai
-// shape, and that a duplicated provider id is resynthesized.
 func TestStreamTurnFunctionCallSynthesizedIDs(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"read","args":{"path":"a.go"}}}]}}]}`,
 		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"read","args":{"path":"b.go"}}}]}}]}`,
-		// The provider repeats the first id: it must be resynthesized.
 		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"read","id":"dup","args":{"path":"c.go"}}},{"functionCall":{"name":"read","id":"dup","args":{"path":"d.go"}}}]}}]}`,
 		`{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"STOP"}]}`,
 	}
@@ -197,7 +181,6 @@ func TestStreamTurnFunctionCallSynthesizedIDs(t *testing.T) {
 	if msg.Content[0].ID == msg.Content[1].ID {
 		t.Error("two synthesized ids are equal")
 	}
-	// The first "dup" id is kept, the second is resynthesized.
 	if msg.Content[2].ID != "dup" {
 		t.Errorf("block[2] id = %q, want provided id kept", msg.Content[2].ID)
 	}
@@ -209,8 +192,6 @@ func TestStreamTurnFunctionCallSynthesizedIDs(t *testing.T) {
 	}
 }
 
-// TestStreamTurnFunctionCallProvidedID verifies that a provided id is
-// preserved verbatim.
 func TestStreamTurnFunctionCallProvidedID(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"read","id":"provided_1","args":{"path":"a.go"}}}]}}]}`,
@@ -228,9 +209,6 @@ func TestStreamTurnFunctionCallProvidedID(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNoCandidatesChunk verifies that a chunk with no
-// candidates (or candidates without parts) is skipped without aborting
-// the stream.
 func TestStreamTurnNoCandidatesChunk(t *testing.T) {
 	events := []string{
 		`{"candidates":[]}`,
@@ -254,8 +232,6 @@ func TestStreamTurnNoCandidatesChunk(t *testing.T) {
 	}
 }
 
-// TestStreamTurnBlockReason verifies that promptFeedback.blockReason
-// surfaces as an error result.
 func TestStreamTurnBlockReason(t *testing.T) {
 	events := []string{
 		`{"promptFeedback":{"blockReason":"SAFETY","blockReasonMessage":"The prompt was blocked for safety reasons."}}`,
@@ -278,8 +254,6 @@ func TestStreamTurnBlockReason(t *testing.T) {
 	}
 }
 
-// TestStreamTurnFinishReasonError verifies that a safety or other
-// non-STOP finish reason aborts the turn like pi-ai does.
 func TestStreamTurnFinishReasonError(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"partial"}]},"finishReason":"SAFETY"}]}`,
@@ -299,8 +273,6 @@ func TestStreamTurnFinishReasonError(t *testing.T) {
 	}
 }
 
-// TestStreamTurnMaxTokensLength verifies MAX_TOKENS maps to the length
-// stop reason, not an error.
 func TestStreamTurnMaxTokensLength(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"truncated"}]},"finishReason":"MAX_TOKENS"}]}`,
@@ -317,8 +289,6 @@ func TestStreamTurnMaxTokensLength(t *testing.T) {
 	}
 }
 
-// TestStreamTurnPrematureEOF verifies the error when the stream ends
-// without a finish reason.
 func TestStreamTurnPrematureEOF(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"half"}]}}]}`,
@@ -338,8 +308,6 @@ func TestStreamTurnPrematureEOF(t *testing.T) {
 	}
 }
 
-// TestStreamTurnDoneSentinel verifies the [DONE] sentinel ends the stream
-// and the finish checks still apply.
 func TestStreamTurnDoneSentinel(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"done!"}]},"finishReason":"STOP"}]}`,
@@ -357,8 +325,6 @@ func TestStreamTurnDoneSentinel(t *testing.T) {
 	}
 }
 
-// TestStreamTurnEmptyStream treats an immediately closed stream as
-// premature EOF.
 func TestStreamTurnEmptyStream(t *testing.T) {
 	srv, _ := captureServer(t)
 	defer srv.Close()
@@ -369,8 +335,6 @@ func TestStreamTurnEmptyStream(t *testing.T) {
 	}
 }
 
-// TestStreamTurnDecodeError verifies a malformed SSE payload aborts the
-// stream with a decode error.
 func TestStreamTurnDecodeError(t *testing.T) {
 	events := []string{
 		`not json at all`,
@@ -387,8 +351,6 @@ func TestStreamTurnDecodeError(t *testing.T) {
 	}
 }
 
-// TestStreamTurnCancellation verifies that cancelling the context aborts
-// a stalled stream and returns context.Canceled.
 func TestStreamTurnCancellation(t *testing.T) {
 	firstChunk := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

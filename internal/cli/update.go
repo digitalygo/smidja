@@ -10,11 +10,6 @@ import (
 	"github.com/digitalygo/smidja/internal/update"
 )
 
-// runUpdate implements "smidja update [--check] [--version <version>]"
-// over internal/update.Client with the running build's identity.
-// --check prints availability only; the apply path prints coarse progress
-// lines around the atomic download/verify/rename. Non-linux platforms
-// fail with update.ErrUnsupportedPlatform before any network access.
 func runUpdate(args []string, d *Deps) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -52,8 +47,6 @@ func runUpdate(args []string, d *Deps) error {
 
 	target := version
 	if target == "" {
-		// Resolve the latest release first so the progress lines and the
-		// pinned apply target name the same version.
 		latest, err := client.Check(ctx)
 		if err != nil {
 			return fail(d, updateFailure(err))
@@ -69,11 +62,6 @@ func runUpdate(args []string, d *Deps) error {
 	return nil
 }
 
-// newUpdateClient builds the update client for this invocation. The
-// default uses the real GitHub API base and the running binary's path,
-// targeting the build identity of this invocation (the injected bundle
-// build when present); tests substitute a client pointed at an httptest
-// server.
 func newUpdateClient(d *Deps) *update.Client {
 	if d != nil && d.NewUpdateClient != nil {
 		return d.NewUpdateClient()
@@ -81,8 +69,6 @@ func newUpdateClient(d *Deps) *update.Client {
 	return &update.Client{Origin: buildIdentity(d)}
 }
 
-// updateFailure maps updater sentinel errors to clear user-facing
-// messages. Sentinels that already read clearly pass through.
 func updateFailure(err error) error {
 	switch {
 	case errors.Is(err, update.ErrChecksumMismatch):

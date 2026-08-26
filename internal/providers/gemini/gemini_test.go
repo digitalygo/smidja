@@ -13,7 +13,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// stubTool is a minimal agent.Tool for request-shape tests.
 type stubTool struct {
 	name   string
 	desc   string
@@ -25,7 +24,6 @@ func (s stubTool) Description() string                                { return s
 func (s stubTool) Schema() json.RawMessage                            { return s.schema }
 func (s stubTool) Exec(context.Context, json.RawMessage) agent.Result { return agent.Result{} }
 
-// baseTurnReq returns a minimal turn request with one user message.
 func baseTurnReq() *agent.TurnRequest {
 	return &agent.TurnRequest{
 		Model: "gemini-2.5-pro",
@@ -35,8 +33,6 @@ func baseTurnReq() *agent.TurnRequest {
 	}
 }
 
-// testDriver returns a driver pointed at the given base URL with a fixed
-// credential and identity.
 func testDriver(t *testing.T, baseURL string) *Gemini {
 	t.Helper()
 	return New(Config{
@@ -49,9 +45,6 @@ func testDriver(t *testing.T, baseURL string) *Gemini {
 	}, nil)
 }
 
-// captureServer serves the given SSE events and records the request it
-// received. Events are flushed one by one so the client reads them
-// incrementally.
 func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedRequest) {
 	t.Helper()
 	captured := &capturedRequest{}
@@ -78,7 +71,6 @@ func captureServer(t *testing.T, events ...string) (*httptest.Server, *capturedR
 	return srv, captured
 }
 
-// capturedRequest holds what captureServer recorded about a request.
 type capturedRequest struct {
 	method string
 	path   string
@@ -87,7 +79,6 @@ type capturedRequest struct {
 	body   []byte
 }
 
-// equalStrings compares two string slices.
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -100,8 +91,6 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// TestNewDefaultClient checks the default http client shape and URL
-// defaulting.
 func TestNewDefaultClient(t *testing.T) {
 	d := New(Config{BaseURL: "https://example.com/v1beta/", ProviderID: "gemini"}, nil)
 	if d.baseURL != "https://example.com/v1beta" {
@@ -119,8 +108,6 @@ func TestNewDefaultClient(t *testing.T) {
 	}
 }
 
-// TestStreamTurnRequestShape drives one full turn and verifies the exact
-// request the driver sends: method, path, query, headers, and body shape.
 func TestStreamTurnRequestShape(t *testing.T) {
 	events := []string{
 		`{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]},"finishReason":"STOP"}],"responseId":"resp_1"}`,
@@ -249,8 +236,6 @@ func TestStreamTurnRequestShape(t *testing.T) {
 	}
 }
 
-// TestStreamTurnAuthError verifies that a failing APIKey func aborts the
-// turn before any request is sent.
 func TestStreamTurnAuthError(t *testing.T) {
 	authCalled := false
 	d := New(Config{
@@ -270,7 +255,6 @@ func TestStreamTurnAuthError(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNilArguments guards the nil contract of StreamTurn.
 func TestStreamTurnNilArguments(t *testing.T) {
 	d := testDriver(t, "https://example.com")
 	if _, err := d.StreamTurn(context.Background(), nil, nil, nil); err == nil {
@@ -283,8 +267,6 @@ func TestStreamTurnNilArguments(t *testing.T) {
 	}
 }
 
-// TestStreamTurnErrorPrefix verifies every error is prefixed with the
-// provider id.
 func TestStreamTurnErrorPrefix(t *testing.T) {
 	d := New(Config{BaseURL: "https://example.com", ProviderID: "gemini"}, nil)
 	_, err := d.StreamTurn(context.Background(), nil, nil, nil)
@@ -293,8 +275,6 @@ func TestStreamTurnErrorPrefix(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200 verifies the HTTP error envelope is parsed and the
-// status code and message surface in the error.
 func TestStreamTurnNon200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -322,8 +302,6 @@ func TestStreamTurnNon200(t *testing.T) {
 	}
 }
 
-// TestStreamTurnNon200NonJSON verifies the fallback for error bodies that
-// are not the provider envelope.
 func TestStreamTurnNon200NonJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

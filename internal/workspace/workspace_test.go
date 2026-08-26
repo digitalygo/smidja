@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// newTestWorkspace creates a workspace rooted at a fresh temp dir and
-// returns it together with the canonical root (as resolved by New).
 func newTestWorkspace(t *testing.T) (*Workspace, string) {
 	t.Helper()
 	w, err := New(t.TempDir())
@@ -141,7 +139,6 @@ func TestContainRejectsSymlinkEscape(t *testing.T) {
 	mustWrite(t, filepath.Join(outside, "secret.txt"), "top secret")
 	mustSymlink(t, outside, filepath.Join(root, "evil"))
 
-	// The symlink itself and anything through it must be rejected.
 	if got, err := w.Contain("evil"); err == nil {
 		t.Errorf("Contain(evil) = %q, want error", got)
 	}
@@ -204,8 +201,6 @@ func TestIsForbidden(t *testing.T) {
 }
 
 func TestContainForbiddenGitPath(t *testing.T) {
-	// Contain must accept the path (it is inside the root), and
-	// IsForbidden must flag it: the two checks compose.
 	w, root := newTestWorkspace(t)
 	mustWrite(t, filepath.Join(root, ".git", "config"), "[core]\n")
 

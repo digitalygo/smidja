@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// writeAuthFile writes content to path, creating the parent directory.
 func writeAuthFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -21,8 +20,6 @@ func writeAuthFile(t *testing.T, path, content string) {
 	}
 }
 
-// TestLoadMissingFile verifies a missing file yields an empty store
-// without error.
 func TestLoadMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "no", "auth.json")
 	s, err := Load(path)
@@ -34,9 +31,6 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 }
 
-// TestLoadCorruptFile verifies corrupt content yields a clear error: bad
-// JSON, non-object top level, non-object entries, and unknown types all
-// fail with a message naming the file.
 func TestLoadCorruptFile(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -66,10 +60,6 @@ func TestLoadCorruptFile(t *testing.T) {
 	}
 }
 
-// TestLoadOpenRouterOAuthWithoutRefresh verifies Pi parity for the
-// OpenRouter OAuth credential: OpenRouter mints non-expiring API keys, so
-// an oauth entry under openrouter-oauth with an empty refresh token loads
-// fine, while the same shape is still rejected for other providers.
 func TestLoadOpenRouterOAuthWithoutRefresh(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	writeAuthFile(t, path, `{
@@ -91,13 +81,11 @@ func TestLoadOpenRouterOAuthWithoutRefresh(t *testing.T) {
 		t.Errorf("openrouter-oauth entry = %+v, want oauth with access and no refresh", e)
 	}
 
-	// The same refresh-less shape stays rejected for other providers.
 	path2 := filepath.Join(t.TempDir(), "auth.json")
 	writeAuthFile(t, path2, `{"anthropic-oauth":{"type":"oauth","access":"tok","expires":1780000000000}}`)
 	if _, err := Load(path2); err == nil {
 		t.Error("Load(anthropic-oauth without refresh): want error")
 	}
-	// An openrouter-oauth entry without access still fails.
 	path3 := filepath.Join(t.TempDir(), "auth.json")
 	writeAuthFile(t, path3, `{"openrouter-oauth":{"type":"oauth","expires":9007199254740991}}`)
 	if _, err := Load(path3); err == nil {
@@ -105,7 +93,6 @@ func TestLoadOpenRouterOAuthWithoutRefresh(t *testing.T) {
 	}
 }
 
-// TestLoadNullFile treats the JSON null literal as an empty store.
 func TestLoadNullFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	writeAuthFile(t, path, "null")
@@ -118,8 +105,6 @@ func TestLoadNullFile(t *testing.T) {
 	}
 }
 
-// TestRoundTripPreservesUnknownFields writes a Pi-shaped file, loads it,
-// rewrites it via Set, and verifies unknown fields survive verbatim.
 func TestRoundTripPreservesUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	writeAuthFile(t, path, `{
@@ -173,7 +158,6 @@ func TestRoundTripPreservesUnknownFields(t *testing.T) {
 		t.Errorf("anthropic entry = %+v, want full oauth shape", an)
 	}
 
-	// Rewrite via Set and confirm the file still carries every field.
 	if err := s.Set("openrouter", or); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
@@ -198,8 +182,6 @@ func TestRoundTripPreservesUnknownFields(t *testing.T) {
 	}
 }
 
-// TestPermissions verifies the directory is created 0700 and the file is
-// written 0600, on a fresh path that does not exist yet.
 func TestPermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "auth.json")
@@ -227,8 +209,6 @@ func TestPermissions(t *testing.T) {
 	}
 }
 
-// TestSetRemove verifies the basic mutation contract, including the
-// no-op Remove for an unknown provider.
 func TestSetRemove(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	s, err := Load(path)
@@ -265,7 +245,6 @@ func TestSetRemove(t *testing.T) {
 		t.Error("entry still present after Remove")
 	}
 
-	// Reload from disk: the removal must have been persisted.
 	s2, err := Load(path)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
@@ -275,8 +254,6 @@ func TestSetRemove(t *testing.T) {
 	}
 }
 
-// TestConcurrentAccess hammers one store from many goroutines under the
-// race detector and verifies the final state is consistent.
 func TestConcurrentAccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	s, err := Load(path)
@@ -291,9 +268,6 @@ func TestConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			// Each worker owns its provider key, so Set/Get pairs are
-			// consistent while the shared store and file are still
-			// hammered concurrently through the mutex.
 			provider := fmt.Sprintf("p-%d", w)
 			for i := 0; i < perWorker; i++ {
 				key := strings.Repeat(string(rune('a'+w)), 8)
@@ -309,7 +283,6 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 
-	// The file must still parse and carry every worker's final entry.
 	s2, err := Load(path)
 	if err != nil {
 		t.Fatalf("reload after concurrent writes: %v", err)
@@ -320,7 +293,6 @@ func TestConcurrentAccess(t *testing.T) {
 			t.Errorf("final entry p-%d = %+v, %v; want an 8-char api_key", w, e, ok)
 		}
 	}
-	// No temp files may remain.
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".auth-*.tmp"))
 	if err != nil {
 		t.Fatalf("glob: %v", err)
@@ -330,15 +302,12 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestLoadInvalidPermissions verifies a readable-but-unparseable file
-// keeps its error distinct from a missing file.
 func TestLoadUnreadableIsError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.json")
 	writeAuthFile(t, path, "{}")
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	// Running as root would bypass the mode; skip when the read succeeds.
 	if _, err := Load(path); err != nil && os.Geteuid() == 0 {
 		t.Skip("running as root; permission checks are bypassed")
 	}

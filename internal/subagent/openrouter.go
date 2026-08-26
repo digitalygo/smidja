@@ -11,9 +11,6 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// selectionSystemPrompt is the system prompt for every selector turn. It
-// demands strict JSON output and states the validity rules the selector
-// enforces mechanically afterwards.
 const selectionSystemPrompt = `You are the context compaction selector of the smidja harness. You receive older conversation messages, each labeled with an entry ref, and you choose which ones to keep so the conversation continues working with a smaller context.
 
 Keep what still matters: the task and its constraints, decisions and their rationale, and tool outputs that later messages refer back to. Keep tool-call/result pairs together. Drop what is stale: superseded attempts, obsolete tool outputs, and messages no later message references.
@@ -26,26 +23,14 @@ Rules:
 - Keep at least one ref.
 - Keep the set small enough to fit the stated token budget.`
 
-// OpenRouterSelector implements Selector over an agent.Client; the
-// production wiring passes an *openrouter.Client, which implements
-// agent.Client. It renders each candidate chunk into one tool-less
-// conversation turn, ignores the streaming callbacks (the assistant
-// message carries the full answer), and validates the model's strict
-// JSON answer before returning it.
 type OpenRouterSelector struct {
 	client agent.Client
 }
 
-// NewOpenRouterSelector returns a selector that drives the given client.
 func NewOpenRouterSelector(client agent.Client) *OpenRouterSelector {
 	return &OpenRouterSelector{client: client}
 }
 
-// Select asks the model which candidate refs to keep, chunk by chunk,
-// and validates the merged answer strictly (known refs, no duplicates,
-// non-empty, within budget) before returning it. Any violation or client
-// failure returns an error wrapping ErrInvalidSelection; the caller
-// falls back to the deterministic window.
 func (s *OpenRouterSelector) Select(ctx context.Context, req SelectionRequest) (Selection, error) {
 	if s.client == nil {
 		return Selection{}, errors.New("subagent: nil selector client")
@@ -88,7 +73,6 @@ func (s *OpenRouterSelector) Select(ctx context.Context, req SelectionRequest) (
 	return Selection{KeptIDs: kept}, nil
 }
 
-// askChunk sends one chunk to the model and returns the raw answer text.
 func (s *OpenRouterSelector) askChunk(ctx context.Context, req SelectionRequest, chunk []Candidate) (string, error) {
 	asst, err := s.turnWithRetry(ctx, req.Model, renderChunk(req, chunk))
 	if err != nil {
@@ -97,10 +81,6 @@ func (s *OpenRouterSelector) askChunk(ctx context.Context, req SelectionRequest,
 	return textOf(asst), nil
 }
 
-// turnWithRetry performs one selector turn, retrying transient client
-// failures with a short fixed backoff. TODO(wave 1D): replace this local
-// backoff with internal/retry when it lands, or accept an agent.Client
-// already wrapped with retry.
 func (s *OpenRouterSelector) turnWithRetry(ctx context.Context, model, prompt string) (*agent.AssistantMessage, error) {
 	const maxAttempts = 3
 	var lastErr error
@@ -114,7 +94,6 @@ func (s *OpenRouterSelector) turnWithRetry(ctx context.Context, model, prompt st
 			Messages: []*agent.Message{{
 				User: &agent.UserMessage{Role: string(agent.RoleUser), Content: jsonString(prompt)},
 			}},
-			// Tools deliberately nil: the selector never gets tools.
 		}, nil, nil)
 		if err == nil {
 			return asst, nil
@@ -129,7 +108,6 @@ func (s *OpenRouterSelector) turnWithRetry(ctx context.Context, model, prompt st
 	return nil, fmt.Errorf("subagent: selection turn failed: %w", lastErr)
 }
 
-// renderChunk renders one candidate chunk into the selector user message.
 func renderChunk(req SelectionRequest, chunk []Candidate) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Context window: %d tokens. Keep at most %d tokens of the messages below.\n\n", req.WindowTokens, req.BudgetTokens)
@@ -139,7 +117,6 @@ func renderChunk(req SelectionRequest, chunk []Candidate) string {
 	return b.String()
 }
 
-// renderMessage renders one conversation message as plain text.
 func renderMessage(m *agent.Message) string {
 	if m == nil {
 		return "(unknown message)"
@@ -172,8 +149,6 @@ func renderMessage(m *agent.Message) string {
 	}
 }
 
-// userContentText renders a user message's raw content as text: JSON
-// strings pass through, content-block arrays are flattened into text.
 func userContentText(raw json.RawMessage) string {
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
@@ -196,7 +171,6 @@ func userContentText(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// blockText joins the text blocks of a content list.
 func blockText(blocks []agent.ContentBlock) string {
 	var b strings.Builder
 	for _, blk := range blocks {
@@ -207,7 +181,6 @@ func blockText(blocks []agent.ContentBlock) string {
 	return b.String()
 }
 
-// textOf returns the joined text of an assistant message.
 func textOf(a *agent.AssistantMessage) string {
 	if a == nil {
 		return ""
@@ -215,8 +188,6 @@ func textOf(a *agent.AssistantMessage) string {
 	return strings.TrimSpace(blockText(a.Content))
 }
 
-// parseKeptIDs extracts the kept refs from the model's answer, tolerating
-// optional markdown fences around the strict JSON object.
 func parseKeptIDs(answer string) ([]string, error) {
 	body := strings.TrimSpace(answer)
 	body = strings.TrimPrefix(body, "```json")
@@ -232,8 +203,6 @@ func parseKeptIDs(answer string) ([]string, error) {
 	return out.Kept, nil
 }
 
-// validateSelection checks the validity contract on the merged kept set:
-// known refs, no duplicates, non-empty, and within the budget.
 func validateSelection(kept []string, cost map[string]int64, budget int64) error {
 	if len(kept) == 0 {
 		return fmt.Errorf("%w: kept set is empty", ErrInvalidSelection)
@@ -256,13 +225,11 @@ func validateSelection(kept []string, cost map[string]int64, budget int64) error
 	return nil
 }
 
-// jsonString marshals s as a JSON string literal.
 func jsonString(s string) json.RawMessage {
 	b, _ := json.Marshal(s)
 	return b
 }
 
-// sleepCtx sleeps for d, honoring context cancellation.
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()

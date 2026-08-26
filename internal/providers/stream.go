@@ -12,26 +12,13 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// doneEvent is the SSE event that ends a completion stream.
 const doneEvent = "[DONE]"
 
-// maxSSELine is the largest accepted single SSE data line (8 MiB). It is a
-// parser bound for one bufio.Scanner token, not a stream cap: SSE parsing
-// requires a fixed token ceiling, and no well-formed data line approaches
-// it.
 const maxSSELine = 8 * 1024 * 1024
 
-// readStream reads and parses the SSE stream of one completion response,
-// delivering text and thinking deltas to the callbacks and accumulating
-// content blocks, tool calls, usage, and the stop reason. It returns the
-// completed assistant message, or nil and an error when the stream aborts
-// or ends prematurely. Error messages are prefixed with the driver's
-// provider prefix.
 func (d *OpenAICompletions) readStream(ctx context.Context, resp *http.Response, model string, onText func(string), onThinking func(string)) (*agent.AssistantMessage, error) {
 	state := newStreamState(d.prefix, d.providerID, d.api, model, onText, onThinking)
 
-	// The stream may stall with the connection open; closing the body when
-	// the context is cancelled unblocks the reader below.
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -62,7 +49,6 @@ func (d *OpenAICompletions) readStream(ctx context.Context, resp *http.Response,
 				return nil, err
 			}
 		case strings.HasPrefix(line, ":"):
-			// SSE comment line; ignore.
 		case strings.HasPrefix(line, "data:"):
 			dataLines = append(dataLines, strings.TrimPrefix(line, "data:"))
 		}
@@ -80,18 +66,17 @@ func (d *OpenAICompletions) readStream(ctx context.Context, resp *http.Response,
 	return nil, errors.New(d.prefix + ": stream ended prematurely without [DONE] or finish_reason")
 }
 
-// streamState accumulates the parsed output of one streaming completion.
 type streamState struct {
 	prefix          string
 	providerID      string
 	api             string
 	model           string
 	blocks          []agent.ContentBlock
-	builders        []*strings.Builder       // aligned with blocks; holds Text or Thinking content
-	toolCalls       map[int]int              // tool-call delta index -> block position
-	toolArgs        map[int]*strings.Builder // tool-call delta index -> arguments builder
-	openText        int                      // position of the open text block, -1 when closed
-	openThinking    int                      // position of the open thinking block, -1 when closed
+	builders        []*strings.Builder
+	toolCalls       map[int]int
+	toolArgs        map[int]*strings.Builder
+	openText        int
+	openThinking    int
 	responseID      string
 	usage           agent.Usage
 	stopReason      string
@@ -100,8 +85,6 @@ type streamState struct {
 	onThinking      func(string)
 }
 
-// newStreamState returns an empty state for the given provider identity,
-// model, and callbacks. prefix is the driver's error-message prefix.
 func newStreamState(prefix, providerID, api, model string, onText func(string), onThinking func(string)) *streamState {
 	return &streamState{
 		prefix:       prefix,
@@ -117,7 +100,6 @@ func newStreamState(prefix, providerID, api, model string, onText func(string), 
 	}
 }
 
-// apply parses one SSE data payload and folds it into the state.
 func (s *streamState) apply(data string) error {
 	var ch WireChunk
 	if err := json.Unmarshal([]byte(data), &ch); err != nil {
@@ -167,8 +149,6 @@ func (s *streamState) apply(data string) error {
 	return nil
 }
 
-// finishReasonToStopReason maps provider finish reasons onto agent stop
-// reasons; unknown reasons pass through verbatim.
 func finishReasonToStopReason(reason string) string {
 	switch reason {
 	case "tool_calls":
@@ -180,8 +160,6 @@ func finishReasonToStopReason(reason string) string {
 	}
 }
 
-// addText accumulates a text delta into a strings.Builder, extending the
-// open text block or starting a new one in first-appearance order.
 func (s *streamState) addText(text string) error {
 	if s.openText >= 0 {
 		s.builders[s.openText].WriteString(text)
@@ -196,8 +174,6 @@ func (s *streamState) addText(text string) error {
 	return nil
 }
 
-// addThinking accumulates a reasoning delta the same way addText does for
-// text, producing thinking content blocks.
 func (s *streamState) addThinking(text string) error {
 	if s.openThinking >= 0 {
 		s.builders[s.openThinking].WriteString(text)
@@ -212,9 +188,6 @@ func (s *streamState) addThinking(text string) error {
 	return nil
 }
 
-// addToolCall folds one tool-call fragment into the accumulated tool call
-// for its delta index, creating the block on first appearance and keeping
-// the blocks in first-appearance order.
 func (s *streamState) addToolCall(tc WireDeltaToolCall) error {
 	index := 0
 	if tc.Index != nil {
@@ -243,8 +216,6 @@ func (s *streamState) addToolCall(tc WireDeltaToolCall) error {
 	return nil
 }
 
-// result assembles the final assistant message from the accumulated state,
-// materializing the builder-held text, thinking, and tool arguments.
 func (s *streamState) result() *agent.AssistantMessage {
 	for i := range s.blocks {
 		switch s.blocks[i].Type {
@@ -280,14 +251,11 @@ func (s *streamState) result() *agent.AssistantMessage {
 	}
 }
 
-// providerError aborts a turn with a provider-reported error envelope,
-// whether it arrived via the HTTP status or as an SSE event.
 type providerError struct {
 	prefix string
 	WireError
 }
 
-// Error implements error.
 func (e *providerError) Error() string {
 	code := ""
 	if e.Code != "" {
@@ -300,8 +268,6 @@ func (e *providerError) Error() string {
 	return fmt.Sprintf("%s: %s%s", e.prefix, msg, code)
 }
 
-// toUsage maps the wire usage onto agent.Usage. Cost and the detail
-// breakdowns stay zero when the provider reports none.
 func (u *WireUsage) toUsage() agent.Usage {
 	usage := agent.Usage{
 		Input:  u.PromptTokens,
@@ -313,8 +279,6 @@ func (u *WireUsage) toUsage() agent.Usage {
 		usage.TotalTokens = u.PromptTokens + u.CompletionTokens
 	}
 	if d := u.PromptTokensDetails; d != nil {
-		// Prefer the nested cache_read breakdown; fall back to the flat
-		// cached_tokens field some providers send.
 		usage.CacheRead = d.CacheRead
 		if usage.CacheRead == 0 {
 			usage.CacheRead = d.CachedTokens

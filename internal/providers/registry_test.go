@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// TestRegistryRegisterGetList covers the basic registry contract.
 func TestRegistryRegisterGetList(t *testing.T) {
 	r := NewRegistry()
 	if got := r.List(); len(got) != 0 {
@@ -30,8 +29,6 @@ func TestRegistryRegisterGetList(t *testing.T) {
 	}
 }
 
-// TestRegistryRegisterReplaces verifies Register replaces an existing
-// driver.
 func TestRegistryRegisterReplaces(t *testing.T) {
 	r := NewRegistry()
 	old := testDriver(t, "https://old.example.com")
@@ -44,8 +41,6 @@ func TestRegistryRegisterReplaces(t *testing.T) {
 	}
 }
 
-// TestRegistryIgnoresEmptyAndNil guards the Register contract for empty
-// provider ids and nil drivers.
 func TestRegistryIgnoresEmptyAndNil(t *testing.T) {
 	r := NewRegistry()
 	r.Register("", testDriver(t, "https://example.com"))
@@ -55,8 +50,6 @@ func TestRegistryIgnoresEmptyAndNil(t *testing.T) {
 	}
 }
 
-// TestRegistryConcurrent exercises concurrent registration and lookup
-// under the race detector.
 func TestRegistryConcurrent(t *testing.T) {
 	r := NewRegistry()
 	var wg sync.WaitGroup
@@ -81,7 +74,6 @@ func TestRegistryConcurrent(t *testing.T) {
 	}
 }
 
-// TestRefShape pins the canonical identity fields.
 func TestRefShape(t *testing.T) {
 	ref := Ref{ProviderID: "deepseek", ModelID: "deepseek-chat", Dialect: "openai-completions"}
 	if ref.ProviderID != "deepseek" || ref.ModelID != "deepseek-chat" || ref.Dialect != "openai-completions" {

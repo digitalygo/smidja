@@ -11,38 +11,21 @@ import (
 	"github.com/digitalygo/smidja/internal/subagent"
 )
 
-// Compaction transcript strategy tags. The strategy tag discriminates
-// the two deterministic transcript shapes and versions the format.
 const (
 	verbatimStrategy = "smidja-verbatim-v1"
 	fallbackStrategy = "smidja-fallback-v1"
 )
 
-// verbatimSummary is the deterministic transcript of a selector-driven
-// compaction: which candidate messages were kept verbatim.
 type verbatimSummary struct {
 	Strategy string   `json:"strategy"`
 	Kept     []string `json:"kept"`
 }
 
-// fallbackSummary is the deterministic transcript of a fallback
-// compaction: which oldest messages were dropped.
 type fallbackSummary struct {
 	Strategy string   `json:"strategy"`
 	Dropped  []string `json:"dropped"`
 }
 
-// compact removes the oldest messages outside the protected recent
-// window and pin set. The remaining older messages are the candidates;
-// the selector chooses which of them to keep, and the kept messages are
-// restored chronologically and verbatim (same pointers). On any selector
-// failure, or when no selector is injected, it falls back to the newest
-// complete message window fitting the compact target and records the
-// dropped oldest messages in the transcript.
-//
-// The compaction entry is returned for the caller to persist; it is
-// never inserted into the message list. The entry is nil when there is
-// nothing to compact.
 func (m *Manager) compact(ctx context.Context, system string, messages []*agent.Message, occ int64, pinned map[agent.ToolCallID]struct{}, entryIDs []string) ([]*agent.Message, *agent.CompactionEntry, error) {
 	cfg := m.cfg
 	keepStart := len(messages) - cfg.KeepRecentMessages
@@ -83,7 +66,6 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 		sel, err := m.selector.Select(ctx, req)
 		switch {
 		case err != nil:
-			// Selector failure: fall back, unless the turn is dying.
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, nil, ctxErr
 			}
@@ -96,7 +78,7 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 	}
 
 	var strategy string
-	var keptOrder []string // kept candidate refs, chronological
+	var keptOrder []string
 	if selectorOK {
 		strategy = verbatimStrategy
 		for _, r := range candRefs {
@@ -106,9 +88,6 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 		}
 	} else {
 		strategy = fallbackStrategy
-		// Newest complete messages fitting the target; the newest
-		// message survives even when it alone exceeds the target
-		// (messages are never split).
 		var used int64
 		for i := len(cands) - 1; i >= 0; i-- {
 			t := rawTokensOf(cands[i])
@@ -133,7 +112,6 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 		}
 	}
 	if len(dropped) == 0 {
-		// Nothing was dropped: the compaction is a no-op.
 		return messages, nil, nil
 	}
 
@@ -158,8 +136,6 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 	}
 	keptMsgs = append(keptMsgs, messages[keepStart:]...)
 	if firstKept == "" && len(keptMsgs) > 0 && keepStart < len(messages) {
-		// Nothing older was kept: the first survivor is the recent
-		// window.
 		firstKept = refs[keepStart]
 	}
 
@@ -182,9 +158,6 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 	return keptMsgs, entry, nil
 }
 
-// entryRefs returns the entry ref of every message: the caller-provided
-// session entry ids when aligned with the message list, otherwise a
-// deterministic request-local ref of the form "<role>:<timestamp>#<index>".
 func entryRefs(entryIDs []string, messages []*agent.Message) []string {
 	if len(entryIDs) == len(messages) {
 		out := make([]string, len(entryIDs))
@@ -202,7 +175,6 @@ func entryRefs(entryIDs []string, messages []*agent.Message) []string {
 	return out
 }
 
-// msgTimestamp returns the message's persisted timestamp.
 func msgTimestamp(m *agent.Message) int64 {
 	switch {
 	case m.User != nil:
@@ -215,10 +187,6 @@ func msgTimestamp(m *agent.Message) int64 {
 	return 0
 }
 
-// pinnedMessage reports whether a message carries a pinned tool call:
-// either it is the result message of a pinned call, or it is the
-// assistant message containing a pinned toolCall block. Both halves of a
-// pinned pair are protected from compaction.
 func pinnedMessage(msg *agent.Message, pinned map[agent.ToolCallID]struct{}) bool {
 	if msg == nil {
 		return false
@@ -239,9 +207,6 @@ func pinnedMessage(msg *agent.Message, pinned map[agent.ToolCallID]struct{}) boo
 	return false
 }
 
-// chunkCandidates greedily packs consecutive candidates into chunks whose
-// raw token estimate stays below chunkTokens. A single oversized message
-// gets its own chunk; messages are never split.
 func chunkCandidates(cands []*agent.Message, candRefs []string, chunkTokens int64) [][]subagent.Candidate {
 	var chunks [][]subagent.Candidate
 	var cur []subagent.Candidate
@@ -262,11 +227,6 @@ func chunkCandidates(cands []*agent.Message, candRefs []string, chunkTokens int6
 	return chunks
 }
 
-// validateSelection checks the selector's answer against the validity
-// contract: every kept ref must be a known candidate ref, refs must be
-// unique and non-empty, and the estimated token cost of the kept set
-// must stay within the budget. Any violation makes the selection invalid
-// and the caller falls back to the deterministic window.
 func validateSelection(sel subagent.Selection, candRefs []string, cands []*agent.Message, budget int64) error {
 	if len(sel.KeptIDs) == 0 {
 		return errors.New("contextmanager: selector kept nothing")
@@ -295,8 +255,6 @@ func validateSelection(sel subagent.Selection, candRefs []string, cands []*agent
 	return nil
 }
 
-// marshalSummary marshals a transcript struct deterministically (struct
-// field order) into the raw JSON payload the caller persists.
 func marshalSummary(v any) (json.RawMessage, error) {
 	b, err := json.Marshal(v)
 	if err != nil {

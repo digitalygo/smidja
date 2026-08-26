@@ -10,26 +10,10 @@ import (
 	"strings"
 )
 
-// OpenRouterModelsURL is the public OpenRouter model catalogue endpoint.
-// It requires no authentication.
 const OpenRouterModelsURL = "https://openrouter.ai/api/v1/models"
 
-// maxModelsBody caps the catalogue response at 8 MiB. The live catalogue
-// is a few megabytes, so the cap only guards against a runaway endpoint.
 const maxModelsBody = 8 << 20
 
-// FetchOpenRouterModels downloads the live OpenRouter model catalogue and
-// returns it as ModelInfo entries, ready to be merged into a Registry.
-// A nil client uses http.DefaultClient; a nil context is replaced by
-// context.Background().
-//
-// The response is decoded tolerantly: unknown fields are ignored, and
-// context_length values encoded as JSON integers, floats, or strings are
-// all accepted. Entries without an id or with a non-positive
-// context_length are skipped, so unknown entries never reach a merge.
-// The provider is derived from the id prefix, the part before the first
-// "/". Fetch reports an error only for a failed request, a non-2xx
-// status, or a body that is not a JSON object carrying a data array.
 func FetchOpenRouterModels(ctx context.Context, client *http.Client) ([]ModelInfo, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -73,18 +57,11 @@ func FetchOpenRouterModels(ctx context.Context, client *http.Client) ([]ModelInf
 	return out, nil
 }
 
-// wireModel is one entry of the OpenRouter catalogue. The full response
-// carries far more fields (name, description, pricing, architecture,
-// top_provider); decoding into this struct ignores them all.
 type wireModel struct {
 	ID            string          `json:"id"`
 	ContextLength json.RawMessage `json:"context_length"`
 }
 
-// info converts a wire entry to a ModelInfo, deriving the provider from
-// the id prefix. ContextLength is decoded leniently (JSON integer, float,
-// or string-encoded number); undecodable values decode to zero so the
-// entry is skipped by the caller.
 func (w wireModel) info() ModelInfo {
 	return ModelInfo{
 		ID:            w.ID,
@@ -93,8 +70,6 @@ func (w wireModel) info() ModelInfo {
 	}
 }
 
-// providerOf returns the provider identifier embedded in an OpenRouter
-// model id: the prefix before the first "/", or "" when absent.
 func providerOf(id string) string {
 	if i := strings.IndexByte(id, '/'); i > 0 {
 		return id[:i]
@@ -102,9 +77,6 @@ func providerOf(id string) string {
 	return ""
 }
 
-// lenientInt64 decodes a JSON value as an int64, accepting integers,
-// floats, and string-encoded numbers. Zero is returned for null, empty,
-// and undecodable values.
 func lenientInt64(raw json.RawMessage) int64 {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {

@@ -13,8 +13,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// countingReader wraps a reader and counts the bytes consumed, so tests
-// can assert that print mode never touches stdin.
 type countingReader struct {
 	r io.Reader
 	n int64
@@ -26,17 +24,12 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// newTest builds a LineUI over the given stdin script with in-memory
-// output buffers.
 func newTest(t *testing.T, script string, mode sdk.Mode) (*LineUI, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	var out, errBuf bytes.Buffer
 	l := New(strings.NewReader(script), &out, &errBuf, mode)
 	return l, &out, &errBuf
 }
-
-// ---------------------------------------------------------------------------
-// Confirm
 
 func TestConfirm(t *testing.T) {
 	cases := []struct {
@@ -75,8 +68,6 @@ func TestConfirm(t *testing.T) {
 	}
 }
 
-// TestConfirmPartialLineAtEOF checks that a partial affirmative answer
-// at EOF is still honored, mirroring a terminal Ctrl-D after typing.
 func TestConfirmPartialLineAtEOF(t *testing.T) {
 	l, _, _ := newTest(t, "y", sdk.ModeInteractive)
 	got, err := l.Confirm("t", "m")
@@ -88,8 +79,6 @@ func TestConfirmPartialLineAtEOF(t *testing.T) {
 	}
 }
 
-// TestConfirmPrintMode checks that Confirm in print mode returns
-// ErrModeUnsupported without reading stdin or rendering anything.
 func TestConfirmPrintMode(t *testing.T) {
 	cr := &countingReader{r: strings.NewReader("y\n")}
 	var out, errBuf bytes.Buffer
@@ -112,9 +101,6 @@ func TestConfirmPrintMode(t *testing.T) {
 		t.Errorf("stdout = %q, want empty", out.String())
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Select
 
 func TestSelect(t *testing.T) {
 	opts := []string{"alpha", "beta", "gamma"}
@@ -237,9 +223,6 @@ func TestSelectPrintMode(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Input
-
 func TestInput(t *testing.T) {
 	t.Run("plain line", func(t *testing.T) {
 		l, _, _ := newTest(t, "hello\n", sdk.ModeInteractive)
@@ -337,11 +320,6 @@ func TestInputPrintMode(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Editor
-
-// writeEditorScript writes a fake editor script into a temp dir and
-// returns its path. The script receives the temp file path as $1.
 func writeEditorScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fake-editor.sh")
@@ -375,8 +353,6 @@ func TestEditorWithScript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Editor: %v", err)
 	}
-	// The prefill was written to the temp file, the script appended to
-	// it, and the result was read back.
 	if want := "prefill\nedited by script\n"; got != want {
 		t.Errorf("Editor = %q, want %q", got, want)
 	}
@@ -429,9 +405,6 @@ func TestEditorPrintModeNeverRuns(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Notify
-
 func TestNotifyRouting(t *testing.T) {
 	t.Run("interactive renders to stderr", func(t *testing.T) {
 		l, out, errBuf := newTest(t, "", sdk.ModeInteractive)
@@ -455,9 +428,6 @@ func TestNotifyRouting(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// State-carrying methods
 
 func TestSetStatusRendersAtPromptBoundary(t *testing.T) {
 	t.Run("rendered before the next dialog", func(t *testing.T) {
@@ -568,13 +538,6 @@ func TestSetWidgetClears(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Serialization
-
-// TestDialogsSerialized exercises Confirm, Notify, and SetStatus from
-// parallel goroutines over one LineUI. Run with -race it proves that
-// dialog reads and renders never interleave or race on the shared
-// buffered stdin reader.
 func TestDialogsSerialized(t *testing.T) {
 	const confirms = 12
 	script := strings.Repeat("y\n", confirms)
@@ -630,18 +593,13 @@ func TestDialogsSerialized(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Nil streams and modes
-
 func TestNilStreamsTolerated(t *testing.T) {
 	l := New(nil, nil, nil, sdk.ModeInteractive)
 
-	// A nil stdin behaves as immediate EOF: dialogs cancel cleanly.
 	got, err := l.Confirm("t", "m")
 	if err != nil || got {
 		t.Errorf("Confirm on nil stdin = %v, %v; want false, nil", got, err)
 	}
-	// A nil stderr discards renders without panicking.
 	l.Notify("n", sdk.NotifyInfo)
 	l.SetStatus("k", "v")
 	l.SetTitle("t")

@@ -8,11 +8,8 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// jsonNull is the JSON literal used for assistant content with no text.
 var jsonNull = json.RawMessage("null")
 
-// BuildMessages converts the conversation into wire messages, prepending
-// the system prompt as the first message when it is non-empty.
 func BuildMessages(system string, messages []*agent.Message) []WireMessage {
 	out := make([]WireMessage, 0, len(messages)+1)
 	if system != "" {
@@ -31,8 +28,6 @@ func BuildMessages(system string, messages []*agent.Message) []WireMessage {
 	return out
 }
 
-// userContent renders a user message's raw content: JSON strings pass
-// through verbatim, content-block arrays are flattened into text parts.
 func userContent(raw json.RawMessage) json.RawMessage {
 	if isJSONString(raw) {
 		return raw
@@ -42,8 +37,6 @@ func userContent(raw json.RawMessage) json.RawMessage {
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(raw, &blocks); err != nil || blocks == nil {
-		// Neither a string nor a block array: send it verbatim and let
-		// the provider surface the problem.
 		return raw
 	}
 	parts := make([]WirePart, 0, len(blocks))
@@ -56,15 +49,11 @@ func userContent(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// isJSONString reports whether raw is a JSON string literal.
 func isJSONString(raw json.RawMessage) bool {
 	t := bytes.TrimSpace(raw)
 	return len(t) > 0 && t[0] == '"'
 }
 
-// assistantContent renders an assistant message: the joined text of its
-// text blocks (or null) and its tool calls as OpenAI function-call wire
-// objects.
 func assistantContent(a *agent.AssistantMessage) WireMessage {
 	w := WireMessage{Role: "assistant"}
 	var text strings.Builder
@@ -91,8 +80,6 @@ func assistantContent(a *agent.AssistantMessage) WireMessage {
 	return w
 }
 
-// toolResultContent renders a tool result message with the concatenated
-// text of its content blocks.
 func toolResultContent(t *agent.ToolResultMessage) WireMessage {
 	w := WireMessage{Role: "tool", ToolCallID: t.ToolCallID}
 	var text strings.Builder
@@ -105,8 +92,6 @@ func toolResultContent(t *agent.ToolResultMessage) WireMessage {
 	return w
 }
 
-// BuildTools converts agent tools into OpenAI function-tool wire objects.
-// It returns nil for an empty tool list so the field is omitted.
 func BuildTools(tools []agent.Tool) []WireTool {
 	if len(tools) == 0 {
 		return nil
@@ -125,7 +110,6 @@ func BuildTools(tools []agent.Tool) []WireTool {
 	return out
 }
 
-// jsonString returns v as a JSON string literal.
 func jsonString(v string) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b

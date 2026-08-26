@@ -1,9 +1,3 @@
-// Package smidja_test exercises the public composition seam end to end:
-// Run validates the bundle, wires the harness, and executes the CLI,
-// returning the process exit code. The tests capture the real process
-// streams because Run is deliberately wired to os.Stdout and os.Stderr;
-// they stay network-free, and the -p turn path is covered at the
-// internal/cli unit level against an httptest server.
 package smidja_test
 
 import (
@@ -20,10 +14,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// captureStream redirects one process stream to a pipe for the duration
-// of the test and returns a function that closes the write end, drains
-// the pipe, and returns everything written to the stream. The caller must
-// invoke the returned function after the code under test finishes.
 func captureStream(t *testing.T, target **os.File) func() string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -44,8 +34,6 @@ func captureStream(t *testing.T, target **os.File) func() string {
 	}
 }
 
-// validBundle is a minimal packaged bundle with the canonical origin
-// format.
 func validBundle() sdk.Bundle {
 	return sdk.Bundle{
 		ID:     "digitalygo",
@@ -53,7 +41,6 @@ func validBundle() sdk.Bundle {
 	}
 }
 
-// validInfo is a minimal build identity.
 func validInfo() sdk.BuildInfo {
 	return sdk.BuildInfo{
 		Origin:  "github.com/digitalygo/smidja",
@@ -86,8 +73,6 @@ func TestRunVersionSubcommandJSON(t *testing.T) {
 }
 
 func TestRunBareHarness(t *testing.T) {
-	// The bare harness ships an empty bundle: validation is skipped and
-	// the CLI runs with the package-variable fallback version.
 	read := captureStream(t, &os.Stdout)
 	code := smidja.Run(context.Background(), sdk.Bundle{}, sdk.BuildInfo{}, []string{"-version"})
 	if code != 0 {
@@ -146,12 +131,6 @@ func TestRunInvalidArgumentsExitCode(t *testing.T) {
 	}
 }
 
-// TestRunSingleShotThroughBundle proves bundle consumption is real end to
-// end: the harness client is configured entirely from the bundle's
-// ConfigDefaults (no environment), so a -p turn against an httptest
-// server only works if the bundle defaults actually reached the client.
-// The startup model-catalogue refresh is best-effort and non-fatal, so
-// the test passes regardless of network availability.
 func TestRunSingleShotThroughBundle(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -168,8 +147,6 @@ func TestRunSingleShotThroughBundle(t *testing.T) {
 
 	sessDir := t.TempDir()
 	t.Chdir(t.TempDir())
-	// Empty the real environment so the bundle defaults are the only
-	// configuration source.
 	for _, k := range []string{"SMIDJA_OPENROUTER_URL", "OPENROUTER_API_KEY", "SMIDJA_SESSION_DIR", "SMIDJA_MODEL"} {
 		t.Setenv(k, "")
 	}

@@ -12,21 +12,11 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 )
 
-// maxSSELine is the largest accepted single SSE data line (8 MiB). It is
-// a parser bound for one bufio.Scanner token, not a stream cap, matching
-// the openai-completions driver.
 const maxSSELine = 8 * 1024 * 1024
 
-// readStream reads and parses the named-event SSE stream of one
-// Responses API turn, delivering text and thinking deltas to the
-// callbacks and accumulating output items, usage, and the stop reason.
-// It returns the completed assistant message, or nil and an error when
-// the stream aborts or ends without a terminal response event.
 func (d *Responses) readStream(ctx context.Context, resp *http.Response, model string, onText func(string), onThinking func(string)) (*agent.AssistantMessage, error) {
 	state := newStreamState(d.prefix, d.providerID, d.api, model, onText, onThinking)
 
-	// The stream may stall with the connection open; closing the body
-	// when the context is cancelled unblocks the reader below.
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -54,7 +44,6 @@ func (d *Responses) readStream(ctx context.Context, resp *http.Response, model s
 				return nil, err
 			}
 		case strings.HasPrefix(line, ":"):
-			// SSE comment line; ignore.
 		case strings.HasPrefix(line, "data:"):
 			dataLines = append(dataLines, strings.TrimPrefix(line, "data:"))
 		}
@@ -79,23 +68,21 @@ func (d *Responses) readStream(ctx context.Context, resp *http.Response, model s
 	return state.result(), nil
 }
 
-// slot is one output item under accumulation, keyed by output index.
 type slot struct {
-	kind     string           // "thinking", "text", or "toolCall"
-	blockPos int              // position in state.blocks
-	partial  *strings.Builder // toolCall arguments accumulation
+	kind     string
+	blockPos int
+	partial  *strings.Builder
 }
 
-// streamState accumulates the parsed output of one Responses stream.
 type streamState struct {
 	prefix          string
 	providerID      string
 	api             string
 	model           string
 	blocks          []agent.ContentBlock
-	builders        []*strings.Builder // aligned with blocks; holds Text or Thinking content
-	slots           map[int]*slot      // output index -> open slot
-	reasoningBlocks map[string]int     // reasoning item id -> block position, for signature backfill
+	builders        []*strings.Builder
+	slots           map[int]*slot
+	reasoningBlocks map[string]int
 	responseID      string
 	usage           agent.Usage
 	stopReason      string
@@ -105,8 +92,6 @@ type streamState struct {
 	onThinking      func(string)
 }
 
-// newStreamState returns an empty state for the given provider identity,
-// model, and callbacks. prefix is the driver's error-message prefix.
 func newStreamState(prefix, providerID, api, model string, onText func(string), onThinking func(string)) *streamState {
 	return &streamState{
 		prefix:          prefix,
@@ -120,8 +105,6 @@ func newStreamState(prefix, providerID, api, model string, onText func(string), 
 	}
 }
 
-// apply parses one SSE data payload and dispatches on its named type,
-// mirroring pi-ai's processResponsesStream event handling.
 func (s *streamState) apply(data string) error {
 	if strings.TrimSpace(data) == "[DONE]" {
 		return nil
@@ -208,14 +191,10 @@ func (s *streamState) apply(data string) error {
 	return nil
 }
 
-// decodeErr wraps a per-event decode failure.
 func (s *streamState) decodeErr(err error) error {
 	return fmt.Errorf("%s: decode stream event: %w", s.prefix, err)
 }
 
-// outputItemAdded opens a slot for a new output item, mirroring pi-ai's
-// createSlot: reasoning items become thinking blocks, messages become
-// text blocks, and function_call items become toolCall blocks.
 func (s *streamState) outputItemAdded(data string) error {
 	var e outputItemEvent
 	if err := json.Unmarshal([]byte(data), &e); err != nil {
@@ -232,14 +211,9 @@ func (s *streamState) outputItemAdded(data string) error {
 		s.builders = append(s.builders, b)
 		s.slots[e.OutputIndex] = &slot{kind: "thinking", blockPos: len(s.blocks) - 1}
 		if it.ID != "" {
-			// Track by item id so the terminal response can backfill
-			// signatures even after the slot is closed, mirroring
-			// pi-ai's reasoningBlocksById.
 			s.reasoningBlocks[it.ID] = len(s.blocks) - 1
 		}
 	case "message":
-		// A final_answer phase message completes the turn, mirroring
-		// pi-ai's applyMessagePhaseStopReason.
 		if it.Phase == "final_answer" {
 			s.stopReason = "stop"
 		}
@@ -261,10 +235,6 @@ func (s *streamState) outputItemAdded(data string) error {
 	return nil
 }
 
-// outputItemDone finalizes an output item, mirroring pi-ai's
-// response.output_item.done handling: reasoning items persist their full
-// JSON as the thinking signature, messages materialize their content, and
-// function_call items finalize their accumulated arguments.
 func (s *streamState) outputItemDone(data string) error {
 	var e outputItemEvent
 	if err := json.Unmarshal([]byte(data), &e); err != nil {
@@ -280,8 +250,6 @@ func (s *streamState) outputItemDone(data string) error {
 	}
 	switch {
 	case it.Type == "reasoning" && sl.kind == "thinking":
-		// Prefer the item's own summary/content over the accumulated
-		// deltas, mirroring pi-ai.
 		var summary, content strings.Builder
 		for _, p := range it.Summary {
 			summary.WriteString(p.Text)
@@ -298,8 +266,6 @@ func (s *streamState) outputItemDone(data string) error {
 		} else if b := s.builders[sl.blockPos]; b != nil {
 			s.blocks[sl.blockPos].Thinking = b.String()
 		}
-		// Persist the full reasoning item so the next turn can replay it
-		// verbatim, mirroring pi-ai's thinkingSignature JSON.
 		s.blocks[sl.blockPos].ThinkingSignature = string(e.Item)
 		delete(s.slots, e.OutputIndex)
 	case it.Type == "message" && sl.kind == "text":
@@ -335,8 +301,6 @@ func (s *streamState) outputItemDone(data string) error {
 	return nil
 }
 
-// addTextDelta appends a text delta to the open text slot and forwards it
-// to the callback.
 func (s *streamState) addTextDelta(index int, delta string) {
 	sl, ok := s.slots[index]
 	if !ok || sl.kind != "text" {
@@ -350,8 +314,6 @@ func (s *streamState) addTextDelta(index int, delta string) {
 	}
 }
 
-// addThinkingDelta appends a thinking delta to the open thinking slot and
-// forwards it to the callback.
 func (s *streamState) addThinkingDelta(index int, delta string) {
 	sl, ok := s.slots[index]
 	if !ok || sl.kind != "thinking" {
@@ -365,7 +327,6 @@ func (s *streamState) addThinkingDelta(index int, delta string) {
 	}
 }
 
-// addArgsDelta accumulates a function call arguments fragment.
 func (s *streamState) addArgsDelta(index int, delta string) {
 	sl, ok := s.slots[index]
 	if !ok || sl.kind != "toolCall" || sl.partial == nil {
@@ -374,8 +335,6 @@ func (s *streamState) addArgsDelta(index int, delta string) {
 	sl.partial.WriteString(delta)
 }
 
-// finalizeArgs adopts the authoritative arguments of a
-// function_call_arguments.done event.
 func (s *streamState) finalizeArgs(index int, args string) {
 	sl, ok := s.slots[index]
 	if !ok || sl.kind != "toolCall" || sl.partial == nil {
@@ -385,9 +344,6 @@ func (s *streamState) finalizeArgs(index int, args string) {
 	sl.partial.WriteString(args)
 }
 
-// finalizeResponse folds a terminal response event into the state,
-// mirroring pi-ai's finalizeResponse: response id, usage mapping, status
-// to stop reason, and the toolUse override when tool calls are present.
 func (s *streamState) finalizeResponse(resp *response) {
 	s.sawTerminal = true
 	s.backfillReasoningSignatures(resp.Output)
@@ -409,11 +365,6 @@ func (s *streamState) finalizeResponse(resp *response) {
 	}
 }
 
-// backfillReasoningSignatures patches persisted reasoning signatures with
-// the encrypted content of the terminal response, covering Azure
-// deployments that omit reasoning.encrypted_content from the done events
-// and only provide it on the terminal response. It mirrors pi-ai's
-// backfillReasoningSignatures.
 func (s *streamState) backfillReasoningSignatures(output []struct {
 	Type             string          `json:"type"`
 	ID               string          `json:"id"`
@@ -445,9 +396,6 @@ func (s *streamState) backfillReasoningSignatures(output []struct {
 	}
 }
 
-// failed surfaces a response.failed event as an error, mirroring pi-ai's
-// message construction: the response error takes precedence, then the
-// incomplete reason, then a generic message.
 func (s *streamState) failed(e *failedEvent) error {
 	resp := &e.Response
 	if err := resp.Error; err != nil {
@@ -467,10 +415,6 @@ func (s *streamState) failed(e *failedEvent) error {
 	return errors.New(s.prefix + ": unknown error (no error details in response)")
 }
 
-// result assembles the final assistant message from the accumulated
-// state. A block whose content the output_item.done handler already
-// materialized (the authoritative item content) keeps it; the builder
-// only fills blocks the done event never closed.
 func (s *streamState) result() *agent.AssistantMessage {
 	for i := range s.blocks {
 		switch s.blocks[i].Type {
@@ -501,9 +445,6 @@ func (s *streamState) result() *agent.AssistantMessage {
 	}
 }
 
-// toUsage maps the wire usage onto agent.Usage. OpenAI includes cached
-// and cache-write tokens inside input_tokens, so both are subtracted,
-// mirroring pi-ai's finalizeResponse.
 func (u *usage) toUsage() agent.Usage {
 	var cached, cacheWrite int64
 	if d := u.InputTokensDetails; d != nil {
@@ -528,10 +469,6 @@ func (u *usage) toUsage() agent.Usage {
 	}
 }
 
-// mapStatus maps a terminal response status onto the agent stop reasons,
-// mirroring pi-ai's mapStopReason: completed stops, max-output truncation
-// maps to length, other incomplete reasons error, and the transient
-// statuses degrade to stop.
 func mapStatus(status, incompleteReason string) (stop, errMsg string) {
 	switch status {
 	case "", "completed", "in_progress", "queued":
@@ -551,7 +488,6 @@ func mapStatus(status, incompleteReason string) (stop, errMsg string) {
 	}
 }
 
-// hasToolCall reports whether any accumulated block is a toolCall block.
 func hasToolCall(blocks []agent.ContentBlock) bool {
 	for _, b := range blocks {
 		if b.Type == agent.BlockTypeToolCall {

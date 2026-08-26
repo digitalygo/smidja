@@ -14,13 +14,13 @@ func TestCompareVersions(t *testing.T) {
 		{"v1.2.3", "v1.2.3", 0},
 		{"v1.2.3", "v1.2.4", -1},
 		{"v1.2.3", "v1.2.2", 1},
-		{"v1.10.0", "v1.9.9", 1},       // numeric, not lexicographic
-		{"1.2.3", "v1.2.3", 0},         // v prefix ignored
-		{"V1.2.3", "v1.2.3", 0},        // uppercase prefix ignored
-		{"v2.0.0", "v1.99.99", 1},      // major wins over many minors
-		{"v1.2", "v1.2.0", 0},          // missing fields are zero
-		{"v1.2.3-beta.1", "v1.2.3", 0}, // prerelease suffix ignored
-		{"v1.2.3", "dev", 1},           // non-numeric version compares as zero
+		{"v1.10.0", "v1.9.9", 1},
+		{"1.2.3", "v1.2.3", 0},
+		{"V1.2.3", "v1.2.3", 0},
+		{"v2.0.0", "v1.99.99", 1},
+		{"v1.2", "v1.2.0", 0},
+		{"v1.2.3-beta.1", "v1.2.3", 0},
+		{"v1.2.3", "dev", 1},
 		{"dev", "dev", 0},
 		{"", "", 0},
 		{"v1.2.3", "", 1},

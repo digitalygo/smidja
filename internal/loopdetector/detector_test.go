@@ -5,26 +5,18 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture helpers
-
-// thinkingTurn builds a turn whose only content is thinking text.
 func thinkingTurn(index int, thinking string) Turn {
 	return Turn{TurnIndex: index, ThinkingText: thinking}
 }
 
-// textTurn builds a turn whose only content is assistant text.
 func textTurn(index int, text string) Turn {
 	return Turn{TurnIndex: index, TextContent: text}
 }
 
-// callTurn builds a turn whose only content is tool calls.
 func callTurn(index int, calls ...ToolCall) Turn {
 	return Turn{TurnIndex: index, ToolCalls: calls}
 }
 
-// readCall builds a successful read tool call with a deterministic
-// fingerprint derived from the path.
 func readCall(path string) ToolCall {
 	return ToolCall{
 		Name:           "read",
@@ -35,7 +27,6 @@ func readCall(path string) ToolCall {
 	}
 }
 
-// grepCall builds a grep tool call with the given display summary.
 func grepCall(display string) ToolCall {
 	return ToolCall{
 		Name:           "grep",
@@ -46,8 +37,6 @@ func grepCall(display string) ToolCall {
 	}
 }
 
-// failingSubagent builds a failing subagent call with the given result
-// key, mirroring what ExtractTurn produces for a blocked subagent.
 func failingSubagent(resultKey string) ToolCall {
 	return ToolCall{
 		Name:           "subagent",
@@ -59,27 +48,19 @@ func failingSubagent(resultKey string) ToolCall {
 	}
 }
 
-// natoWords is the NATO phonetic alphabet, all uppercase so the
-// normalizeThinking short-word removal (which only strips lowercase
-// words) leaves them intact.
 var natoWords = strings.Fields("ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF HOTEL INDIA JULIET KILO LIMA MIKE NOVEMBER OSCAR PAPA QUEBEC ROMEO SIERRA TANGO UNIFORM VICTOR WHISKEY XRAY YANKEE ZULU")
 
-// wordList returns the first n NATO words joined by spaces.
 func wordList(n int) string {
 	return strings.Join(natoWords[:n], " ")
 }
 
 const stuckThinking = "Let me consider the approach and the tradeoffs before implementing."
 
-// observeThinking observes n turns that all share the same thinking.
 func observeThinking(d *Detector, start, n int) {
 	for i := start; i < start+n; i++ {
 		d.Observe(thinkingTurn(i, stuckThinking))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Config
 
 func TestDefaultConfigMatchesSource(t *testing.T) {
 	got := DefaultConfig()
@@ -105,9 +86,6 @@ func TestDefaultConfigMatchesSource(t *testing.T) {
 		t.Errorf("DefaultConfig = %+v, want %+v", got, want)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Reasoning stagnation
 
 func TestReasoningStagnationDetects(t *testing.T) {
 	d := New(DefaultConfig())
@@ -148,8 +126,6 @@ func TestReasoningStagnationDisabled(t *testing.T) {
 }
 
 func TestReasoningSimilarityBoundary(t *testing.T) {
-	// Jaccard 0.85 = 17/20: a 20-word set against its 17-word subset
-	// must be stuck (>= threshold).
 	at85 := []Turn{
 		thinkingTurn(0, wordList(20)),
 		thinkingTurn(1, wordList(17)),
@@ -164,8 +140,6 @@ func TestReasoningSimilarityBoundary(t *testing.T) {
 		t.Fatalf("at 0.85: Verdict = %v, want %v (findings: %+v)", out.Verdict, VerdictWarn, out.Findings)
 	}
 
-	// Jaccard 0.84 = 21/25: a 25-word set against its 21-word subset
-	// must NOT be stuck (< threshold on the first adjacent pair).
 	d2 := New(DefaultConfig())
 	below := []Turn{
 		thinkingTurn(0, wordList(25)),
@@ -182,38 +156,28 @@ func TestReasoningSimilarityBoundary(t *testing.T) {
 }
 
 func TestSimilarityDirect(t *testing.T) {
-	// Exactly 0.85: 17 shared of (20, 17).
 	a := wordList(20)
 	b := wordList(17)
 	if got := similarity(normalizeThinking(a), normalizeThinking(b)); got != 0.85 {
 		t.Errorf("similarity = %v, want 0.85", got)
 	}
-	// Below 0.85: 21 shared of (25, 21).
 	a2 := wordList(25)
 	b2 := wordList(21)
 	if got := similarity(normalizeThinking(a2), normalizeThinking(b2)); got >= 0.85 {
 		t.Errorf("similarity = %v, want < 0.85", got)
 	}
-	// Identical and disjoint.
 	if got := similarity("alpha bravo", "alpha bravo"); got != 1 {
 		t.Errorf("identical similarity = %v, want 1", got)
 	}
 	if got := similarity("alpha bravo", "charlie delta"); got != 0 {
 		t.Errorf("disjoint similarity = %v, want 0", got)
 	}
-	// Empty sets score 0.
 	if got := similarity("", "alpha"); got != 0 {
 		t.Errorf("empty similarity = %v, want 0", got)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Window eviction
-
 func TestWindowEviction(t *testing.T) {
-	// A window of 3 can never hold the 4 consecutive thinking turns the
-	// reasoning detector needs, so the oldest turn must have been
-	// evicted.
 	cfg := DefaultConfig()
 	cfg.WindowSize = 3
 	d := New(cfg)
@@ -222,16 +186,12 @@ func TestWindowEviction(t *testing.T) {
 		t.Fatalf("Verdict = %v, want %v (window 3 evicts before the threshold is met)", out.Verdict, VerdictNone)
 	}
 
-	// With the default window of 10 the same input detects.
 	d2 := New(DefaultConfig())
 	observeThinking(d2, 0, 3)
 	if out := d2.Observe(thinkingTurn(3, stuckThinking)); out.Verdict != VerdictWarn {
 		t.Fatalf("Verdict = %v, want %v with the default window", out.Verdict, VerdictWarn)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Message repetition
 
 func TestMessageRepetitionDetects(t *testing.T) {
 	d := New(DefaultConfig())
@@ -282,9 +242,6 @@ func TestMessageRepetitionLengthFloor(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Tool repetition
-
 func TestToolRepetitionDetects(t *testing.T) {
 	d := New(DefaultConfig())
 	d.Observe(callTurn(0, readCall("/a"), readCall("/b")))
@@ -303,8 +260,6 @@ func TestToolRepetitionDetects(t *testing.T) {
 }
 
 func TestToolRepetitionBelowMinReps(t *testing.T) {
-	// Six calls total, but the third repetition differs, so reps stay at
-	// 2 and no 2- or 3-call pattern reaches the threshold.
 	d := New(DefaultConfig())
 	calls := []ToolCall{readCall("/a"), readCall("/b"), readCall("/a"), readCall("/b"), readCall("/a"), readCall("/c")}
 	d.Observe(callTurn(0, calls[0], calls[1]))
@@ -315,8 +270,6 @@ func TestToolRepetitionBelowMinReps(t *testing.T) {
 }
 
 func TestToolRepetitionBelowSequenceMinLength(t *testing.T) {
-	// Two repetitions of a 2-call pattern: only 4 calls, below the
-	// 6-call sequence floor.
 	d := New(DefaultConfig())
 	d.Observe(callTurn(0, readCall("/a"), readCall("/b")))
 	if out := d.Observe(callTurn(1, readCall("/a"), readCall("/b"))); out.Verdict != VerdictNone {
@@ -325,8 +278,6 @@ func TestToolRepetitionBelowSequenceMinLength(t *testing.T) {
 }
 
 func TestToolRepetitionThreeCallPattern(t *testing.T) {
-	// A 3-call pattern repeated 3 times; the 2-call loop must not fire
-	// first because every adjacent 2-pattern differs.
 	d := New(DefaultConfig())
 	seq := []ToolCall{readCall("/a"), readCall("/b"), readCall("/c")}
 	d.Observe(callTurn(0, seq[0], seq[1], seq[2]))
@@ -345,8 +296,6 @@ func TestToolRepetitionThreeCallPattern(t *testing.T) {
 }
 
 func TestToolRepetitionSkipsCallsWithoutResults(t *testing.T) {
-	// Pattern calls without results are skipped: three repetitions where
-	// every call lacks a result must not fire.
 	noResult := func(path string) ToolCall {
 		c := readCall(path)
 		c.HasResult = false
@@ -360,9 +309,6 @@ func TestToolRepetitionSkipsCallsWithoutResults(t *testing.T) {
 		t.Fatalf("Verdict = %v, want %v (result-less calls are skipped)", out.Verdict, VerdictNone)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Read repetition
 
 func TestReadRepetitionDetects(t *testing.T) {
 	d := New(DefaultConfig())
@@ -391,13 +337,8 @@ func TestReadRepetitionBelowThreshold(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Search spiral
-
 func TestSearchSpiralSamePatternAcrossPaths(t *testing.T) {
 	d := New(DefaultConfig())
-	// Host-provided display summaries with per-path tails (see the
-	// detector doc note about the comma-dependent path extraction).
 	d.Observe(callTurn(0, grepCall(`search_files("TODO", /src/a)`)))
 	d.Observe(callTurn(1, grepCall(`search_files("TODO", /src/b)`)))
 	out := d.Observe(callTurn(2, grepCall(`search_files("TODO", /src/c)`)))
@@ -444,9 +385,6 @@ func TestSearchSpiralNotExpanding(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Subagent cycle
-
 func TestSubagentCycleDetects(t *testing.T) {
 	d := New(DefaultConfig())
 	d.Observe(callTurn(0, failingSubagent("res1")))
@@ -492,17 +430,6 @@ func TestSubagentCycleSkipsNonErrors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Escalation and state machine
-//
-// The extension clears the window after every detection and resets the
-// consecutive counter on any turn without findings, so escalation is only
-// reachable for detectors whose evidence fits in a single turn. These tests
-// use the tool-repetition detector: one turn carrying six calls (a 2-call
-// pattern repeated three times) is enough to detect.
-
-// detectTurn observes one turn with a repeated 2-call pattern and returns
-// the outcome.
 func detectTurn(d *Detector, index int) Outcome {
 	return d.Observe(callTurn(index, readCall("/a"), readCall("/b"), readCall("/a"), readCall("/b"), readCall("/a"), readCall("/b")))
 }
@@ -512,12 +439,9 @@ func TestEscalationWarnThenBlockThenWarn(t *testing.T) {
 	if out := detectTurn(d, 0); out.Verdict != VerdictWarn {
 		t.Fatalf("first detection Verdict = %v, want %v", out.Verdict, VerdictWarn)
 	}
-	// The next detection turn finds the counter at 1, so 1+1 >= 2
-	// escalates to block.
 	if out := detectTurn(d, 1); out.Verdict != VerdictBlock {
 		t.Fatalf("second detection Verdict = %v, want %v", out.Verdict, VerdictBlock)
 	}
-	// Block resets the counter: the next detection warns again.
 	if out := detectTurn(d, 2); out.Verdict != VerdictWarn {
 		t.Fatalf("third detection Verdict = %v, want %v", out.Verdict, VerdictWarn)
 	}
@@ -528,8 +452,6 @@ func TestEscalationCleanTurnResets(t *testing.T) {
 	if out := detectTurn(d, 0); out.Verdict != VerdictWarn {
 		t.Fatalf("first detection Verdict = %v, want %v", out.Verdict, VerdictWarn)
 	}
-	// A clean turn (content but no findings) resets the counter, so the
-	// next detection warns instead of blocking.
 	d.Observe(callTurn(1, readCall("/x"), readCall("/y"), readCall("/z"), readCall("/w"), readCall("/v")))
 	if out := detectTurn(d, 2); out.Verdict != VerdictWarn {
 		t.Fatalf("detection after clean turn Verdict = %v, want %v (counter was reset)", out.Verdict, VerdictWarn)
@@ -541,8 +463,6 @@ func TestEmptyTurnDoesNotResetCounter(t *testing.T) {
 	if out := detectTurn(d, 0); out.Verdict != VerdictWarn {
 		t.Fatalf("first detection Verdict = %v, want %v", out.Verdict, VerdictWarn)
 	}
-	// An empty turn is skipped entirely, mirroring the extension's early
-	// return: the counter stays at 1, so the next detection blocks.
 	if out := d.Observe(Turn{}); out.Verdict != VerdictNone {
 		t.Fatalf("empty turn Verdict = %v, want %v", out.Verdict, VerdictNone)
 	}
@@ -555,26 +475,19 @@ func TestEscalationLadderWithEscalateAfterThree(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.EscalateAfter = 3
 	d := New(cfg)
-	// Detection 1: warn.
 	if out := detectTurn(d, 0); out.Verdict != VerdictWarn {
 		t.Fatalf("first detection Verdict = %v, want %v", out.Verdict, VerdictWarn)
 	}
-	// Detection 2: silent middle step (findings reported, no verdict).
 	out2 := detectTurn(d, 1)
 	if out2.Verdict != VerdictNone || len(out2.Findings) == 0 {
 		t.Fatalf("second detection = %+v, want VerdictNone with findings", out2)
 	}
-	// Detection 3: block.
 	if out := detectTurn(d, 2); out.Verdict != VerdictBlock {
 		t.Fatalf("third detection Verdict = %v, want %v", out.Verdict, VerdictBlock)
 	}
 }
 
 func TestMultiTurnEvidenceResetsCounter(t *testing.T) {
-	// Detectors that need several turns of evidence cannot escalate: the
-	// intermediate evidence turns find nothing and reset the counter,
-	// exactly as in the extension. After a reasoning-stuck warning, three
-	// more thinking turns each reset, so the fourth turn warns again.
 	d := New(DefaultConfig())
 	observeThinking(d, 0, 3)
 	if out := d.Observe(thinkingTurn(3, stuckThinking)); out.Verdict != VerdictWarn {
@@ -599,9 +512,6 @@ func TestResetClearsState(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Steer messages
-
 func TestSteerMessageWarning(t *testing.T) {
 	out := Outcome{
 		Verdict: VerdictWarn,
@@ -617,8 +527,6 @@ func TestSteerMessageWarning(t *testing.T) {
 	if text != SteerTextWarning {
 		t.Errorf("text = %q\nwant %q", text, SteerTextWarning)
 	}
-	// The text is a fixed host-owned template: it must not interpolate
-	// any finding details (tool names, argument fragments, turn numbers).
 	if strings.Contains(text, "Stuck reasoning") || strings.Contains(text, "read(") || strings.Contains(text, "turn") {
 		t.Errorf("text embeds model-controlled finding details: %q", text)
 	}

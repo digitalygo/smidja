@@ -20,7 +20,6 @@ import (
 	"github.com/digitalygo/smidja/internal/buildinfo"
 )
 
-// fakeRelease is one release the fake GitHub server can serve.
 type fakeRelease struct {
 	tag        string
 	htmlURL    string
@@ -28,18 +27,13 @@ type fakeRelease struct {
 	assetNames []string
 }
 
-// fakeGitHub is an httptest server that fakes the subset of the GitHub
-// releases API the updater uses, plus asset downloads under /downloads/.
 type fakeGitHub struct {
 	server   *httptest.Server
-	releases map[string]*fakeRelease // keyed by "latest" or a tag name
-	assets   map[string][]byte       // asset name to content
-	paths    []string                // request paths in arrival order
+	releases map[string]*fakeRelease
+	assets   map[string][]byte
+	paths    []string
 }
 
-// newFakeGitHub serves releases keyed by "latest" or a tag name. Asset
-// content is served by name from assets and referenced from the release
-// JSON as <server>/downloads/<name>.
 func newFakeGitHub(t *testing.T, releases map[string]*fakeRelease, assets map[string][]byte) *fakeGitHub {
 	t.Helper()
 	f := &fakeGitHub{releases: releases, assets: assets}
@@ -60,8 +54,6 @@ func (f *fakeGitHub) handle(w http.ResponseWriter, r *http.Request) {
 		w.Write(content)
 		return
 	}
-	// /repos/{owner}/{repo}/releases/latest
-	// /repos/{owner}/{repo}/releases/tags/{tag}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/repos/"), "/")
 	var key string
 	switch {
@@ -94,7 +86,6 @@ func (f *fakeGitHub) handle(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// saw reports whether a request path was observed.
 func (f *fakeGitHub) saw(path string) bool {
 	for _, p := range f.paths {
 		if p == path {
@@ -104,26 +95,20 @@ func (f *fakeGitHub) saw(path string) bool {
 	return false
 }
 
-// testOrigin is the build identity used by most tests: running v1.0.0
-// from the canonical origin.
 func testOrigin() buildinfo.Info {
 	return buildinfo.Info{Origin: "github.com/digitalygo/smidja", Version: "v1.0.0"}
 }
 
-// newClient builds an updater pointed at the fake server.
 func newClient(f *fakeGitHub, origin buildinfo.Info) *Client {
 	return &Client{BaseURL: f.server.URL, Origin: origin}
 }
 
-// applyClient builds an updater whose ExecPath resolves to path.
 func applyClient(f *fakeGitHub, path string) *Client {
 	c := newClient(f, testOrigin())
 	c.ExecPath = func() (string, error) { return path, nil }
 	return c
 }
 
-// checksums renders a map of filename to hex digest in the standard
-// "digest  filename" layout, in sorted filename order.
 func checksums(entries map[string]string) []byte {
 	names := make([]string, 0, len(entries))
 	for n := range entries {
@@ -142,8 +127,6 @@ func sha256hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// standardRelease is the release fixture used by most tests, served for
-// both the "latest" endpoint and the explicit v1.2.3 tag.
 func standardRelease() map[string]*fakeRelease {
 	rel := &fakeRelease{
 		tag:        "v1.2.3",
@@ -157,7 +140,6 @@ func standardRelease() map[string]*fakeRelease {
 	}
 }
 
-// applyScratch writes a fake executable and returns its path.
 func applyScratch(t *testing.T, content []byte, mode os.FileMode) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "smidja")
@@ -167,7 +149,6 @@ func applyScratch(t *testing.T, content []byte, mode os.FileMode) string {
 	return path
 }
 
-// assertBinary asserts that path holds exactly want bytes.
 func assertBinary(t *testing.T, path string, want []byte) {
 	t.Helper()
 	got, err := os.ReadFile(path)
@@ -179,7 +160,6 @@ func assertBinary(t *testing.T, path string, want []byte) {
 	}
 }
 
-// assertCleanDir asserts that no temp or lock files were left in dir.
 func assertCleanDir(t *testing.T, dir string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -453,7 +433,7 @@ func TestApplyMissingChecksumsAsset(t *testing.T) {
 func TestApplyChecksumsDownloadFailure(t *testing.T) {
 	oldBytes := []byte("old")
 	target := applyScratch(t, oldBytes, 0o755)
-	assets := map[string][]byte{"smidja-linux-amd64": []byte("new")} // checksums.txt listed but not served
+	assets := map[string][]byte{"smidja-linux-amd64": []byte("new")}
 	f := newFakeGitHub(t, standardRelease(), assets)
 	c := applyClient(f, target)
 
@@ -541,8 +521,6 @@ func TestApplyReclaimsStaleLock(t *testing.T) {
 }
 
 func TestApplySelfCheckDisabledByDefault(t *testing.T) {
-	// The default (SelfCheck false) installs checksum-verified bytes
-	// without executing them, so a plain non-executable asset works.
 	oldBytes := []byte("old")
 	newBytes := []byte("new")
 	target := applyScratch(t, oldBytes, 0o755)

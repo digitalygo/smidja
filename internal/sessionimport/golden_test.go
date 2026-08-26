@@ -9,23 +9,14 @@ import (
 	"github.com/digitalygo/smidja/internal/session"
 )
 
-// goldenPiV3Rel is the committed sanitized fixture shared with the
-// internal/session golden tests: a real Pi 0.84.2 session structure (1
-// header, 1 model_change, 1 thinking_level_change, 67 messages) with all
-// content replaced by synthetic placeholders.
 const goldenPiV3Rel = "../session/testdata/pi-v3/session-basic.jsonl"
 
-// goldenPiV3Stats pins the expected import statistics of the fixture:
-// 69 entries, none opaque, split into 67 messages, one
-// thinking_level_change, one model_change.
 var goldenPiV3Stats = map[string]int{
 	"message":               67,
 	"thinking_level_change": 1,
 	"model_change":          1,
 }
 
-// goldenPiV3DestName is the canonical destination file name derived from
-// the fixture header.
 const goldenPiV3DestName = "2026-08-24T10-14-35-177Z_0196b87c-7a2b-7000-8000-0000000000a1.jsonl"
 
 func TestImportGoldenPiV3FixtureByteExact(t *testing.T) {
@@ -47,9 +38,6 @@ func TestImportGoldenPiV3FixtureByteExact(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The imported file is byte-identical to the source: raw lines were
-	// copied verbatim, never re-marshaled. This is the compatibility
-	// contract with Pi sessions.
 	got, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatal(err)
@@ -58,8 +46,6 @@ func TestImportGoldenPiV3FixtureByteExact(t *testing.T) {
 		t.Errorf("imported bytes differ from source (len %d vs %d)", len(got), len(srcData))
 	}
 
-	// Destination is the canonical Store location: munged cwd directory
-	// and header-derived file name.
 	wantDir := filepath.Join(store.Root(), "--var-home-example-project--")
 	if filepath.Dir(dest) != wantDir {
 		t.Errorf("dest dir = %q, want %q", filepath.Dir(dest), wantDir)
@@ -68,7 +54,6 @@ func TestImportGoldenPiV3FixtureByteExact(t *testing.T) {
 		t.Errorf("dest name = %q, want %q", filepath.Base(dest), goldenPiV3DestName)
 	}
 
-	// File permissions match the Store's 0600.
 	fi, err := os.Stat(dest)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +62,6 @@ func TestImportGoldenPiV3FixtureByteExact(t *testing.T) {
 		t.Errorf("dest perms = %o, want 600", perm)
 	}
 
-	// Stats: 69 entries, none opaque, exact per-type counts.
 	if stats.Entries != 69 {
 		t.Errorf("Entries = %d, want 69", stats.Entries)
 	}
@@ -96,7 +80,6 @@ func TestImportGoldenPiV3FixtureByteExact(t *testing.T) {
 		}
 	}
 
-	// The imported file loads as a session with the full chain intact.
 	l, err := session.Load(dest)
 	if err != nil {
 		t.Fatal(err)
@@ -148,8 +131,6 @@ func TestImportGoldenPiV3FixtureIdempotent(t *testing.T) {
 		t.Errorf("second import Entries = %d, want 69", stats2.Entries)
 	}
 
-	// The destination is untouched by the second import and still
-	// byte-identical to the source, and no temp files remain.
 	after, err := os.ReadFile(second)
 	if err != nil {
 		t.Fatal(err)

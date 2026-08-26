@@ -10,11 +10,6 @@ import (
 	"testing"
 )
 
-// modelsFixture is a realistic OpenRouter catalogue response: it carries
-// unknown fields the decoder must ignore, context_length values encoded
-// as integers, floats, and strings, and entries that must be skipped
-// (empty id, zero and negative windows, undecodable values, and a model
-// id without a provider prefix).
 const modelsFixture = `{
   "data": [
     {"id": "anthropic/claude-sonnet-4.5", "name": "Claude Sonnet 4.5", "context_length": 200000, "pricing": {"prompt": "3", "completion": "15"}, "top_provider": {"context_length": 200000}},
@@ -30,14 +25,10 @@ const modelsFixture = `{
   ]
 }`
 
-// roundTripFunc adapts a function to http.RoundTripper so fetch tests
-// serve fixtures with no network and no server.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-// jsonResponse builds a canned HTTP response with the given status and
-// body.
 func jsonResponse(status int, body string) *http.Response {
 	return &http.Response{
 		StatusCode: status,
@@ -47,8 +38,6 @@ func jsonResponse(status int, body string) *http.Response {
 	}
 }
 
-// fixtureClient returns a client whose transport serves the catalogue
-// fixture and asserts the request shape: GET on the catalogue endpoint.
 func fixtureClient() *http.Client {
 	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodGet || r.URL.String() != OpenRouterModelsURL {
@@ -58,9 +47,6 @@ func fixtureClient() *http.Client {
 	})}
 }
 
-// TestFetchOpenRouterModels checks tolerant decoding of the fixture:
-// valid entries are parsed with the provider derived from the id prefix,
-// unknown fields are ignored, and every invalid entry is skipped.
 func TestFetchOpenRouterModels(t *testing.T) {
 	got, err := FetchOpenRouterModels(context.Background(), fixtureClient())
 	if err != nil {
@@ -84,9 +70,6 @@ func TestFetchOpenRouterModels(t *testing.T) {
 	}
 }
 
-// TestFetchOpenRouterModelsMerges checks that a fetched catalogue layers
-// on top of the fallback registry: live values replace fallback entries,
-// new entries are added, and fallback-only entries keep their values.
 func TestFetchOpenRouterModelsMerges(t *testing.T) {
 	fetched, err := FetchOpenRouterModels(context.Background(), fixtureClient())
 	if err != nil {
@@ -107,15 +90,12 @@ func TestFetchOpenRouterModelsMerges(t *testing.T) {
 	if !ok || m.ContextWindow != 1_000 {
 		t.Errorf("added entry = %+v ok=%v, want window 1000", m, ok)
 	}
-	// Fallback-only entries survive the merge.
 	m, ok = r.Get("anthropic/claude-opus-5")
 	if !ok || m.ContextWindow != 1_000_000 {
 		t.Errorf("fallback entry after merge = %+v ok=%v, want window 1000000", m, ok)
 	}
 }
 
-// TestFetchOpenRouterModelsServerError checks that a non-2xx status is
-// reported as an error.
 func TestFetchOpenRouterModelsServerError(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusInternalServerError, "boom"), nil
@@ -129,8 +109,6 @@ func TestFetchOpenRouterModelsServerError(t *testing.T) {
 	}
 }
 
-// TestFetchOpenRouterModelsRequestError checks that a transport failure
-// is reported as an error.
 func TestFetchOpenRouterModelsRequestError(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("connection refused")
@@ -140,8 +118,6 @@ func TestFetchOpenRouterModelsRequestError(t *testing.T) {
 	}
 }
 
-// TestFetchOpenRouterModelsBadJSON checks that an undecodable body is an
-// error.
 func TestFetchOpenRouterModelsBadJSON(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, "not json at all"), nil
@@ -151,8 +127,6 @@ func TestFetchOpenRouterModelsBadJSON(t *testing.T) {
 	}
 }
 
-// TestFetchOpenRouterModelsMissingData checks that a JSON body without a
-// data array is an error.
 func TestFetchOpenRouterModelsMissingData(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"models": []}`), nil
@@ -162,8 +136,6 @@ func TestFetchOpenRouterModelsMissingData(t *testing.T) {
 	}
 }
 
-// TestFetchOpenRouterModelsEmptyData checks that an empty catalogue is a
-// valid, empty result.
 func TestFetchOpenRouterModelsEmptyData(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"data": []}`), nil
@@ -177,9 +149,6 @@ func TestFetchOpenRouterModelsEmptyData(t *testing.T) {
 	}
 }
 
-// TestFetchOpenRouterModelsCancelled checks that the caller context is
-// bound to the HTTP request, so a ctx-aware transport aborts the fetch
-// when the context is cancelled.
 func TestFetchOpenRouterModelsCancelled(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := r.Context().Err(); err != nil {
@@ -198,9 +167,6 @@ func TestFetchOpenRouterModelsCancelled(t *testing.T) {
 	}
 }
 
-// TestFetchOpenRouterModelsNilClient checks that a nil client falls back
-// to http.DefaultClient. It mutates the global DefaultClient, so it must
-// not run in parallel with other fetch tests.
 func TestFetchOpenRouterModelsNilClient(t *testing.T) {
 	orig := http.DefaultClient
 	http.DefaultClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {

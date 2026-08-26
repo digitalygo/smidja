@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-// verifyChecksum opens path, hashes it with SHA-256, and requires that
-// checksums matches the resulting digest for assetName.
 func verifyChecksum(checksums []byte, assetName, path string) error {
 	expected, err := findChecksum(checksums, assetName)
 	if err != nil {
@@ -32,11 +30,6 @@ func verifyChecksum(checksums []byte, assetName, path string) error {
 	return nil
 }
 
-// findChecksum scans checksums.txt lines for the entry whose filename is
-// assetName. Lines use the common "hex  filename" layout, with an
-// optional leading "*" before the filename. The matching entry must be
-// unique and carry a 64-character hex digest; zero or multiple matches,
-// or a malformed digest, are errors.
 func findChecksum(checksums []byte, assetName string) (string, error) {
 	var digests []string
 	for _, line := range strings.Split(string(checksums), "\n") {
@@ -66,8 +59,6 @@ func findChecksum(checksums []byte, assetName string) (string, error) {
 	return digests[0], nil
 }
 
-// isHexDigest reports whether s is a 64-character hexadecimal string, the
-// SHA-256 digest format used by checksums.txt.
 func isHexDigest(s string) bool {
 	if len(s) != 64 {
 		return false

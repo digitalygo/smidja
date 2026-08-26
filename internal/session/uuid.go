@@ -7,11 +7,6 @@ import (
 	"time"
 )
 
-// newUUIDv7 generates a UUIDv7 per RFC 9562: the first 48 bits hold the
-// Unix-epoch timestamp in milliseconds, the version nibble is 7, the
-// variant bits are 10, and the remaining 74 bits are random. Pi session
-// ids use the same scheme, so smidja session ids are interchangeable with
-// Pi's. Implemented locally on crypto/rand with no external dependencies.
 func newUUIDv7() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -24,25 +19,21 @@ func newUUIDv7() (string, error) {
 	b[3] = byte(ts >> 16)
 	b[4] = byte(ts >> 8)
 	b[5] = byte(ts)
-	b[6] = 0x70 | (b[6] & 0x0f) // version 7
-	b[8] = 0x80 | (b[8] & 0x3f) // variant 10xx
+	b[6] = 0x70 | (b[6] & 0x0f)
+	b[8] = 0x80 | (b[8] & 0x3f)
 	return formatUUID(b), nil
 }
 
-// fullUUID returns a random UUIDv4 string. It is the entry-id fallback
-// after repeated short-id collisions, mirroring Pi's generateId fallback
-// to a full randomUUID.
 func fullUUID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", fmt.Errorf("session: read random bytes: %w", err)
 	}
-	b[6] = 0x40 | (b[6] & 0x0f) // version 4
-	b[8] = 0x80 | (b[8] & 0x3f) // variant 10xx
+	b[6] = 0x40 | (b[6] & 0x0f)
+	b[8] = 0x80 | (b[8] & 0x3f)
 	return formatUUID(b), nil
 }
 
-// formatUUID renders 16 bytes as a lowercase, hyphenated UUID string.
 func formatUUID(b [16]byte) string {
 	dst := make([]byte, 36)
 	hex.Encode(dst[0:8], b[0:4])
@@ -57,9 +48,6 @@ func formatUUID(b [16]byte) string {
 	return string(dst)
 }
 
-// shortID draws 4 random bytes from crypto/rand and returns them as 8
-// lowercase hex characters, the same shape Pi uses for entry ids (the
-// first 8 hex characters of a random UUID, that is 32 bits of randomness).
 func shortID() (string, error) {
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {

@@ -26,9 +26,6 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
-// defaultSystemPrompt is the concise built-in coding-agent prompt used
-// when no -system override is given. It describes the tools and the
-// workspace discipline the model must follow.
 const defaultSystemPrompt = `You are smidja, an autonomous coding agent working inside a workspace.
 
 You help with code tasks. Explore before you act: list the files, read the
@@ -44,18 +41,8 @@ the task needs.
 If a task is ambiguous, state your assumption and proceed with the safest
 interpretation.`
 
-// modelFetchTimeout bounds the best-effort model catalogue refresh that
-// runs at startup to refresh context windows. A slow or unreachable
-// endpoint must never delay a session start for long.
 const modelFetchTimeout = 5 * time.Second
 
-// runDeps carries the runtime pieces one turn (or one REPL iteration)
-// needs. Every field is an interface or a plain value, so tests can inject
-// a fake client, recorder, and writers directly into runOnce and repl.
-//
-// The wave 3 loop seams (preparer, hooks, retry, isOverflow, detector)
-// are all optional: the loop treats a nil seam as disabled, so callers
-// that only set client/recorder/stdout keep the pre-wave-3 behavior.
 type runDeps struct {
 	model        string
 	system       string
@@ -75,18 +62,6 @@ type runDeps struct {
 	detector   agent.LoopDetector
 }
 
-// runChat wires the runtime pieces for one chat invocation and dispatches
-// to the single-shot or interactive path. It loads the config (or uses the
-// injected one), builds the workspace, client, tools, session, extension
-// runtime, model registry, and context manager, and then runs one turn for
-// prompt when non-empty, or the REPL otherwise. It is called by run after
-// flag parsing; tests drive it through run with substituted process seams.
-//
-// Every component of Deps is consumed when present: smidja.Run injects the
-// bundle-composed config, client, tools, session store, model registry,
-// and extension runtime, and this function assembles only what depends on
-// parse-time state (the -model override, the -p mode): the context
-// manager and the LineUI.
 func runChat(d *Deps, prompt, model, system, provider string) error {
 	ctx := d.Context
 	if ctx == nil {
@@ -145,12 +120,6 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 	}
 	defer sess.Close()
 
-	// Extension runtime: an injected runtime already carries the bundle's
-	// registered extensions; the default path builds an empty registry.
-	// Start runs the setup phase exactly once, so the loop's dispatcher
-	// is ready. Extension hooks fire from here on; the host API seam is
-	// another wave's job, so setup receives nil and extensions that need
-	// it are logged and skipped per the per-extension error isolation.
 	runtime := d.ExtensionRuntime
 	if runtime == nil {
 		runtime = extensions.NewRuntime(extensions.NewRegistry())
@@ -162,10 +131,6 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 	_ = hooks.SessionStart(ctx, "startup")
 	defer hooks.SessionShutdown(ctx, "quit")
 
-	// Model registry: seeded with the curated offline fallback table,
-	// then refreshed best-effort from the live OpenRouter catalogue so
-	// the context manager's window lookup tracks provider changes. A
-	// fetch failure is non-fatal: the fallback windows stay.
 	modelReg := d.ModelRegistry
 	if modelReg == nil {
 		modelReg = models.NewRegistry()
@@ -179,9 +144,6 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 		}
 	}
 
-	// Context manager: policy from config, window from the registry
-	// when the config leaves it unset, selector over the openrouter
-	// client.
 	window := cfg.ContextWindowTokens
 	if window <= 0 {
 		window = modelWindow(modelReg, cfg.Model)
@@ -214,9 +176,6 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 		detector:     newLoopDetectorAdapter(loopdetector.New(loopdetector.DefaultConfig())),
 	}
 
-	// The LineUI owns the buffered stdin reader: the interactive REPL
-	// reads prompts through it, and -p (print) mode gets a print-mode UI
-	// whose dialogs return sdk.ErrModeUnsupported.
 	mode := sdk.ModeInteractive
 	if prompt != "" {
 		mode = sdk.ModePrint
@@ -235,12 +194,6 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 	return nil
 }
 
-// newContextPreparer builds the context-management stack: the live
-// manager from the config, plus a dedicated recovery manager used for the
-// forced safety compaction that recovers from a context overflow. The
-// policy defaults are resolved here (mirroring contextmanager's own
-// withDefaults, via the exported default constants) so the adapter can
-// compute the forced-compact anchor from real threshold values.
 func newContextPreparer(cfg config.Config, window int64, selector subagent.Selector) (*contextPreparerAdapter, error) {
 	cmCfg := contextmanager.Config{
 		Enabled:                cfg.ContextEnabled,
@@ -285,8 +238,6 @@ func newContextPreparer(cfg config.Config, window int64, selector subagent.Selec
 	return newContextPreparerAdapter(live, cmCfg), nil
 }
 
-// modelWindow resolves the context window for model from the registry,
-// falling back to the built-in default window when the model is unknown.
 func modelWindow(reg *models.Registry, model string) int64 {
 	if reg != nil {
 		if m, ok := reg.Get(model); ok && m.ContextWindow > 0 {
@@ -296,11 +247,6 @@ func modelWindow(reg *models.Registry, model string) int64 {
 	return models.DefaultModelContextWindow
 }
 
-// runOnce executes a single assistant turn for prompt and exits cleanly.
-// It is separated from run so tests can drive it with an injected client,
-// recorder, and writer. The response is streamed to d.stdout by the loop
-// as it is generated; a final newline is appended when the stream did not
-// end with one.
 func runOnce(ctx context.Context, d *runDeps, prompt string) error {
 	out := &trailingWriter{w: d.stdout}
 	if _, err := runTurn(ctx, d, loopDeps(d, out), nil, prompt); err != nil {
@@ -312,13 +258,6 @@ func runOnce(ctx context.Context, d *runDeps, prompt string) error {
 	return nil
 }
 
-// repl runs the interactive REPL: it reads prompts through the LineUI
-// (which owns the buffered stdin reader, so extension dialogs and REPL
-// prompts share one stream), runs one turn per prompt, streams responses
-// to stdout, and ends on "/quit", "/exit", or EOF. The session path is
-// printed after the first turn. The UI masks a clean EOF as a cancelled
-// (empty) answer, so an empty prompt ends the session like EOF did in the
-// pre-UI REPL.
 func repl(ctx context.Context, lineUI *ui.LineUI, d *runDeps) error {
 	var history []*agent.Message
 	first := true
@@ -349,14 +288,6 @@ func repl(ctx context.Context, lineUI *ui.LineUI, d *runDeps) error {
 	}
 }
 
-// runTurn runs one user turn through the agent loop, recovering once from
-// a context overflow: on a *agent.ContextOverflowError the turn is
-// retried after arming the preparer's forced safety compaction, so the
-// retry's first context assembly compacts the conversation before the
-// provider call. A second overflow surfaces as a clear error. The retry
-// reuses the original history, so the user message is appended exactly
-// once across both attempts. Compaction entries the turn produced are
-// persisted into the session before returning.
 func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, input string) ([]*agent.Message, error) {
 	h, err := agent.RunTurn(ctx, deps, d.model, d.system, history, input)
 	if err != nil {
@@ -381,9 +312,6 @@ func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*a
 	return h, err
 }
 
-// persistCompactions writes every compaction entry the preparer captured
-// during the last turn into the session, in capture order. It is a no-op
-// when no preparer or recorder is wired.
 func (d *runDeps) persistCompactions() error {
 	if d == nil || d.preparer == nil || d.recorder == nil {
 		return nil
@@ -400,18 +328,11 @@ func (d *runDeps) persistCompactions() error {
 	return nil
 }
 
-// loopDeps assembles the agent loop dependencies for one turn. Text deltas
-// stream to out; thinking deltas are forwarded to out only when the
-// caller enabled SMIDJA_SHOW_THINKING, keeping the env handling here in
-// the CLI and out of the loop.
 func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 	var onThinking func(string)
 	if d.showThinking {
 		onThinking = func(delta string) { io.WriteString(out, delta) }
 	}
-	// A nil *contextPreparerAdapter must stay a nil interface: assigning
-	// the typed nil pointer would make the loop treat it as a real
-	// preparer and call methods on nil.
 	var preparer agent.ContextPreparer
 	if d.preparer != nil {
 		preparer = d.preparer
@@ -430,14 +351,8 @@ func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 	}
 }
 
-// retryFunc is the loop's Retry seam: a bounded-retry wrapper over one
-// assistant-producing call. The CLI wires it with an adapter over
-// internal/retry.Retry (host adapter pattern per the ports.go docs).
 type retryFunc func(ctx context.Context, produce func(context.Context) (*agent.AssistantMessage, error), policy agent.RetryPolicy, callbacks *agent.RetryCallbacks) (*agent.AssistantMessage, error)
 
-// retryAdapter maps the loop's mirror types onto internal/retry.Retry:
-// agent.RetryPolicy and agent.RetryCallbacks are translated to the retry
-// package's Policy and Callbacks, and the call is delegated.
 func retryAdapter(ctx context.Context, produce func(context.Context) (*agent.AssistantMessage, error), policy agent.RetryPolicy, callbacks *agent.RetryCallbacks) (*agent.AssistantMessage, error) {
 	var cb retry.Callbacks
 	if callbacks != nil {
@@ -454,26 +369,16 @@ func retryAdapter(ctx context.Context, produce func(context.Context) (*agent.Ass
 	}, cb)
 }
 
-// loopDetectorAdapter adapts *loopdetector.Detector to the loop's
-// LoopDetector seam (host adapter pattern per the ports.go docs): it
-// rebuilds the assistant message and tool results from the observed
-// agent.Turn, runs them through loopdetector.ExtractTurn and
-// Detector.Observe, and maps the verdict, findings, and steer message
-// back onto the agent types.
 type loopDetectorAdapter struct {
 	detector *loopdetector.Detector
 }
 
-// Compile-time assertion that the adapter satisfies the loop's seam.
 var _ agent.LoopDetector = (*loopDetectorAdapter)(nil)
 
 func newLoopDetectorAdapter(d *loopdetector.Detector) *loopDetectorAdapter {
 	return &loopDetectorAdapter{detector: d}
 }
 
-// Observe converts one observed turn back into the shape
-// loopdetector.ExtractTurn expects and returns the combined verdict plus
-// every detector's findings and the rendered steer message.
 func (a *loopDetectorAdapter) Observe(turn agent.Turn) agent.Outcome {
 	var content []agent.ContentBlock
 	if turn.ThinkingText != "" {
@@ -504,7 +409,6 @@ func (a *loopDetectorAdapter) Observe(turn agent.Turn) agent.Outcome {
 	return res
 }
 
-// agentVerdict maps a loopdetector verdict onto the agent mirror type.
 func agentVerdict(v loopdetector.Verdict) agent.Verdict {
 	switch v {
 	case loopdetector.VerdictWarn:
@@ -516,46 +420,21 @@ func agentVerdict(v loopdetector.Verdict) agent.Verdict {
 	}
 }
 
-// contextPreparerAdapter adapts a contextmanager.Manager to the loop's
-// ContextPreparer seam and captures the compaction entries every Prepare
-// reports, so the CLI can persist them into the session after the turn.
-//
-// It also supports the forced safety compaction used to recover from a
-// context overflow: forceSafety arms the next Prepare to run through a
-// dedicated fresh manager whose request anchor input is injected at the
-// safety threshold, so the manager's safety path fires unconditionally
-// and compacts to the real compact target. The recovery manager is never
-// observed (ObserveRequest/ObserveResponse stay on the live manager), so
-// its delta estimate always takes the injected anchor path.
 type contextPreparerAdapter struct {
-	live     *contextmanager.Manager
-	recovery *contextmanager.Manager
-	// forceTokens is the safety threshold in tokens, ceil(Safety *
-	// window). Prepare injects it as the request's LastUsageInput so the
-	// recovery manager's occupancy estimate crosses the safety threshold
-	// regardless of the true conversation size.
+	live        *contextmanager.Manager
+	recovery    *contextmanager.Manager
 	forceTokens int64
 
 	mu      sync.Mutex
-	force   bool // next Prepare runs the recovery safety path
+	force   bool
 	entries []*agent.CompactionEntry
 }
 
-// Compile-time assertion that the adapter satisfies the loop's seam.
 var _ agent.ContextPreparer = (*contextPreparerAdapter)(nil)
 
-// newContextPreparerAdapter builds the adapter over the live manager and
-// a recovery manager with the same policy. cfg must be the resolved
-// policy (thresholds filled), matching what the managers were built from.
-// The recovery manager is deliberately selector-less: a forced recovery
-// must not depend on the selector working, so it always compacts with
-// the deterministic fallback.
 func newContextPreparerAdapter(live *contextmanager.Manager, cfg contextmanager.Config) *contextPreparerAdapter {
 	recovery, err := contextmanager.New(cfg, nil)
 	if err != nil {
-		// The live manager was built from the same validated config, so
-		// this can only fail on a caller error; fall back to the live
-		// manager so recovery degrades to the normal path.
 		recovery = live
 	}
 	return &contextPreparerAdapter{
@@ -565,9 +444,6 @@ func newContextPreparerAdapter(live *contextmanager.Manager, cfg contextmanager.
 	}
 }
 
-// Prepare delegates to the live manager, or to the recovery manager when
-// a forced safety compaction is armed (see forceSafety). Every reported
-// compaction entry is captured for the caller to persist after the turn.
 func (a *contextPreparerAdapter) Prepare(ctx context.Context, req agent.ContextRequest) (agent.ContextResult, error) {
 	a.mu.Lock()
 	force := a.force
@@ -593,20 +469,14 @@ func (a *contextPreparerAdapter) Prepare(ctx context.Context, req agent.ContextR
 	return res, nil
 }
 
-// ObserveRequest forwards to the live manager.
 func (a *contextPreparerAdapter) ObserveRequest(t time.Time) {
 	a.live.ObserveRequest(t)
 }
 
-// ObserveResponse forwards to the live manager, so the anchor and cache
-// state the loop drives stay on the session's manager.
 func (a *contextPreparerAdapter) ObserveResponse(m *agent.AssistantMessage) {
 	a.live.ObserveResponse(m)
 }
 
-// forceSafety arms the next Prepare to run the recovery manager's safety
-// path, forcing a compaction regardless of occupancy. It is a no-op when
-// the adapter has no recovery manager.
 func (a *contextPreparerAdapter) forceSafety() {
 	if a == nil {
 		return
@@ -616,8 +486,6 @@ func (a *contextPreparerAdapter) forceSafety() {
 	a.mu.Unlock()
 }
 
-// drain returns and clears the compaction entries captured since the last
-// call, in capture order.
 func (a *contextPreparerAdapter) drain() []*agent.CompactionEntry {
 	if a == nil {
 		return nil
@@ -629,14 +497,10 @@ func (a *contextPreparerAdapter) drain() []*agent.CompactionEntry {
 	return out
 }
 
-// compactionSink persists compaction entries into the session; the
-// production implementation is *sessionRecorder.
 type compactionSink interface {
 	appendCompaction(*agent.CompactionEntry) error
 }
 
-// sessionRecorder adapts *session.Session to the agent.Recorder seam used
-// by the agent loop.
 type sessionRecorder struct {
 	sess *session.Session
 }
@@ -655,10 +519,6 @@ func (r *sessionRecorder) AppendToolResult(m *agent.ToolResultMessage) error {
 	return r.sess.AppendToolResult(m)
 }
 
-// appendCompaction persists one compaction entry produced by the context
-// manager into the session, converting the agent entry shape into the
-// session codec's CompactionEntry (the summary transcript is stored as
-// its raw JSON text).
 func (r *sessionRecorder) appendCompaction(e *agent.CompactionEntry) error {
 	if e == nil {
 		return nil
@@ -670,12 +530,9 @@ func (r *sessionRecorder) appendCompaction(e *agent.CompactionEntry) error {
 	})
 }
 
-// trailingWriter wraps w and remembers the last byte written, so the CLI
-// can append a final newline to a turn's output without duplicating one
-// the stream already produced.
 type trailingWriter struct {
 	w    io.Writer
-	last byte // 0 before the first write
+	last byte
 }
 
 func (t *trailingWriter) Write(p []byte) (int, error) {
@@ -690,8 +547,6 @@ func (t *trailingWriter) endsWithNewline() bool {
 	return t.last == '\n'
 }
 
-// envTruthy reports whether an environment value enables a boolean
-// setting: non-empty and not a common false spelling.
 func envTruthy(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "", "0", "false", "no", "off":

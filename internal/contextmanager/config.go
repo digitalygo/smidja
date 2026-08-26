@@ -1,10 +1,3 @@
-// Package contextmanager implements the smart context management core of
-// smidja: occupancy estimation, cache-stale gated tool-result pruning,
-// verbatim compaction through an injected selector subagent, and tool
-// call pinning. It implements agent.ContextPreparer; the loop drives it
-// through Prepare/ObserveRequest/ObserveResponse and persists the
-// compaction entries it reports. Extension context hooks are dispatched
-// by the loop, not by the manager.
 package contextmanager
 
 import (
@@ -12,94 +5,44 @@ import (
 	"time"
 )
 
-// Default values applied by New for unset Config fields.
 const (
-	// DefaultCacheMissAfter is how long after the last observed response
-	// the provider cache is considered stale.
 	DefaultCacheMissAfter = 5 * time.Minute
 
-	// DefaultPruneThreshold is the occupancy fraction above which
-	// stale-cache calls prune old tool results.
 	DefaultPruneThreshold = 0.70
 
-	// DefaultCompactThreshold is the occupancy fraction above which
-	// stale-cache calls compact.
 	DefaultCompactThreshold = 0.85
 
-	// DefaultSafetyCompactThreshold is the occupancy fraction above
-	// which compaction fires immediately, regardless of cache age.
 	DefaultSafetyCompactThreshold = 0.95
 
-	// DefaultCompactTarget is the fraction of the context window the
-	// retained messages may consume after compaction.
 	DefaultCompactTarget = 0.50
 
-	// DefaultKeepRecentMessages is how many trailing messages are never
-	// pruned or compacted.
 	DefaultKeepRecentMessages = 6
 
-	// DefaultSelectorChunkTokens is the token budget below which
-	// candidate messages are chunked before being handed to the
-	// selector.
 	DefaultSelectorChunkTokens = 12_000
 )
 
-// Config carries the context-management policy. New replaces every unset
-// threshold field with its default; Validate enforces the invariants.
 type Config struct {
-	// Enabled turns context management on. When false, Prepare passes
-	// the request through unchanged and the observation methods are
-	// no-ops.
 	Enabled bool
 
-	// ContextWindowTokens is the model context window in tokens. It is
-	// required: every threshold is a fraction of it.
 	ContextWindowTokens int64
 
-	// CacheMissAfter is how long after the last observed response the
-	// provider cache is considered stale. Prune and compact only fire
-	// on a stale cache, except the safety compact, which ignores cache
-	// age. Default 5 minutes.
 	CacheMissAfter time.Duration
 
-	// PruneThreshold is the occupancy fraction above which stale-cache
-	// calls prune old tool results. Default 0.70.
 	PruneThreshold float64
 
-	// CompactThreshold is the occupancy fraction above which stale-cache
-	// calls compact via the selector. Default 0.85.
 	CompactThreshold float64
 
-	// SafetyCompactThreshold is the occupancy fraction above which
-	// compaction fires immediately, regardless of cache age. Default
-	// 0.95.
 	SafetyCompactThreshold float64
 
-	// CompactTarget is the fraction of the context window the retained
-	// messages (excluding the protected recent window) may consume
-	// after compaction. It must stay below PruneThreshold so compaction
-	// lands under the prune line. Default 0.50.
 	CompactTarget float64
 
-	// KeepRecentMessages is how many trailing messages are never pruned
-	// or compacted. Default 6.
 	KeepRecentMessages int
 
-	// SelectorModel is the provider model identifier used for selector
-	// turns, for example "anthropic/claude-sonnet-4.5". It may be empty
-	// when no selector is injected.
 	SelectorModel string
 
-	// SelectorChunkTokens is the token budget below which candidate
-	// messages are chunked before being handed to the selector.
-	// Messages are never split; an oversized message gets its own
-	// chunk. Default 12_000.
 	SelectorChunkTokens int64
 }
 
-// Validate checks the policy invariants: ordered thresholds in (0,1],
-// a compact target below the prune threshold, and positive window,
-// cache-miss delay, and chunk budget.
 func (c Config) Validate() error {
 	switch {
 	case c.ContextWindowTokens <= 0:
@@ -126,9 +69,6 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// withDefaults returns a copy of c with unset threshold fields replaced
-// by their defaults. A field set to its zero value means "unset"; there
-// is no way to configure a zero threshold, which Validate rejects anyway.
 func (c Config) withDefaults() Config {
 	if c.CacheMissAfter <= 0 {
 		c.CacheMissAfter = DefaultCacheMissAfter

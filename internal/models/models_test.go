@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// TestNewRegistrySeedsFallback checks that a fresh registry carries the
-// curated fallback table, including the built-in default model.
 func TestNewRegistrySeedsFallback(t *testing.T) {
 	r := NewRegistry()
 
@@ -53,8 +51,6 @@ func TestNewRegistrySeedsFallback(t *testing.T) {
 	}
 }
 
-// TestRegisterOverridesDefault checks that registering the default id
-// overrides the built-in default, and that Register adds new entries.
 func TestRegisterOverridesDefault(t *testing.T) {
 	r := NewRegistry()
 
@@ -73,7 +69,6 @@ func TestRegisterOverridesDefault(t *testing.T) {
 		t.Errorf("registered entry = %+v, want id vendor/new-model window 777 provider vendor", m)
 	}
 
-	// Register with an explicit id wins over a mismatched embedded id.
 	r.Register("vendor/aliased", ModelInfo{ID: "ignored", ContextWindow: 5, Provider: "vendor"})
 	m, ok = r.Get("vendor/aliased")
 	if !ok || m.ID != "vendor/aliased" {
@@ -81,8 +76,6 @@ func TestRegisterOverridesDefault(t *testing.T) {
 	}
 }
 
-// TestRegisterEmptyIDIgnored checks that Register with an empty id is a
-// no-op.
 func TestRegisterEmptyIDIgnored(t *testing.T) {
 	r := NewRegistry()
 	r.Register("", ModelInfo{ContextWindow: 9, Provider: "x"})
@@ -91,9 +84,6 @@ func TestRegisterEmptyIDIgnored(t *testing.T) {
 	}
 }
 
-// TestMerge checks the merge semantics: positive-window entries replace
-// or extend the table, unknown-window and empty-id entries are skipped,
-// and fallback entries absent from the batch keep their values.
 func TestMerge(t *testing.T) {
 	r := NewRegistry()
 	r.Merge([]ModelInfo{
@@ -122,15 +112,12 @@ func TestMerge(t *testing.T) {
 		t.Error("empty-id entry was merged")
 	}
 
-	// Fallback entries that are absent from the batch keep their values.
 	m, ok = r.Get("openai/gpt-5")
 	if !ok || m.ContextWindow != 400_000 {
 		t.Errorf("fallback entry disturbed by merge: %+v ok=%v", m, ok)
 	}
 }
 
-// TestMergeUnknownWindowKeepsFallback checks that a merge entry with an
-// unknown (zero) context window never clobbers a known fallback value.
 func TestMergeUnknownWindowKeepsFallback(t *testing.T) {
 	r := NewRegistry()
 	r.Merge([]ModelInfo{{ID: DefaultModelID, ContextWindow: 0, Provider: "x"}})
@@ -141,9 +128,6 @@ func TestMergeUnknownWindowKeepsFallback(t *testing.T) {
 	}
 }
 
-// TestRegistryConcurrentAccess exercises Register, Get, Default, and
-// Merge from parallel goroutines; run with -race it proves the registry
-// is safe under concurrency.
 func TestRegistryConcurrentAccess(t *testing.T) {
 	r := NewRegistry()
 	var wg sync.WaitGroup
@@ -179,16 +163,12 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestRegisterProviderCatalog verifies per-provider catalogue tables:
-// installation replaces the provider's previous entries and forces the
-// Provider field, while other providers' entries are untouched.
 func TestRegisterProviderCatalog(t *testing.T) {
 	r := NewRegistry()
 	r.RegisterProviderCatalog("deepseek", []ModelInfo{
 		{ID: "deepseek-chat", ContextWindow: 163_840},
 		{ID: "deepseek-r1", ContextWindow: 64_000},
 	})
-	// Replaces the fallback table for deepseek with a bare-id table.
 	if got := r.ByProvider("deepseek"); len(got) != 2 {
 		t.Fatalf("ByProvider(deepseek) = %d entries, want 2", len(got))
 	}
@@ -196,7 +176,6 @@ func TestRegisterProviderCatalog(t *testing.T) {
 	if !ok || m.Provider != "deepseek" {
 		t.Errorf("Get(deepseek-chat) = %+v, %v; want provider forced to deepseek", m, ok)
 	}
-	// A second registration replaces the first table entirely.
 	r.RegisterProviderCatalog("deepseek", []ModelInfo{
 		{ID: "deepseek-chat", ContextWindow: 200_000},
 		{ID: "deepseek-v3.2", ContextWindow: 163_840},
@@ -207,14 +186,11 @@ func TestRegisterProviderCatalog(t *testing.T) {
 	if _, ok := r.Get("deepseek-r1"); ok {
 		t.Error("stale deepseek-r1 survived a provider catalog replacement")
 	}
-	// Other providers still carry their fallback entries.
 	if _, ok := r.Get("anthropic/claude-sonnet-4.5"); !ok {
 		t.Error("anthropic fallback entry lost after deepseek catalog registration")
 	}
 }
 
-// TestByProviderOrder verifies ByProvider sorts by ID and filters by
-// provider.
 func TestByProviderOrder(t *testing.T) {
 	r := NewRegistry()
 	r.RegisterProviderCatalog("openai", []ModelInfo{
@@ -231,9 +207,6 @@ func TestByProviderOrder(t *testing.T) {
 	}
 }
 
-// TestLookupProviderAware verifies provider-aware resolution accepts both
-// the bare provider-side id and the prefixed full id, and rejects entries
-// that belong to another provider.
 func TestLookupProviderAware(t *testing.T) {
 	r := NewRegistry()
 	r.RegisterProviderCatalog("deepseek", []ModelInfo{
@@ -243,12 +216,10 @@ func TestLookupProviderAware(t *testing.T) {
 	if !ok || m.ContextWindow != 163_840 {
 		t.Errorf("Lookup(deepseek, deepseek-chat) = %+v, %v", m, ok)
 	}
-	// Prefixed spelling also resolves for catalog tables keyed by full id.
 	m, ok = r.Lookup("anthropic", "claude-sonnet-4.5")
 	if !ok || m.ContextWindow != DefaultModelContextWindow {
 		t.Errorf("Lookup(anthropic, claude-sonnet-4.5) = %+v, %v", m, ok)
 	}
-	// The same model id under a different provider must not resolve.
 	if _, ok := r.Lookup("openai", "claude-sonnet-4.5"); ok {
 		t.Error("Lookup matched a model of another provider")
 	}
