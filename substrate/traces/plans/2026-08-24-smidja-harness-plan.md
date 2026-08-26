@@ -511,6 +511,15 @@ Solo task, nessuna stima di giorni.
 - **Approval:** Explicit user instruction to match Pi.
 - **Resolution:** Implemented and verified 2026-08-25 (checkpoint 2026-08-25T12:15:00+02:00).
 
+### Variation V-013: Fase 3 scope frozen (real Digitalygo bundle, MCP client in core, packaging stack)
+
+- **Baseline reference:** Fase 3 steps 1-4; open MCP question from Fase 3 discussion.
+- **Discovered evidence:** User decisions 2026-08-26: current-time becomes core; openrouter-attribution ignored; context-hygiene already absorbed by core verbatim selector and compaction hooks; loop-detector already core; no-rebuild extensions ruled out permanently (built-in is the harness identity); smidja does NOT expose an MCP server but MUST support consuming external MCP servers via config, like Pi and OpenCode.
+- **Decision:** Accepted: Fase 3 = (a) real Digitalygo bundle content (10 role skills, 32 agent definitions, settings/models defaults from dotfiles); (b) Go port of extensions calculator, unit-converter, youtrack, exa, mistral-ocr-pdf-to-md, replicate-generation; (c) native MCP client in core (stdio transport, JSON-RPC 2.0, tools discovery/call) driven by config, enabling chrome-devtools-mcp and figma-mcp usage; (d) package format + validation; (e) index repo digitalygo/smidja-packages; (f) CLI smidja pkg list/install/remove/update. Solution-architect validation required before implementation on registry/MCP design.
+- **Scope and downstream impact:** Two user extensions dropped from porting list as superseded (current-time core, attribution skipped); chrome-devtools-mcp and figma-mcp preserved through the MCP client instead of direct ports.
+- **Approval:** Explicit user decisions; architect gate pending on registry and MCP internals.
+- **Resolution:** Pending implementation.
+
 ### Variation V-011: Digitalygo bundle packaging deferred until base harness is complete
 
 - **Baseline reference:** Fase 1 step 5: "Packaging della repo Digitalygo con i nostri contenuti baked-in".
@@ -519,6 +528,15 @@ Solo task, nessuna stima di giorni.
 - **Scope and downstream impact:** Bundle wiring wave (3C) not executed; multi-repo approval will be requested when the work is scheduled.
 - **Approval:** Explicit user decision, recorded in checkpoint 2026-08-25T17:30:00+02:00.
 - **Resolution:** Superseded by V-012: repo created by user at github.com/digitalygo/smidja-digitalygo (cloned locally); packaging scheduled inside Fase 2.
+
+### Variation V-014: Fase 3 design validated and frozen (MCP client, tool ownership, packages)
+
+- **Baseline reference:** Fase 3 steps per V-013; solution-architect challenge validation required by user.
+- **Discovered evidence:** Architect proposal accepted with orchestrator decisions: rich MCP content (images/audio) fails explicitly instead of flattening; sdk.API gains ConfigValue backed by the resolved config chain; workspace-defined MCP commands require --allow-workspace-mcp (fail-closed).
+- **Decision:** Accepted. Key elements: internal/mcp generic bridge (NDJSON-first framing with Content-Length fallback respawn-one-time), initialize handshake with pinned protocol version, no in-flight tools/call replay after restart (outcome-unknown error), restart budget 3/60s exponential backoff; tools split core (calculator/unit-converter/current-time -> internal/tools/builtin) vs bundle (youtrack/exa/mistralocr/replicategeneration as sdk.ToolHook extensions with lazy credentials); skills via /skill command injecting user-role message with provenance (agents/*.md embedded but deferred until subagent runtime); package format v0 content-only with manifest schema, dual integrity (commit pin + per-file sha256), staged atomic install under ~/.smidja/packages/<id>/<version>/, flat dependency resolution with greatest-minimum rule, verifier seam recording authenticity=unverified; smidja pkg CLI (install/list/inspect/activate/deactivate/update/verify/uninstall). No Go plugins from packages ever.
+- **Scope and downstream impact:** Wave 0 config seams; wave 1 five parallel lanes; wave 2 two integration owners (harness cli/pkg/mcp runtime, bundle composition); wave 3 compatibility smoke against pinned chrome-devtools-mcp/figma-mcp npm versions plus full gates.
+- **Approval:** User mandated architect validation before execution; executed on this basis.
+- **Resolution:** Implementation starts.
 
 ### Variation V-012: Fase 2 provider scope revised (all-Pi-providers parity, exclusions, architect corrections)
 
