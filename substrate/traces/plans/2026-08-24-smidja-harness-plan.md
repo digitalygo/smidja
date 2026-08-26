@@ -429,6 +429,16 @@ Solo task, nessuna stima di giorni.
 
 ### Fase 2, distribuzione execution checkpoints
 
+#### Checkpoint 2026-08-26T01:30:00+02:00: Fase 2 blocks 1-8 implemented and gated
+
+- **Event:** All eight Fase 2 blocks implemented, verified, committed and pushed; quality (direct) and security gates PASSED on the delta.
+- **Planner prediction:** Baseline Fase 2: provider estesi post-MVP, pipeline release Linux/macOS, brew tap, repo-pacchetto di esempio. Revised by V-012 (all-Pi providers minus bedrock/copilot/radius; architect corrections accepted).
+- **Subagent claims:** Block 1 release pipeline (4 targets + checksums.txt matching internal/update, GH workflow); Block 2 sdk.Run composition seam with bundle validation/ConfigDefaults/Deps injection; Block 3 smidja-digitalygo bundle repo implemented+pushed (beca6a0, embed content, sample extension, CI publishing assets, pinned harness commit); Block 4 internal/providers core + authstore (facade suite unmodified); Block 5 anthropic-messages/gemini/openai-responses drivers ported from pi-ai; Block 6 32-provider manifest frozen with source citations; Block 7 OAuth flows for openrouter/anthropic/codex/xai/kimi (ports exact incl. callback ports and device flows); Block 8 auth login/logout/status CLI, -provider selection with refresh-in-produce-path, brew formula template + tap docs.
+- **Orchestrator finding:** Every block verified before commit: build/vet/gofmt clean, full suite green (final: 25 packages), -race on touched packages. Gates on the Fase 2 delta (88 files, artifact d49c0661...): quality PASS direct mode per documented precedent; security PASS direct mode — storage/callbacks/status-output inspected clean; non-blocking hardening note: pin GitHub Actions by SHA in release workflows.
+- **Independently verified facts:** Suite counts, gate inspections and commits listed above; both repos pushed (smidja alpha, smidja-digitalygo main).
+- **Decision and impact:** Fase 2 code complete. Completion criterion (un esterno installa e lavora senza chiedere nulla) requires a real external user — deferred to post-development manual testing together with multi-machine update evidence (user decision).
+- **Next action:** Brew tap repo creation when distribution starts; operation record update; remaining phases unchanged.
+
 ### Fase 3, pacchetti opzionali execution checkpoints
 
 ### Fase 4, gateway remoto execution checkpoints
