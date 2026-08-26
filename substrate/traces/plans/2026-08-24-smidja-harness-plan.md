@@ -449,6 +449,16 @@ Solo task, nessuna stima di giorni.
 - **Decision and impact:** Fase 2 completion criterion now demonstrably satisfiable externally (public repo + release + brew). Remaining manual evidence: team daily use, multi-machine update, true external user.
 - **Next action:** Post-development manual validation; Fasi 3-5 unchanged.
 
+#### Checkpoint 2026-08-26T20:00:00+02:00: Fase 3 implemented and gated
+
+- **Event:** All Fase 3 work streams implemented, validated, gated, committed and pushed on both repos.
+- **Planner prediction:** Baseline steps 1-3 (pacchetto Digitalygo con contenuti reali, registry GitHub con validazione e firma opzionale, CLI gestione pacchetti) revised by V-013/V-014.
+- **Subagent claims:** solution-architect validation produced the frozen design (V-014). Waves delivered: internal/mcp stdio bridge (92.6% cov, NDJSON auto + Content-Length fallback respawn, restart supervisor no-replay); internal/packages content-package core (87.4% cov, strict manifest, tree integrity, flat resolution with commit pinning, atomic staged store); bundle repo ports of youtrack/exa/mistralocr/replicate as proper RegisterToolHooks extensions via real sdk.API ToolCatalog (bundle commit 612f3ef pushed, harness pinned at 2fcacd2 then repinned implicitly by go.mod bump); harness integration wave: extensions/api.go real SDK API (98.8% cov), MCP runtime with fail-closed workspace trust, skills catalog + /skill command, full smidja pkg CLI tree with GitHub codeload fetch; AGENTS.md compliance sweep (dc89aef) preceding the phase.
+- **Orchestrator finding:** Security gate PASS (attempt 2 bounded review) on artifact 672c8ace... covering the delta; quality in direct mode per precedent: zero comments repo-wide verified again post-integration, suite green throughout, -race clean on touched packages. One known flaky timing test flagged (internal/mcp TestListToolsRetryOnceAfterRestart) pre-existing.
+- **Independently verified facts:** git log sequence above; 28 packages green at close; both repos clean and pushed.
+- **Decision and impact:** Fase 3 code complete. Completion criterion "il team installa e disinstalla pacchetti con un comando" requires real team usage (post-development). Registry index repo digitalygo/smidja-packages not yet created (needed only when first third-party package is published or when the Digitalygo package itself is distributed via pkg install).
+- **Next action:** Create digitalygo/smidja-packages index when needed; populate bundle with real final content iteratively during daily use; Fase 4 gateway when user says go.
+
 ### Fase 3, pacchetti opzionali execution checkpoints
 
 ### Fase 4, gateway remoto execution checkpoints
