@@ -17,8 +17,10 @@ import (
 	"github.com/digitalygo/smidja/internal/loopdetector"
 	"github.com/digitalygo/smidja/internal/models"
 	"github.com/digitalygo/smidja/internal/openrouter"
+	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/retry"
 	"github.com/digitalygo/smidja/internal/session"
+	"github.com/digitalygo/smidja/internal/skills"
 	"github.com/digitalygo/smidja/internal/subagent"
 	"github.com/digitalygo/smidja/internal/tools"
 	"github.com/digitalygo/smidja/internal/ui"
@@ -60,9 +62,13 @@ type runDeps struct {
 	retry      retryFunc
 	isOverflow func(string) bool
 	detector   agent.LoopDetector
+
+	catalog        *extensions.ToolCatalog
+	commands       *extensions.CommandCatalog
+	handlerContext func(context.Context) sdk.HandlerContext
 }
 
-func runChat(d *Deps, prompt, model, system, provider string) error {
+func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool) error {
 	ctx := d.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -70,7 +76,7 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 	cfg := d.Config
 	if cfg == nil {
 		var err error
-		cfg, err = config.Load(d.Env, d.Getwd, d.Home)
+		cfg, err = loadChatConfig(d)
 		if err != nil {
 			return fail(d, err)
 		}
@@ -120,16 +126,54 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 	}
 	defer sess.Close()
 
+	catalog := extensions.NewToolCatalog()
+	for _, t := range toolSet {
+		if err := catalog.Register(t); err != nil {
+			return fail(d, err)
+		}
+	}
+	commands := extensions.NewCommandCatalog()
+
 	runtime := d.ExtensionRuntime
 	if runtime == nil {
 		runtime = extensions.NewRuntime(extensions.NewRegistry())
 	}
+	api := extensions.NewAPI(extensions.APIOptions{
+		Catalog:       catalog,
+		Commands:      commands,
+		ResolveConfig: cfg.Default,
+	})
+	runtime.SetAPI(func() sdk.API { return api })
 	if err := runtime.Start(); err != nil {
 		return fail(d, err)
 	}
 	hooks := runtime.Dispatcher()
-	_ = hooks.SessionStart(ctx, "startup")
-	defer hooks.SessionShutdown(ctx, "quit")
+
+	skillCat, err := buildSkillCatalog(d)
+	if err != nil {
+		return fail(d, err)
+	}
+	registerSkillCommand(commands, skillCat, d.Stdout)
+
+	resolveEnv := func(key string) (string, bool) {
+		value := cfg.Default(key)
+		if value == "" {
+			return "", false
+		}
+		return value, true
+	}
+	mcpCfg, workspaceMCP, err := loadMCPConfig(d.Home(), cwd)
+	if err != nil {
+		return fail(d, err)
+	}
+	mcpRt, err := startMCP(ctx, mcpCfg, workspaceMCP, allowWorkspaceMCP, catalog, resolveEnv, d.Stderr)
+	if err != nil {
+		return fail(d, err)
+	}
+	defer mcpRt.Close()
+
+	_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
+	defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
 
 	modelReg := d.ModelRegistry
 	if modelReg == nil {
@@ -174,6 +218,11 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 		retry:        retryAdapter,
 		isOverflow:   retry.IsContextOverflow,
 		detector:     newLoopDetectorAdapter(loopdetector.New(loopdetector.DefaultConfig())),
+		catalog:      catalog,
+		commands:     commands,
+		handlerContext: func(signal context.Context) sdk.HandlerContext {
+			return runtime.HandlerContext(signal)
+		},
 	}
 
 	mode := sdk.ModeInteractive
@@ -192,6 +241,43 @@ func runChat(d *Deps, prompt, model, system, provider string) error {
 		return fail(d, err)
 	}
 	return nil
+}
+
+func loadChatConfig(d *Deps) (*config.Config, error) {
+	store, err := packages.Open(packageStoreRoot(d))
+	if err != nil {
+		return nil, err
+	}
+	pkgDefaults, err := store.ActiveConfigDefaults()
+	if err != nil {
+		return nil, err
+	}
+	return config.LoadWithDefaults(d.Env, d.Getwd, d.Home, nil, pkgDefaults)
+}
+
+func buildSkillCatalog(d *Deps) (*skills.Catalog, error) {
+	cat, err := skills.FromBundle(d.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	store, err := packages.Open(packageStoreRoot(d))
+	if err != nil {
+		return nil, err
+	}
+	pkgCat, err := skills.FromPackages(store)
+	if err != nil {
+		return nil, err
+	}
+	return cat, cat.Merge(pkgCat)
+}
+
+func packageStoreRoot(d *Deps) string {
+	if d != nil && d.Env != nil {
+		if v := d.Env("SMIDJA_PACKAGES_DIR"); v != "" {
+			return v
+		}
+	}
+	return packages.DefaultRoot()
 }
 
 func newContextPreparer(cfg config.Config, window int64, selector subagent.Selector) (*contextPreparerAdapter, error) {
@@ -273,6 +359,28 @@ func repl(ctx context.Context, lineUI *ui.LineUI, d *runDeps) error {
 		if input == "/quit" || input == "/exit" {
 			return nil
 		}
+		if strings.HasPrefix(input, "/") {
+			name, args := splitCommandInput(input)
+			if name == "help" {
+				printCommandHelp(d.stdout, d.commands)
+				continue
+			}
+			cmd, ok := d.commands.Get(name)
+			if !ok {
+				fmt.Fprintf(d.stderr, "smidja: unknown command /%s\n", name)
+				continue
+			}
+			hctx := &commandContext{
+				HandlerContext: d.handlerContext(ctx),
+				d:              d,
+				ctx:            ctx,
+				history:        &history,
+			}
+			if err := cmd.Handler(hctx, args); err != nil {
+				fmt.Fprintf(d.stderr, "smidja: /%s: %v\n", name, err)
+			}
+			continue
+		}
 		out := &trailingWriter{w: d.stdout}
 		history, err = runTurn(ctx, d, loopDeps(d, out), history, input)
 		if err != nil {
@@ -337,9 +445,14 @@ func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 	if d.preparer != nil {
 		preparer = d.preparer
 	}
+	var catalog agent.ToolCatalog
+	if d.catalog != nil {
+		catalog = d.catalog
+	}
 	return &agent.LoopDeps{
 		Client:            d.client,
 		Tools:             d.tools,
+		Catalog:           catalog,
 		Recorder:          d.recorder,
 		Stdout:            out,
 		OnThinking:        onThinking,

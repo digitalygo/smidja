@@ -74,9 +74,10 @@ type Config struct {
 
 	ContextSelectorModel string
 
-	env            func(string) string
-	dotenv         map[string]string
-	bundleDefaults map[string]string
+	env             func(string) string
+	dotenv          map[string]string
+	packageDefaults map[string]string
+	bundleDefaults  map[string]string
 }
 
 func (c *Config) Default(key string) string {
@@ -88,14 +89,17 @@ func (c *Config) Default(key string) string {
 	if v := c.dotenv[key]; v != "" {
 		return v
 	}
+	if v := c.packageDefaults[key]; v != "" {
+		return v
+	}
 	return c.bundleDefaults[key]
 }
 
 func Load(env func(string) string, getwd func() (string, error), home func() string) (*Config, error) {
-	return LoadWithDefaults(env, getwd, home, nil)
+	return LoadWithDefaults(env, getwd, home, nil, nil)
 }
 
-func LoadWithDefaults(env func(string) string, getwd func() (string, error), home func() string, defaults map[string]string) (*Config, error) {
+func LoadWithDefaults(env func(string) string, getwd func() (string, error), home func() string, defaults map[string]string, packageDefaults map[string]string) (*Config, error) {
 	if env == nil {
 		return nil, fmt.Errorf("config: nil env function")
 	}
@@ -124,6 +128,9 @@ func LoadWithDefaults(env func(string) string, getwd func() (string, error), hom
 	}
 	value := func(k, def string) string {
 		if v := lookup(k); v != "" {
+			return v
+		}
+		if v := packageDefaults[k]; v != "" {
 			return v
 		}
 		if v := defaults[k]; v != "" {
@@ -164,11 +171,16 @@ func LoadWithDefaults(env func(string) string, getwd func() (string, error), hom
 		ContextSelectorModel:       value(envContextSelectorModel, ""),
 		env:                        env,
 		dotenv:                     dotenv,
+		packageDefaults:            packageDefaults,
 		bundleDefaults:             defaults,
 	}, nil
 }
 
 var readDotEnvFile = os.ReadFile
+
+func LoadDotEnv(dir string) map[string]string {
+	return loadDotEnv(dir)
+}
 
 func loadDotEnv(dir string) map[string]string {
 	content, err := readDotEnvFile(filepath.Join(dir, ".env"))

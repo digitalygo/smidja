@@ -60,6 +60,7 @@ func (i *Installer) Install(ctx context.Context, req Request, nodes []Node, opts
 		if err != nil {
 			return err
 		}
+		defer os.Remove(archive)
 		if opts.PinCommit != "" && commit != opts.PinCommit {
 			return fmt.Errorf("packages: install: %s@%s resolved commit %s does not match pin %s", req.ID, req.Version, commit, opts.PinCommit)
 		}

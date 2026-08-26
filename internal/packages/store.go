@@ -97,6 +97,10 @@ func (s *Store) Active() ([]ActiveEntry, error) {
 	return idx.Active, nil
 }
 
+func (s *Store) Manifest(id, version string) (Manifest, error) {
+	return s.loadManifest(id, version)
+}
+
 func (s *Store) InstalledIndex() (map[string]InstalledInfo, error) {
 	idx, err := s.readIndex()
 	if err != nil {

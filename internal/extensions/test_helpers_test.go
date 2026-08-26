@@ -155,6 +155,7 @@ func (a *stubAPI) ActiveTools() []string {
 }
 func (a *stubAPI) SetActiveTools(names []string) error { return nil }
 func (a *stubAPI) AllTools() []sdk.ToolInfo            { return nil }
+func (a *stubAPI) ConfigValue(key string) string       { return "" }
 func (a *stubAPI) RegisterCommand(name string, cmd sdk.Command) error {
 	a.calls = append(a.calls, "RegisterCommand:"+name)
 	return nil

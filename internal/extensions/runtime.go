@@ -48,6 +48,13 @@ func (r *Runtime) Dispatcher() *Dispatcher {
 	return &Dispatcher{rt: r}
 }
 
+func (r *Runtime) HandlerContext(signal context.Context) sdk.HandlerContext {
+	if r == nil {
+		return &defaultContext{}
+	}
+	return r.handlerContext(signal)
+}
+
 func (r *Runtime) handlerContext(signal context.Context) sdk.HandlerContext {
 	if r.ctx != nil {
 		return r.ctx()

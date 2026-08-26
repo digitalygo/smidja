@@ -11,6 +11,7 @@ import (
 	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/models"
 	"github.com/digitalygo/smidja/internal/openrouter"
+	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/session"
 	"github.com/digitalygo/smidja/internal/tools"
 	"github.com/digitalygo/smidja/internal/workspace"
@@ -61,7 +62,16 @@ func compose(ctx context.Context, bundle sdk.Bundle, info sdk.BuildInfo) (*cli.D
 		return h
 	}
 
-	cfg, err := config.LoadWithDefaults(env, getwd, home, bundleDefaults(bundle.ConfigDefaults))
+	pkgStore, err := packages.Open(packages.DefaultRoot())
+	if err != nil {
+		return nil, err
+	}
+	pkgDefaults, err := pkgStore.ActiveConfigDefaults()
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err := config.LoadWithDefaults(env, getwd, home, bundleDefaults(bundle.ConfigDefaults), pkgDefaults)
 	if err != nil {
 		return nil, err
 	}

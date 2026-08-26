@@ -60,6 +60,7 @@ func (fakeAPI) UnregisterTool(name string) error               { return nil }
 func (fakeAPI) ActiveTools() []string                          { return nil }
 func (fakeAPI) SetActiveTools(names []string) error            { return nil }
 func (fakeAPI) AllTools() []ToolInfo                           { return nil }
+func (fakeAPI) ConfigValue(key string) string                  { return "" }
 func (fakeAPI) RegisterCommand(name string, cmd Command) error { return nil }
 func (fakeAPI) Commands() []CommandInfo                        { return nil }
 func (fakeAPI) SendMessage(msg CustomMessage, opts SendOptions) error {

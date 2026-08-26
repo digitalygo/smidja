@@ -14,6 +14,7 @@ import (
 	"github.com/digitalygo/smidja/internal/config"
 	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/models"
+	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/providers/oauth"
 	"github.com/digitalygo/smidja/internal/session"
 	"github.com/digitalygo/smidja/internal/update"
@@ -55,6 +56,10 @@ type Deps struct {
 	ModelRegistry *models.Registry
 
 	ExtensionRuntime *extensions.Runtime
+
+	FetchArchive packages.FetchArchive
+
+	FetchLatestVersion func(owner, repo string) (string, error)
 }
 
 func Run(args []string) error {
@@ -122,6 +127,8 @@ func run(args []string, d *Deps) error {
 	fs.StringVar(&system, "system", "", "override the default system prompt")
 	fs.StringVar(&provider, "provider", "", "select the provider driver (manifest id or OAuth provider)")
 	fs.BoolVar(&version, "version", false, "print the version and exit")
+	var allowWorkspaceMCP bool
+	fs.BoolVar(&allowWorkspaceMCP, "allow-workspace-mcp", false, "spawn MCP servers defined in the workspace .smidja/mcp.json")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage(d.Stderr)
@@ -146,7 +153,7 @@ func run(args []string, d *Deps) error {
 			model = def
 		}
 	}
-	return runChat(d, prompt, model, system, provider)
+	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP)
 }
 
 func versionFor(d *Deps) string {
@@ -176,6 +183,7 @@ var subcommands = map[string]bool{
 	"import":  true,
 	"update":  true,
 	"version": true,
+	"pkg":     true,
 }
 
 func isSubcommand(name string) bool {
@@ -192,6 +200,8 @@ func runSubcommand(name string, args []string, d *Deps) error {
 		return runImport(args, d)
 	case "update":
 		return runUpdate(args, d)
+	case "pkg":
+		return runPkg(args, d)
 	case "run":
 		return fail(d, fmt.Errorf("%s: not implemented yet", name))
 	default:
@@ -217,10 +227,15 @@ flags:
   -provider id    select the provider driver (default: openrouter)
   -system string  override the default system prompt
   -version        print "smidja <version>" and exit
+  -allow-workspace-mcp
+                  spawn MCP servers defined in .smidja/mcp.json
+                  (default: only ~/.smidja/mcp.json servers run)
 
 subcommands:
   auth     manage provider credentials
   import   import Pi sessions into the session store
+  pkg      manage optional packages (install, list, inspect, activate,
+           deactivate, update, verify, uninstall)
   run      run a single turn, not implemented yet
   update   update the harness binary from GitHub releases
   version  print the version; use --json for the full build identity

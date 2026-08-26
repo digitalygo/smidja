@@ -17,6 +17,10 @@ func isCanonicalVersion(s string) bool {
 	return ok
 }
 
+func IsCanonicalVersion(s string) bool {
+	return isCanonicalVersion(s)
+}
+
 func parseCanonicalVersion(s string) (canonicalVersion, bool) {
 	if len(s) < 2 || s[0] != 'v' {
 		return canonicalVersion{}, false
@@ -77,4 +81,8 @@ func compareVersions(a, b string) int {
 	default:
 		return cmp.Compare(va.patch, vb.patch)
 	}
+}
+
+func CompareVersions(a, b string) int {
+	return compareVersions(a, b)
 }

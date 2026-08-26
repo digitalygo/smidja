@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -170,5 +171,24 @@ func TestRunSingleShotThroughBundle(t *testing.T) {
 	}
 	if got := readOut(); !strings.Contains(got, "hello from bundle") {
 		t.Errorf("stdout = %q, want the streamed response", got)
+	}
+}
+
+func TestRunCorruptPackagesIndexFailsCompose(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".smidja", "packages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".smidja", "packages", "index.json"), []byte("{bad json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	read := captureStream(t, &os.Stderr)
+	code := smidja.Run(context.Background(), validBundle(), validInfo(), []string{"-version"})
+	if code == 0 {
+		t.Fatal("Run succeeded despite a corrupt packages index")
+	}
+	if !strings.Contains(read(), "packages") {
+		t.Errorf("stderr = %q, want the packages store error", read())
 	}
 }

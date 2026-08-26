@@ -21,6 +21,8 @@ type LoopDeps struct {
 
 	Tools []Tool
 
+	Catalog ToolCatalog
+
 	Recorder Recorder
 
 	Stdout io.Writer
@@ -124,7 +126,7 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 		}
 	}
 	toolsByName := make(map[string]Tool, len(deps.Tools))
-	for _, t := range deps.Tools {
+	for _, t := range catalogTools(deps) {
 		if t != nil {
 			toolsByName[t.Name()] = t
 		}
@@ -175,7 +177,7 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 			Model:    model,
 			System:   cres.System,
 			Messages: cres.Messages,
-			Tools:    deps.Tools,
+			Tools:    catalogTools(deps),
 		}
 		var lastMsg *AssistantMessage
 		produce := func(pctx context.Context) (*AssistantMessage, error) {
@@ -330,6 +332,16 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 			history = append(history, sm)
 		}
 	}
+}
+
+func catalogTools(deps *LoopDeps) []Tool {
+	if deps != nil && deps.Catalog != nil {
+		return deps.Catalog.Tools()
+	}
+	if deps != nil {
+		return deps.Tools
+	}
+	return nil
 }
 
 func retryCallbacks(deps *LoopDeps, ctx context.Context) *RetryCallbacks {

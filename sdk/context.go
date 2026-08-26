@@ -13,6 +13,8 @@ type API interface {
 
 	AllTools() []ToolInfo
 
+	ConfigValue(key string) string
+
 	RegisterCommand(name string, cmd Command) error
 
 	Commands() []CommandInfo

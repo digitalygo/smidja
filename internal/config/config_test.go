@@ -420,6 +420,7 @@ func TestLoadWithBundleDefaults(t *testing.T) {
 		func() (string, error) { return "/work", nil },
 		func() string { return "/home/tester" },
 		defaults,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("LoadWithDefaults: %v", err)
@@ -451,6 +452,7 @@ func TestLoadWithBundleDefaultsBelowCompiledDefaults(t *testing.T) {
 		func() (string, error) { return "/work", nil },
 		func() string { return "/home/tester" },
 		map[string]string{"SMIDJA_MODEL": "bundle/model"},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("LoadWithDefaults: %v", err)
@@ -500,5 +502,78 @@ func TestLoadDefaultsKeepsCompiledDefaults(t *testing.T) {
 	}
 	if got := c.Default("SMIDJA_MODEL"); got != "" {
 		t.Errorf("Default(SMIDJA_MODEL) = %q, want empty (no env, no .env, no bundle)", got)
+	}
+}
+
+func TestLoadWithPackageDefaultsPrecedence(t *testing.T) {
+	bundleDefaults := map[string]string{
+		"SMIDJA_MODEL":             "bundle/model",
+		"SMIDJA_OPENROUTER_URL":    "https://bundle.test/v1",
+		"SMIDJA_EXEC_TIMEOUT_SECS": "7",
+	}
+	packageDefaults := map[string]string{
+		"SMIDJA_MODEL":             "package/model",
+		"SMIDJA_EXEC_TIMEOUT_SECS": "21",
+		"SMIDJA_MAX_OUTPUT_BYTES":  "4096",
+	}
+	env := map[string]string{"SMIDJA_MODEL": "env/model"}
+	withDotEnv(t, "SMIDJA_EXEC_TIMEOUT_SECS=9\n")
+
+	c, err := LoadWithDefaults(
+		envFrom(env),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+		bundleDefaults,
+		packageDefaults,
+	)
+	if err != nil {
+		t.Fatalf("LoadWithDefaults: %v", err)
+	}
+	if c.Model != "env/model" {
+		t.Errorf("Model = %q, want the env value to win over package and bundle", c.Model)
+	}
+	if c.ExecTimeoutSecs != 9 {
+		t.Errorf("ExecTimeoutSecs = %d, want the dotenv value 9", c.ExecTimeoutSecs)
+	}
+	if c.OpenRouterURL != "https://bundle.test/v1" {
+		t.Errorf("OpenRouterURL = %q, want the bundle default (no package override)", c.OpenRouterURL)
+	}
+	if c.MaxOutputBytes != 4096 {
+		t.Errorf("MaxOutputBytes = %d, want the package default 4096", c.MaxOutputBytes)
+	}
+}
+
+func TestConfigDefaultChainWithPackageDefaults(t *testing.T) {
+	c := &Config{
+		env:             envFrom(map[string]string{"SMIDJA_MODEL": "env/model"}),
+		dotenv:          map[string]string{"SMIDJA_MODEL": "dotenv/model"},
+		packageDefaults: map[string]string{"SMIDJA_MODEL": "package/model"},
+		bundleDefaults:  map[string]string{"SMIDJA_MODEL": "bundle/model"},
+	}
+	if got := c.Default("SMIDJA_MODEL"); got != "env/model" {
+		t.Errorf("Default = %q, want the env value", got)
+	}
+	c.env = envFrom(nil)
+	if got := c.Default("SMIDJA_MODEL"); got != "dotenv/model" {
+		t.Errorf("Default = %q, want the dotenv value", got)
+	}
+	c.dotenv = nil
+	if got := c.Default("SMIDJA_MODEL"); got != "package/model" {
+		t.Errorf("Default = %q, want the package value", got)
+	}
+	c.packageDefaults = nil
+	if got := c.Default("SMIDJA_MODEL"); got != "bundle/model" {
+		t.Errorf("Default = %q, want the bundle value", got)
+	}
+	if got := c.Default("SMIDJA_UNKNOWN"); got != "" {
+		t.Errorf("Default(unknown) = %q, want empty", got)
+	}
+}
+
+func TestLoadDotEnvExported(t *testing.T) {
+	withDotEnv(t, "KEY_A=one\n# comment\nKEY_B = two\n")
+	values := LoadDotEnv(t.TempDir())
+	if values["KEY_A"] != "one" || values["KEY_B"] != "two" {
+		t.Errorf("LoadDotEnv = %v", values)
 	}
 }
