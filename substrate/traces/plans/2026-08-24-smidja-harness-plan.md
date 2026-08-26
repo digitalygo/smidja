@@ -439,6 +439,16 @@ Solo task, nessuna stima di giorni.
 - **Decision and impact:** Fase 2 code complete. Completion criterion (un esterno installa e lavora senza chiedere nulla) requires a real external user — deferred to post-development manual testing together with multi-machine update evidence (user decision).
 - **Next action:** Brew tap repo creation when distribution starts; operation record update; remaining phases unchanged.
 
+#### Checkpoint 2026-08-26T12:00:00+02:00: AGENTS.md compliance sweep, public release and working brew tap
+
+- **Event:** Full AGENTS.md compliance enforced; harness published as v0.1.0; homebrew tap created and install verified end-to-end.
+- **Planner prediction:** Baseline Fase 2 completion criterion: un esterno installa e lavora senza chiedere nulla.
+- **Subagent claims:** compliance sweep removed 6,506 comment lines across 127 Go files (build directives preserved), split tools.go into per-tool files and oversized test files by behavior with zero dropped cases, raised internal/subagent coverage 70.7->100; browser-opener test isolated after user reported real browser tabs opening at https://127.0.0.1:1/ during test runs.
+- **Orchestrator finding:** Zero-comment grep = 0; 25/25 packages green; all packages >=80% coverage. Repo digitalygo/smidja made public (user decision) since the private state blocked both the source-tarball formula and the external-install criterion. Tag v0.1.0 released via workflow on first attempt (4 binaries + checksums.txt). Tap digitalygo/homebrew-smidja created with source-based formula pinned to the public tarball sha256; local verification: brew tap -> install --build-from-source -> smidja v0.1.0 runs -> brew test green. Note: source builds report commit=none (tarballs carry no git metadata).
+- **Independently verified facts:** Commands/outputs above; both repos pushed; worktree clean.
+- **Decision and impact:** Fase 2 completion criterion now demonstrably satisfiable externally (public repo + release + brew). Remaining manual evidence: team daily use, multi-machine update, true external user.
+- **Next action:** Post-development manual validation; Fasi 3-5 unchanged.
+
 ### Fase 3, pacchetti opzionali execution checkpoints
 
 ### Fase 4, gateway remoto execution checkpoints
