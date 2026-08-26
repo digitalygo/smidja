@@ -14,14 +14,18 @@ type Bundle struct {
 	// "example/smidja-tooling".
 	ID string
 
-	// Origin is the source repository of the package, used by the
-	// self-update flow (for example "https://github.com/digitalygo/
-	// smidja").
+	// Origin is the source repository of the package in
+	// "github.com/owner/repo" form: no scheme, no trailing slash, for
+	// example "github.com/digitalygo/smidja". It is used by the
+	// self-update flow, and the harness validates the format before
+	// running a packaged build.
 	Origin string
 
 	// FS is the embedded filesystem with the package contents (skills,
 	// agents, prompts, default config). It may be nil for a harness
-	// without baked-in resources.
+	// without baked-in resources. The harness carries the bundle through
+	// to the CLI, which will resolve content from FS in a later phase;
+	// nothing consumes it yet.
 	FS fs.FS
 
 	// Extensions lists the extensions baked into the package, in load
@@ -40,8 +44,9 @@ type Bundle struct {
 
 // BuildInfo identifies one build of the harness binary.
 type BuildInfo struct {
-	// Origin is the source repository of the harness binary, used by
-	// the self-update flow.
+	// Origin is the source repository of the harness binary in
+	// "github.com/owner/repo" form (no scheme), used by the
+	// self-update flow.
 	Origin string
 
 	// Version is the semantic version of the build, injected at link

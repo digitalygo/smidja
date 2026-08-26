@@ -231,13 +231,14 @@ func TestModelAndUsageShapes(t *testing.T) {
 }
 
 // TestBundleShape verifies the bundle and build info carry the packaging
-// contract fields.
+// contract fields. Origins use the canonical "github.com/owner/repo"
+// form the harness validates (no scheme).
 func TestBundleShape(t *testing.T) {
-	b := Bundle{ID: "digitalygo", Origin: "https://github.com/digitalygo/smidja", MinimumHarness: "0.1.0"}
+	b := Bundle{ID: "digitalygo", Origin: "github.com/digitalygo/smidja", MinimumHarness: "0.1.0"}
 	if b.ID != "digitalygo" || b.MinimumHarness != "0.1.0" {
 		t.Errorf("Bundle fields not populated: %+v", b)
 	}
-	bi := BuildInfo{Origin: "https://github.com/digitalygo/smidja", Version: "0.1.0", Commit: "abc123"}
+	bi := BuildInfo{Origin: "github.com/digitalygo/smidja", Version: "0.1.0", Commit: "abc123"}
 	if bi.Version != "0.1.0" || bi.Commit != "abc123" {
 		t.Errorf("BuildInfo fields not populated: %+v", bi)
 	}

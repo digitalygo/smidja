@@ -498,6 +498,22 @@ Solo task, nessuna stima di giorni.
 - **Decision:** Accepted: Fase 1 closes with packaging pending as a tracked follow-up; sdk.Bundle + smidja.go entry seam already provide the composition surface.
 - **Scope and downstream impact:** Bundle wiring wave (3C) not executed; multi-repo approval will be requested when the work is scheduled.
 - **Approval:** Explicit user decision, recorded in checkpoint 2026-08-25T17:30:00+02:00.
+- **Resolution:** Superseded by V-012: repo created by user at github.com/digitalygo/smidja-digitalygo (cloned locally); packaging scheduled inside Fase 2.
+
+### Variation V-012: Fase 2 provider scope revised (all-Pi-providers parity, exclusions, architect corrections)
+
+- **Baseline reference:** Fase 2 step 1 listed a fixed provider subset (Anthropic, OpenAI, DeepSeek, Alibaba Qwen, Moonshot Kimi, Z.ai).
+- **Discovered evidence:** User decision 2026-08-26: implement ALL providers Pi supports, both API-key and OAuth, porting from pi-ai TS sources; flag anything not replicable. Exclusions confirmed by user: Amazon Bedrock (SigV4 project not wanted now) and GitHub Copilot. Radius excluded (requires the pi-messages protocol, out of scope). Kimi Coding device-code OAuth added. solution-architect challenge validation returned ISSUES, all accepted: protocol drivers before provider config variants; internal/openrouter kept as compatibility facade over the new openai-completions driver; auth.json full Pi shape ({type:"api_key"|"oauth", access/refresh/expires,...} unknown fields preserved, 0700/0600, atomic RMW); exact OAuth callback specs per provider (Codex localhost:1455/auth/callback, Anthropic localhost:53692/callback, Kimi/xAI device-code, OpenRouter ephemeral loopback); canonical provider identity (providerId, modelId, api dialect); sdk.Run composition seam required before bundle; origin format standardized github.com/owner/repo; macOS update path = brew only (internal/update remains linux-only), Cellar installs must not self-update; bundle CI must publish release assets + checksums.
+- **Decision:** Accepted: Fase 2 executed as 8 blocks: (1) release pipeline; (2) sdk.Run seam; (3) bundle repo; (4) provider core refactor + auth layer; (5) wire protocols anthropic-messages/gemini/openai-responses(+azure,codex adapters); (6) API-key provider manifest rollout; (7) OAuth flows openrouter/anthropic/codex/xai/kimi; (8) CLI auth UX + brew tap.
+- **Scope and downstream impact:** Provider surface becomes full Pi parity minus bedrock/copilot/radius; Fase 2 completion criterion unchanged (external installs and works); manual multi-machine tests deferred post-development (user decision).
+- **Approval:** Explicit user approval of scope and exclusions; architect corrections accepted by orchestrator.
+- **Resolution:** Execution starts at block 1.
+
+- **Baseline reference:** Fase 1 step 5: "Packaging della repo Digitalygo con i nostri contenuti baked-in".
+- **Discovered evidence:** Packaging requires a second repository (Digitalygo package repo) whose location/creation the user explicitly deferred: "la creiamo dopo prima finiamo l'harness di base".
+- **Decision:** Accepted: Fase 1 closes with packaging pending as a tracked follow-up; sdk.Bundle + smidja.go entry seam already provide the composition surface.
+- **Scope and downstream impact:** Bundle wiring wave (3C) not executed; multi-repo approval will be requested when the work is scheduled.
+- **Approval:** Explicit user decision, recorded in checkpoint 2026-08-25T17:30:00+02:00.
 - **Resolution:** Pending; scheduled after base-harness completion.
 
 - **Baseline reference:** Spike shipped a 2 MiB input cap on write content / edit inputs (architect proposal hardening); flagged open in V-009.

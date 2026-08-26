@@ -78,14 +78,14 @@ func envFrom(m map[string]string) func(string) string {
 
 // testDeps builds process seams for tests: no env, a fake cwd, and
 // in-memory stdio.
-func testDeps(stdin string, stdout, stderr *bytes.Buffer) *cliDeps {
-	return &cliDeps{
-		env:    envFrom(nil),
-		getwd:  func() (string, error) { return "/work/dir", nil },
-		home:   func() string { return "/home/tester" },
-		stdin:  strings.NewReader(stdin),
-		stdout: stdout,
-		stderr: stderr,
+func testDeps(stdin string, stdout, stderr *bytes.Buffer) *Deps {
+	return &Deps{
+		Env:    envFrom(nil),
+		Getwd:  func() (string, error) { return "/work/dir", nil },
+		Home:   func() string { return "/home/tester" },
+		Stdin:  strings.NewReader(stdin),
+		Stdout: stdout,
+		Stderr: stderr,
 	}
 }
 
@@ -153,17 +153,17 @@ func TestRunSingleShot(t *testing.T) {
 	cwd := t.TempDir()
 	sessDir := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	err := run([]string{"-p", "hello smidja", "-model", "test/model"}, &cliDeps{
-		env: envFrom(map[string]string{
+	err := run([]string{"-p", "hello smidja", "-model", "test/model"}, &Deps{
+		Env: envFrom(map[string]string{
 			"SMIDJA_OPENROUTER_URL": srv.URL,
 			"OPENROUTER_API_KEY":    "sk-test",
 			"SMIDJA_SESSION_DIR":    sessDir,
 		}),
-		getwd:  func() (string, error) { return cwd, nil },
-		home:   func() string { return "/home/tester" },
-		stdin:  strings.NewReader(""),
-		stdout: &stdout,
-		stderr: &stderr,
+		Getwd:  func() (string, error) { return cwd, nil },
+		Home:   func() string { return "/home/tester" },
+		Stdin:  strings.NewReader(""),
+		Stdout: &stdout,
+		Stderr: &stderr,
 	})
 	if err != nil {
 		t.Fatalf("run: %v (stderr %q)", err, stderr.String())
@@ -612,15 +612,15 @@ func updateServer(t *testing.T, version string, assetBytes []byte) *httptest.Ser
 
 // updateTestDeps builds process seams with an update client pointed at
 // srv, so the update subcommand never touches the real GitHub API.
-func updateTestDeps(srv *httptest.Server, origin buildinfo.Info, execPath func() (string, error), stdout, stderr *bytes.Buffer) *cliDeps {
-	return &cliDeps{
-		env:    envFrom(nil),
-		getwd:  func() (string, error) { return "/work/dir", nil },
-		home:   func() string { return "/home/tester" },
-		stdin:  strings.NewReader(""),
-		stdout: stdout,
-		stderr: stderr,
-		newUpdateClient: func() *update.Client {
+func updateTestDeps(srv *httptest.Server, origin buildinfo.Info, execPath func() (string, error), stdout, stderr *bytes.Buffer) *Deps {
+	return &Deps{
+		Env:    envFrom(nil),
+		Getwd:  func() (string, error) { return "/work/dir", nil },
+		Home:   func() string { return "/home/tester" },
+		Stdin:  strings.NewReader(""),
+		Stdout: stdout,
+		Stderr: stderr,
+		NewUpdateClient: func() *update.Client {
 			return &update.Client{
 				Origin:   origin,
 				BaseURL:  srv.URL,
@@ -973,5 +973,117 @@ func TestLoopDetectorAdapter(t *testing.T) {
 	}
 	if out2.SteerCustomType != loopdetector.SteerTypeForceStop || out2.SteerText == "" {
 		t.Errorf("second steer = %q/%q, want the force-stop steer", out2.SteerCustomType, out2.SteerText)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Block 2: RunWithDeps injection seam
+
+// probeTool is a minimal agent.Tool used to prove RunWithDeps hands the
+// injected tool set to the loop: when the scripted assistant message
+// requests the "probe" tool, the loop executes exactly this instance.
+type probeTool struct {
+	calls *int
+}
+
+func (p *probeTool) Name() string        { return "probe" }
+func (p *probeTool) Description() string { return "probe tool for injection tests" }
+func (p *probeTool) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"x":{"type":"integer"}}}`)
+}
+func (p *probeTool) Exec(ctx context.Context, args json.RawMessage) agent.Result {
+	*p.calls++
+	return agent.TextResult("probe result")
+}
+
+// toolUse builds a scripted assistant message that requests one tool call,
+// so the loop executes the injected tool before the next client call.
+func toolUse(id, name, args string) *agent.AssistantMessage {
+	return &agent.AssistantMessage{
+		Role:       string(agent.RoleAssistant),
+		Content:    []agent.ContentBlock{{Type: agent.BlockTypeToolCall, ID: id, Name: name, Arguments: json.RawMessage(args)}},
+		API:        "openai-completions",
+		Provider:   "openrouter",
+		Model:      "test/model",
+		StopReason: "toolUse",
+		Timestamp:  1,
+	}
+}
+
+// TestRunWithDepsInjection drives the full -p path through RunWithDeps
+// with an injected config, client, tool set, and session store, proving
+// the injection seam consumes pre-built components instead of building
+// its own: the fake client's response reaches stdout, the injected tool
+// executes exactly once, and the session lands in the injected store.
+func TestRunWithDepsInjection(t *testing.T) {
+	cwd := t.TempDir()
+	sessDir := t.TempDir()
+	cfg, err := config.Load(
+		envFrom(map[string]string{
+			"OPENROUTER_API_KEY": "sk-test",
+			"SMIDJA_SESSION_DIR": sessDir,
+		}),
+		func() (string, error) { return cwd, nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	store, err := session.NewStore(sessDir)
+	if err != nil {
+		t.Fatalf("session.NewStore: %v", err)
+	}
+
+	var probeCalls int
+	toolSet := []agent.Tool{&probeTool{calls: &probeCalls}}
+	var stdout, stderr bytes.Buffer
+	deps := &Deps{
+		Env:    envFrom(nil),
+		Getwd:  func() (string, error) { return cwd, nil },
+		Home:   func() string { return "/home/tester" },
+		Stdin:  strings.NewReader(""),
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Config: cfg,
+		Client: &fakeClient{script: []*agent.AssistantMessage{
+			toolUse("call_1", "probe", `{"x":1}`),
+			textStop("answer from injected fake"),
+		}},
+		Tools: toolSet,
+		Store: store,
+		// FetchModels stays nil: no model catalogue refresh in tests.
+	}
+	if err := RunWithDeps([]string{"-p", "hello", "-model", "test/model"}, deps); err != nil {
+		t.Fatalf("RunWithDeps: %v (stderr %q)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "answer from injected fake") {
+		t.Errorf("stdout = %q, want the injected client's response", stdout.String())
+	}
+	if probeCalls != 1 {
+		t.Errorf("injected tool executed %d times, want 1", probeCalls)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want empty", stderr.String())
+	}
+
+	// The turn persisted a session into the injected store.
+	var jsonls []string
+	filepath.WalkDir(sessDir, func(p string, de fs.DirEntry, err error) error {
+		if err == nil && !de.IsDir() && strings.HasSuffix(de.Name(), ".jsonl") {
+			jsonls = append(jsonls, p)
+		}
+		return nil
+	})
+	if len(jsonls) != 1 {
+		t.Fatalf("session files in the injected store = %d, want 1", len(jsonls))
+	}
+}
+
+// TestRunWithDepsNilEqualsEmptyDeps verifies RunWithDeps(nil) is
+// equivalent to an empty Deps: the CLI fills the real process seams and
+// runs with no model fetch and no bundle.
+func TestRunWithDepsNilEqualsEmptyDeps(t *testing.T) {
+	if err := RunWithDeps([]string{"version"}, nil); err != nil {
+		t.Fatalf("RunWithDeps(version): %v", err)
 	}
 }

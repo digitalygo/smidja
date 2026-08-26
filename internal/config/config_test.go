@@ -406,3 +406,112 @@ func TestLoadContextInvalidValuesFallBack(t *testing.T) {
 			c.ContextKeepRecentMessages, c.ContextSelectorChunkTokens)
 	}
 }
+
+func TestLoadWithBundleDefaults(t *testing.T) {
+	// The fallback chain is env > .env > bundle default > compiled
+	// default. Each field exercises one layer.
+	defaults := map[string]string{
+		"SMIDJA_MODEL":             "bundle/model",
+		"SMIDJA_OPENROUTER_URL":    "https://bundle.test/v1",
+		"SMIDJA_EXEC_TIMEOUT_SECS": "7",
+		"SMIDJA_MAX_OUTPUT_BYTES":  "1024",
+		"SMIDJA_CONTEXT":           "false",
+		"OPENROUTER_API_KEY":       "bundle-key",
+	}
+	env := map[string]string{
+		"SMIDJA_MODEL":            "env/model",
+		"SMIDJA_MAX_OUTPUT_BYTES": "2048",
+	}
+	withDotEnv(t, "SMIDJA_EXEC_TIMEOUT_SECS=9\nSMIDJA_MODEL=dotenv/model\n")
+
+	c, err := LoadWithDefaults(
+		envFrom(env),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+		defaults,
+	)
+	if err != nil {
+		t.Fatalf("LoadWithDefaults: %v", err)
+	}
+
+	if c.Model != "env/model" {
+		t.Errorf("Model = %q, want the env value", c.Model)
+	}
+	if c.APIKey != "bundle-key" {
+		t.Errorf("APIKey = %q, want the bundle default", c.APIKey)
+	}
+	if c.OpenRouterURL != "https://bundle.test/v1" {
+		t.Errorf("OpenRouterURL = %q, want the bundle default", c.OpenRouterURL)
+	}
+	if c.ExecTimeoutSecs != 9 {
+		t.Errorf("ExecTimeoutSecs = %d, want the dotenv value 9", c.ExecTimeoutSecs)
+	}
+	if c.MaxOutputBytes != 2048 {
+		t.Errorf("MaxOutputBytes = %d, want the env value 2048", c.MaxOutputBytes)
+	}
+	if c.ContextEnabled {
+		t.Error("ContextEnabled = true, want false from the bundle default")
+	}
+}
+
+func TestLoadWithBundleDefaultsBelowCompiledDefaults(t *testing.T) {
+	// A bundle default for an unknown model still applies; keys the
+	// bundle does not define keep the compiled-in default.
+	c, err := LoadWithDefaults(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+		map[string]string{"SMIDJA_MODEL": "bundle/model"},
+	)
+	if err != nil {
+		t.Fatalf("LoadWithDefaults: %v", err)
+	}
+	if c.Model != "bundle/model" {
+		t.Errorf("Model = %q, want the bundle default", c.Model)
+	}
+	if c.OpenRouterURL != defaultOpenRouterURL {
+		t.Errorf("OpenRouterURL = %q, want the compiled default", c.OpenRouterURL)
+	}
+}
+
+func TestConfigDefaultLookupChain(t *testing.T) {
+	defaults := map[string]string{"SMIDJA_MODEL": "bundle/model"}
+	c := &Config{
+		env:            envFrom(map[string]string{"SMIDJA_MODEL": "env/model"}),
+		dotenv:         map[string]string{"SMIDJA_MODEL": "dotenv/model"},
+		bundleDefaults: defaults,
+	}
+	if got := c.Default("SMIDJA_MODEL"); got != "env/model" {
+		t.Errorf("Default = %q, want the env value", got)
+	}
+	c.env = envFrom(nil)
+	if got := c.Default("SMIDJA_MODEL"); got != "dotenv/model" {
+		t.Errorf("Default = %q, want the dotenv value", got)
+	}
+	c.dotenv = nil
+	if got := c.Default("SMIDJA_MODEL"); got != "bundle/model" {
+		t.Errorf("Default = %q, want the bundle default", got)
+	}
+	if got := c.Default("SMIDJA_UNKNOWN"); got != "" {
+		t.Errorf("Default(unknown) = %q, want empty", got)
+	}
+}
+
+func TestLoadDefaultsKeepsCompiledDefaults(t *testing.T) {
+	// Load (no bundle) behaves exactly as before: Default reports only
+	// what the env and .env sources define.
+	c, err := Load(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Model != defaultModel {
+		t.Errorf("Model = %q, want %q", c.Model, defaultModel)
+	}
+	if got := c.Default("SMIDJA_MODEL"); got != "" {
+		t.Errorf("Default(SMIDJA_MODEL) = %q, want empty (no env, no .env, no bundle)", got)
+	}
+}

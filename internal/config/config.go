@@ -141,6 +141,34 @@ type Config struct {
 	// selector turns. Empty (the default) uses the main Model.
 	// Overridable via SMIDJA_CONTEXT_SELECTOR_MODEL.
 	ContextSelectorModel string
+
+	// env, dotenv, and bundleDefaults capture the lookup chain behind
+	// Default: the environment function, the .env values, and the
+	// bundle's ConfigDefaults, all captured at Load time. The zero
+	// values make Default report "" for every key.
+	env            func(string) string
+	dotenv         map[string]string
+	bundleDefaults map[string]string
+}
+
+// Default resolves one configuration key with the same precedence Load
+// applies: the environment variable first, then the .env file value, then
+// the bundle's ConfigDefaults. It returns "" when no source defines key.
+// Key is the environment variable name, for example "SMIDJA_MODEL". The
+// compiled-in defaults are not part of this lookup: Default reports what
+// a caller would get for a key Load does not model, so callers asking
+// for a known key with nothing set get "" even though the corresponding
+// Config field holds its compiled default.
+func (c *Config) Default(key string) string {
+	if c.env != nil {
+		if v := c.env(key); v != "" {
+			return v
+		}
+	}
+	if v := c.dotenv[key]; v != "" {
+		return v
+	}
+	return c.bundleDefaults[key]
 }
 
 // Load builds a Config from the given sources. env returns the value of an
@@ -159,6 +187,16 @@ type Config struct {
 // invalid values. It fails only when the working directory cannot be
 // determined or no home directory can be resolved.
 func Load(env func(string) string, getwd func() (string, error), home func() string) (*Config, error) {
+	return LoadWithDefaults(env, getwd, home, nil)
+}
+
+// LoadWithDefaults is Load with an additional layer of configuration
+// defaults, the bundle's ConfigDefaults. For every key the fallback chain
+// becomes: environment variable, then .env file, then bundle default, then
+// the compiled-in default. defaults is keyed by environment variable name
+// and may be nil (Load passes nil). A non-string bundle default is
+// converted with fmt.Sprint before it reaches Load.
+func LoadWithDefaults(env func(string) string, getwd func() (string, error), home func() string, defaults map[string]string) (*Config, error) {
 	if env == nil {
 		return nil, fmt.Errorf("config: nil env function")
 	}
@@ -187,6 +225,17 @@ func Load(env func(string) string, getwd func() (string, error), home func() str
 		}
 		return dotenv[k]
 	}
+	// value resolves one key with the full fallback chain; def is the
+	// compiled-in default used when nothing in the chain defines the key.
+	value := func(k, def string) string {
+		if v := lookup(k); v != "" {
+			return v
+		}
+		if v := defaults[k]; v != "" {
+			return v
+		}
+		return def
+	}
 
 	homeDir := home()
 	if homeDir == "" {
@@ -200,24 +249,27 @@ func Load(env func(string) string, getwd func() (string, error), home func() str
 	}
 
 	return &Config{
-		Model:                      strDefault(lookup(envModel), defaultModel),
-		OpenRouterURL:              strDefault(lookup(envOpenRouterURL), defaultOpenRouterURL),
-		APIKey:                     lookup(envAPIKey),
-		SessionDir:                 strDefault(lookup(envSessionDir), filepath.Join(homeDir, ".smidja", "sessions")),
+		Model:                      value(envModel, defaultModel),
+		OpenRouterURL:              value(envOpenRouterURL, defaultOpenRouterURL),
+		APIKey:                     value(envAPIKey, ""),
+		SessionDir:                 value(envSessionDir, filepath.Join(homeDir, ".smidja", "sessions")),
 		WorkspaceRoot:              filepath.Clean(root),
-		ExecTimeoutSecs:            intDefault(lookup(envExecTimeoutSecs), defaultExecTimeoutSecs),
-		MaxReadLines:               intDefault(lookup(envMaxReadLines), defaultMaxReadLines),
-		MaxOutputBytes:             int64Default(lookup(envMaxOutputBytes), defaultMaxOutputBytes),
-		ContextEnabled:             boolDefault(lookup(envContextEnabled), true),
-		ContextWindowTokens:        int64AtLeastZero(lookup(envContextWindowTokens)),
-		ContextCacheMissAfter:      time.Duration(intAtLeastZero(lookup(envContextCacheMissAfterSecs))) * time.Second,
-		ContextPruneThreshold:      fracDefault(lookup(envContextPruneThreshold)),
-		ContextCompactThreshold:    fracDefault(lookup(envContextCompactThreshold)),
-		ContextSafetyThreshold:     safetyFracDefault(lookup(envContextSafetyThreshold)),
-		ContextCompactTarget:       fracDefault(lookup(envContextCompactTarget)),
-		ContextKeepRecentMessages:  intAtLeastZero(lookup(envContextKeepRecentMessages)),
-		ContextSelectorChunkTokens: int64AtLeastZero(lookup(envContextSelectorChunkTokens)),
-		ContextSelectorModel:       lookup(envContextSelectorModel),
+		ExecTimeoutSecs:            intDefault(value(envExecTimeoutSecs, ""), defaultExecTimeoutSecs),
+		MaxReadLines:               intDefault(value(envMaxReadLines, ""), defaultMaxReadLines),
+		MaxOutputBytes:             int64Default(value(envMaxOutputBytes, ""), defaultMaxOutputBytes),
+		ContextEnabled:             boolDefault(value(envContextEnabled, ""), true),
+		ContextWindowTokens:        int64AtLeastZero(value(envContextWindowTokens, "")),
+		ContextCacheMissAfter:      time.Duration(intAtLeastZero(value(envContextCacheMissAfterSecs, ""))) * time.Second,
+		ContextPruneThreshold:      fracDefault(value(envContextPruneThreshold, "")),
+		ContextCompactThreshold:    fracDefault(value(envContextCompactThreshold, "")),
+		ContextSafetyThreshold:     safetyFracDefault(value(envContextSafetyThreshold, "")),
+		ContextCompactTarget:       fracDefault(value(envContextCompactTarget, "")),
+		ContextKeepRecentMessages:  intAtLeastZero(value(envContextKeepRecentMessages, "")),
+		ContextSelectorChunkTokens: int64AtLeastZero(value(envContextSelectorChunkTokens, "")),
+		ContextSelectorModel:       value(envContextSelectorModel, ""),
+		env:                        env,
+		dotenv:                     dotenv,
+		bundleDefaults:             defaults,
 	}, nil
 }
 
@@ -271,14 +323,6 @@ func stripQuotes(v string) string {
 		if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
 			return v[1 : len(v)-1]
 		}
-	}
-	return v
-}
-
-// strDefault returns v when non-empty, otherwise def.
-func strDefault(v, def string) string {
-	if v == "" {
-		return def
 	}
 	return v
 }

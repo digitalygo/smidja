@@ -18,7 +18,7 @@ import (
 // an idempotent import whose destination already held identical content)
 // and 1 on a conflict or any error, matching the CLI's general error
 // mapping in cmd/smidja.
-func runImport(args []string, d *cliDeps) error {
+func runImport(args []string, d *Deps) error {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
@@ -27,14 +27,14 @@ func runImport(args []string, d *cliDeps) error {
 	flags, positionals, err := splitSubcommandArgs(fs, args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printImportUsage(d.stderr)
+			printImportUsage(d.Stderr)
 			return nil
 		}
 		return fail(d, err)
 	}
 	if err := fs.Parse(flags); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printImportUsage(d.stderr)
+			printImportUsage(d.Stderr)
 			return nil
 		}
 		return fail(d, err)
@@ -45,7 +45,7 @@ func runImport(args []string, d *cliDeps) error {
 	}
 	src := rest[0]
 	if sessionDir == "" {
-		cfg, err := config.Load(d.env, d.getwd, d.home)
+		cfg, err := config.Load(d.Env, d.Getwd, d.Home)
 		if err != nil {
 			return fail(d, err)
 		}
@@ -59,16 +59,16 @@ func runImport(args []string, d *cliDeps) error {
 	if err != nil {
 		return fail(d, fmt.Errorf("import: %w", err))
 	}
-	fmt.Fprintf(d.stdout, "imported %s\n", sanitizeTerm(dest))
-	fmt.Fprintf(d.stdout, "  entries: %d\n", stats.Entries)
+	fmt.Fprintf(d.Stdout, "imported %s\n", sanitizeTerm(dest))
+	fmt.Fprintf(d.Stdout, "  entries: %d\n", stats.Entries)
 	for _, typ := range sortedKeys(stats.PerType) {
-		fmt.Fprintf(d.stdout, "  %s: %d\n", sanitizeTerm(typ), stats.PerType[typ])
+		fmt.Fprintf(d.Stdout, "  %s: %d\n", sanitizeTerm(typ), stats.PerType[typ])
 	}
 	if stats.Opaque > 0 {
-		fmt.Fprintf(d.stdout, "  opaque: %d\n", stats.Opaque)
+		fmt.Fprintf(d.Stdout, "  opaque: %d\n", stats.Opaque)
 	}
 	if stats.Idempotent {
-		fmt.Fprintf(d.stdout, "  idempotent: destination already held identical content\n")
+		fmt.Fprintf(d.Stdout, "  idempotent: destination already held identical content\n")
 	}
 	return nil
 }

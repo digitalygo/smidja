@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/digitalygo/smidja/internal/buildinfo"
 	"github.com/digitalygo/smidja/internal/update"
 )
 
@@ -16,7 +15,7 @@ import (
 // --check prints availability only; the apply path prints coarse progress
 // lines around the atomic download/verify/rename. Non-linux platforms
 // fail with update.ErrUnsupportedPlatform before any network access.
-func runUpdate(args []string, d *cliDeps) error {
+func runUpdate(args []string, d *Deps) error {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
@@ -28,7 +27,7 @@ func runUpdate(args []string, d *cliDeps) error {
 	fs.StringVar(&version, "version", "", "update to a specific release version (default: latest)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printUpdateUsage(d.stderr)
+			printUpdateUsage(d.Stderr)
 			return nil
 		}
 		return fail(d, err)
@@ -43,11 +42,11 @@ func runUpdate(args []string, d *cliDeps) error {
 			return fail(d, updateFailure(err))
 		}
 		if !latest.Available {
-			fmt.Fprintf(d.stdout, "smidja %s is up to date\n", buildinfo.Current().Version)
+			fmt.Fprintf(d.Stdout, "smidja %s is up to date\n", versionFor(d))
 			return nil
 		}
-		fmt.Fprintf(d.stdout, "update available: %s\n", latest.Version)
-		fmt.Fprintf(d.stdout, "  %s\n", latest.URL)
+		fmt.Fprintf(d.Stdout, "update available: %s\n", latest.Version)
+		fmt.Fprintf(d.Stdout, "  %s\n", latest.URL)
 		return nil
 	}
 
@@ -60,24 +59,26 @@ func runUpdate(args []string, d *cliDeps) error {
 			return fail(d, updateFailure(err))
 		}
 		target = latest.Version
-		fmt.Fprintf(d.stdout, "update available: %s\n", target)
+		fmt.Fprintf(d.Stdout, "update available: %s\n", target)
 	}
-	fmt.Fprintf(d.stdout, "downloading %s...\n", target)
+	fmt.Fprintf(d.Stdout, "downloading %s...\n", target)
 	if err := client.Apply(ctx, target); err != nil {
 		return fail(d, updateFailure(err))
 	}
-	fmt.Fprintf(d.stdout, "installed %s\n", target)
+	fmt.Fprintf(d.Stdout, "installed %s\n", target)
 	return nil
 }
 
 // newUpdateClient builds the update client for this invocation. The
-// default uses the real GitHub API base and the running binary's path;
-// tests substitute a client pointed at an httptest server.
-func newUpdateClient(d *cliDeps) *update.Client {
-	if d != nil && d.newUpdateClient != nil {
-		return d.newUpdateClient()
+// default uses the real GitHub API base and the running binary's path,
+// targeting the build identity of this invocation (the injected bundle
+// build when present); tests substitute a client pointed at an httptest
+// server.
+func newUpdateClient(d *Deps) *update.Client {
+	if d != nil && d.NewUpdateClient != nil {
+		return d.NewUpdateClient()
 	}
-	return &update.Client{Origin: buildinfo.Current()}
+	return &update.Client{Origin: buildIdentity(d)}
 }
 
 // updateFailure maps updater sentinel errors to clear user-facing

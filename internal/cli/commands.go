@@ -6,15 +6,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/digitalygo/smidja/internal/buildinfo"
 )
 
 // runVersion implements the "version" subcommand: the plain form prints
 // the human-readable "smidja <version>" line (the same line -version
 // prints), and "version --json" prints the full build identity as
 // compact JSON.
-func runVersion(args []string, d *cliDeps) error {
+func runVersion(args []string, d *Deps) error {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
@@ -22,16 +20,16 @@ func runVersion(args []string, d *cliDeps) error {
 	fs.BoolVar(&asJSON, "json", false, "print the build identity as JSON")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printUsage(d.stderr)
+			printUsage(d.Stderr)
 			return nil
 		}
 		return fail(d, err)
 	}
 	if asJSON {
-		fmt.Fprintln(d.stdout, buildinfo.Current().JSON())
+		fmt.Fprintln(d.Stdout, buildIdentity(d).JSON())
 		return nil
 	}
-	fmt.Fprintf(d.stdout, "smidja %s\n", Version)
+	fmt.Fprintf(d.Stdout, "smidja %s\n", versionFor(d))
 	return nil
 }
 

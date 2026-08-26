@@ -76,35 +76,58 @@ type runDeps struct {
 }
 
 // runChat wires the runtime pieces for one chat invocation and dispatches
-// to the single-shot or interactive path. It loads the config, builds the
-// workspace, client, tools, session, extension runtime, model registry,
-// and context manager, and then runs one turn for prompt when non-empty,
-// or the REPL otherwise. It is called by run after flag parsing; tests
-// drive it through run with substituted process seams.
-func runChat(d *cliDeps, prompt, model, system string) error {
-	ctx := context.Background()
-	cfg, err := config.Load(d.env, d.getwd, d.home)
-	if err != nil {
-		return fail(d, err)
+// to the single-shot or interactive path. It loads the config (or uses the
+// injected one), builds the workspace, client, tools, session, extension
+// runtime, model registry, and context manager, and then runs one turn for
+// prompt when non-empty, or the REPL otherwise. It is called by run after
+// flag parsing; tests drive it through run with substituted process seams.
+//
+// Every component of Deps is consumed when present: smidja.Run injects the
+// bundle-composed config, client, tools, session store, model registry,
+// and extension runtime, and this function assembles only what depends on
+// parse-time state (the -model override, the -p mode): the context
+// manager and the LineUI.
+func runChat(d *Deps, prompt, model, system string) error {
+	ctx := d.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg := d.Config
+	if cfg == nil {
+		var err error
+		cfg, err = config.Load(d.Env, d.Getwd, d.Home)
+		if err != nil {
+			return fail(d, err)
+		}
 	}
 	if model != "" {
 		cfg.Model = model
 	}
-	ws, err := workspace.New(cfg.WorkspaceRoot)
-	if err != nil {
-		return fail(d, err)
+	client := d.Client
+	if client == nil {
+		client = openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil)
 	}
-	client := openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil)
-	toolSet := tools.All(tools.Deps{
-		Workspace:      ws,
-		ExecTimeoutSec: cfg.ExecTimeoutSecs,
-		MaxOutputBytes: cfg.MaxOutputBytes,
-	})
-	store, err := session.NewStore(cfg.SessionDir)
-	if err != nil {
-		return fail(d, err)
+	toolSet := d.Tools
+	if len(toolSet) == 0 {
+		ws, err := workspace.New(cfg.WorkspaceRoot)
+		if err != nil {
+			return fail(d, err)
+		}
+		toolSet = tools.All(tools.Deps{
+			Workspace:      ws,
+			ExecTimeoutSec: cfg.ExecTimeoutSecs,
+			MaxOutputBytes: cfg.MaxOutputBytes,
+		})
 	}
-	cwd, err := d.getwd()
+	store := d.Store
+	if store == nil {
+		var err error
+		store, err = session.NewStore(cfg.SessionDir)
+		if err != nil {
+			return fail(d, err)
+		}
+	}
+	cwd, err := d.Getwd()
 	if err != nil {
 		return fail(d, err)
 	}
@@ -114,10 +137,16 @@ func runChat(d *cliDeps, prompt, model, system string) error {
 	}
 	defer sess.Close()
 
-	// Extension runtime: the registry is empty until bundle extensions
-	// land; Setup still runs (a no-op over no extensions) so the runtime
-	// and its dispatcher are ready for the loop.
-	runtime := extensions.NewRuntime(extensions.NewRegistry())
+	// Extension runtime: an injected runtime already carries the bundle's
+	// registered extensions; the default path builds an empty registry.
+	// Start runs the setup phase exactly once, so the loop's dispatcher
+	// is ready. Extension hooks fire from here on; the host API seam is
+	// another wave's job, so setup receives nil and extensions that need
+	// it are logged and skipped per the per-extension error isolation.
+	runtime := d.ExtensionRuntime
+	if runtime == nil {
+		runtime = extensions.NewRuntime(extensions.NewRegistry())
+	}
 	if err := runtime.Start(); err != nil {
 		return fail(d, err)
 	}
@@ -129,10 +158,13 @@ func runChat(d *cliDeps, prompt, model, system string) error {
 	// then refreshed best-effort from the live OpenRouter catalogue so
 	// the context manager's window lookup tracks provider changes. A
 	// fetch failure is non-fatal: the fallback windows stay.
-	modelReg := models.NewRegistry()
-	if d.fetchModels != nil {
+	modelReg := d.ModelRegistry
+	if modelReg == nil {
+		modelReg = models.NewRegistry()
+	}
+	if d.FetchModels != nil {
 		fctx, cancel := context.WithTimeout(ctx, modelFetchTimeout)
-		infos, ferr := d.fetchModels(fctx)
+		infos, ferr := d.FetchModels(fctx)
 		cancel()
 		if ferr == nil {
 			modelReg.Merge(infos)
@@ -160,13 +192,13 @@ func runChat(d *cliDeps, prompt, model, system string) error {
 	rd := &runDeps{
 		model:        cfg.Model,
 		system:       sysPrompt,
-		showThinking: envTruthy(d.env("SMIDJA_SHOW_THINKING")),
+		showThinking: envTruthy(d.Env("SMIDJA_SHOW_THINKING")),
 		sessionPath:  sess.Path(),
 		client:       client,
 		tools:        toolSet,
 		recorder:     &sessionRecorder{sess},
-		stdout:       d.stdout,
-		stderr:       d.stderr,
+		stdout:       d.Stdout,
+		stderr:       d.Stderr,
 		preparer:     preparer,
 		hooks:        hooks,
 		retry:        retryAdapter,
@@ -181,7 +213,7 @@ func runChat(d *cliDeps, prompt, model, system string) error {
 	if prompt != "" {
 		mode = sdk.ModePrint
 	}
-	lineUI := ui.New(d.stdin, d.stdout, d.stderr, mode)
+	lineUI := ui.New(d.Stdin, d.Stdout, d.Stderr, mode)
 
 	if prompt != "" {
 		if err := runOnce(ctx, rd, prompt); err != nil {
