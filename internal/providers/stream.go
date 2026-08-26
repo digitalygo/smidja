@@ -1,4 +1,4 @@
-package openrouter
+package providers
 
 import (
 	"bufio"
@@ -25,9 +25,10 @@ const maxSSELine = 8 * 1024 * 1024
 // delivering text and thinking deltas to the callbacks and accumulating
 // content blocks, tool calls, usage, and the stop reason. It returns the
 // completed assistant message, or nil and an error when the stream aborts
-// or ends prematurely.
-func readStream(ctx context.Context, resp *http.Response, model string, onText func(string), onThinking func(string)) (*agent.AssistantMessage, error) {
-	state := newStreamState(model, onText, onThinking)
+// or ends prematurely. Error messages are prefixed with the driver's
+// provider prefix.
+func (d *OpenAICompletions) readStream(ctx context.Context, resp *http.Response, model string, onText func(string), onThinking func(string)) (*agent.AssistantMessage, error) {
+	state := newStreamState(d.prefix, d.providerID, d.api, model, onText, onThinking)
 
 	// The stream may stall with the connection open; closing the body when
 	// the context is cancelled unblocks the reader below.
@@ -68,19 +69,22 @@ func readStream(ctx context.Context, resp *http.Response, model string, onText f
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("openrouter: %w", err)
+		return nil, fmt.Errorf("%s: %w", d.prefix, err)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("openrouter: read stream: %w", err)
+		return nil, fmt.Errorf("%s: read stream: %w", d.prefix, err)
 	}
 	if state.gotFinishReason {
 		return state.result(), nil
 	}
-	return nil, errors.New("openrouter: stream ended prematurely without [DONE] or finish_reason")
+	return nil, errors.New(d.prefix + ": stream ended prematurely without [DONE] or finish_reason")
 }
 
 // streamState accumulates the parsed output of one streaming completion.
 type streamState struct {
+	prefix          string
+	providerID      string
+	api             string
 	model           string
 	blocks          []agent.ContentBlock
 	builders        []*strings.Builder       // aligned with blocks; holds Text or Thinking content
@@ -96,9 +100,13 @@ type streamState struct {
 	onThinking      func(string)
 }
 
-// newStreamState returns an empty state for the given model and callbacks.
-func newStreamState(model string, onText func(string), onThinking func(string)) *streamState {
+// newStreamState returns an empty state for the given provider identity,
+// model, and callbacks. prefix is the driver's error-message prefix.
+func newStreamState(prefix, providerID, api, model string, onText func(string), onThinking func(string)) *streamState {
 	return &streamState{
+		prefix:       prefix,
+		providerID:   providerID,
+		api:          api,
 		model:        model,
 		toolCalls:    make(map[int]int),
 		toolArgs:     make(map[int]*strings.Builder),
@@ -111,12 +119,12 @@ func newStreamState(model string, onText func(string), onThinking func(string)) 
 
 // apply parses one SSE data payload and folds it into the state.
 func (s *streamState) apply(data string) error {
-	var ch wireChunk
+	var ch WireChunk
 	if err := json.Unmarshal([]byte(data), &ch); err != nil {
-		return fmt.Errorf("openrouter: decode stream chunk: %w", err)
+		return fmt.Errorf("%s: decode stream chunk: %w", s.prefix, err)
 	}
 	if ch.Error != nil {
-		return &providerError{*ch.Error}
+		return &providerError{prefix: s.prefix, WireError: *ch.Error}
 	}
 	if s.responseID == "" && ch.ID != "" {
 		s.responseID = ch.ID
@@ -207,7 +215,7 @@ func (s *streamState) addThinking(text string) error {
 // addToolCall folds one tool-call fragment into the accumulated tool call
 // for its delta index, creating the block on first appearance and keeping
 // the blocks in first-appearance order.
-func (s *streamState) addToolCall(tc wireDeltaToolCall) error {
+func (s *streamState) addToolCall(tc WireDeltaToolCall) error {
 	index := 0
 	if tc.Index != nil {
 		index = *tc.Index
@@ -262,8 +270,8 @@ func (s *streamState) result() *agent.AssistantMessage {
 	return &agent.AssistantMessage{
 		Role:       string(agent.RoleAssistant),
 		Content:    s.blocks,
-		API:        apiField,
-		Provider:   provider,
+		API:        s.api,
+		Provider:   s.providerID,
 		Model:      s.model,
 		ResponseID: s.responseID,
 		Usage:      s.usage,
@@ -275,7 +283,8 @@ func (s *streamState) result() *agent.AssistantMessage {
 // providerError aborts a turn with a provider-reported error envelope,
 // whether it arrived via the HTTP status or as an SSE event.
 type providerError struct {
-	wireError
+	prefix string
+	WireError
 }
 
 // Error implements error.
@@ -288,12 +297,12 @@ func (e *providerError) Error() string {
 	if msg == "" {
 		msg = "provider error"
 	}
-	return fmt.Sprintf("openrouter: %s%s", msg, code)
+	return fmt.Sprintf("%s: %s%s", e.prefix, msg, code)
 }
 
 // toUsage maps the wire usage onto agent.Usage. Cost and the detail
 // breakdowns stay zero when the provider reports none.
-func (u *wireUsage) toUsage() agent.Usage {
+func (u *WireUsage) toUsage() agent.Usage {
 	usage := agent.Usage{
 		Input:  u.PromptTokens,
 		Output: u.CompletionTokens,

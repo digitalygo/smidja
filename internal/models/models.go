@@ -11,7 +11,10 @@
 // math.
 package models
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 // ModelInfo is the registry entry for one model.
 type ModelInfo struct {
@@ -158,4 +161,63 @@ func (r *Registry) Merge(infos []ModelInfo) {
 		}
 		r.models[m.ID] = m
 	}
+}
+
+// RegisterProviderCatalog installs (or replaces) the catalogue table of
+// one provider: every previous entry whose Provider matches provider is
+// removed, then each entry of infos is stored with its Provider field set
+// to provider. Entries keep the ids they carry, so a native table may use
+// bare ids ("deepseek-chat") while a prefixed table uses provider-scoped
+// ids ("deepseek/deepseek-chat"). It is the seam a provider uses to carry
+// its own catalogue table.
+func (r *Registry) RegisterProviderCatalog(provider string, infos []ModelInfo) {
+	if provider == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, m := range r.models {
+		if m.Provider == provider {
+			delete(r.models, id)
+		}
+	}
+	for _, m := range infos {
+		if m.ID == "" {
+			continue
+		}
+		m.Provider = provider
+		r.models[m.ID] = m
+	}
+}
+
+// ByProvider returns every catalogue entry whose Provider matches
+// provider, ordered by ID.
+func (r *Registry) ByProvider(provider string) []ModelInfo {
+	r.mu.RLock()
+	out := make([]ModelInfo, 0)
+	for _, m := range r.models {
+		if m.Provider == provider {
+			out = append(out, m)
+		}
+	}
+	r.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// Lookup returns the catalogue entry for a model of a specific provider.
+// id may be the full identifier (for example "deepseek/deepseek-chat")
+// or the bare provider-side identifier ("deepseek-chat"); both resolve.
+// ok is false when no entry matches or the matching entry belongs to
+// another provider.
+func (r *Registry) Lookup(provider, id string) (ModelInfo, bool) {
+	if provider == "" || id == "" {
+		return ModelInfo{}, false
+	}
+	for _, candidate := range []string{id, provider + "/" + id} {
+		if m, ok := r.Get(candidate); ok && m.Provider == provider {
+			return m, true
+		}
+	}
+	return ModelInfo{}, false
 }

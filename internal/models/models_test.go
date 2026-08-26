@@ -178,3 +178,84 @@ func TestRegistryConcurrentAccess(t *testing.T) {
 			d.ContextWindow, DefaultModelContextWindow)
 	}
 }
+
+// TestRegisterProviderCatalog verifies per-provider catalogue tables:
+// installation replaces the provider's previous entries and forces the
+// Provider field, while other providers' entries are untouched.
+func TestRegisterProviderCatalog(t *testing.T) {
+	r := NewRegistry()
+	r.RegisterProviderCatalog("deepseek", []ModelInfo{
+		{ID: "deepseek-chat", ContextWindow: 163_840},
+		{ID: "deepseek-r1", ContextWindow: 64_000},
+	})
+	// Replaces the fallback table for deepseek with a bare-id table.
+	if got := r.ByProvider("deepseek"); len(got) != 2 {
+		t.Fatalf("ByProvider(deepseek) = %d entries, want 2", len(got))
+	}
+	m, ok := r.Get("deepseek-chat")
+	if !ok || m.Provider != "deepseek" {
+		t.Errorf("Get(deepseek-chat) = %+v, %v; want provider forced to deepseek", m, ok)
+	}
+	// A second registration replaces the first table entirely.
+	r.RegisterProviderCatalog("deepseek", []ModelInfo{
+		{ID: "deepseek-chat", ContextWindow: 200_000},
+		{ID: "deepseek-v3.2", ContextWindow: 163_840},
+	})
+	if got := r.ByProvider("deepseek"); len(got) != 2 {
+		t.Fatalf("ByProvider(deepseek) after replace = %d entries, want 2", len(got))
+	}
+	if _, ok := r.Get("deepseek-r1"); ok {
+		t.Error("stale deepseek-r1 survived a provider catalog replacement")
+	}
+	// Other providers still carry their fallback entries.
+	if _, ok := r.Get("anthropic/claude-sonnet-4.5"); !ok {
+		t.Error("anthropic fallback entry lost after deepseek catalog registration")
+	}
+}
+
+// TestByProviderOrder verifies ByProvider sorts by ID and filters by
+// provider.
+func TestByProviderOrder(t *testing.T) {
+	r := NewRegistry()
+	r.RegisterProviderCatalog("openai", []ModelInfo{
+		{ID: "gpt-5-pro", ContextWindow: 400_000},
+		{ID: "gpt-5", ContextWindow: 400_000},
+		{ID: "gpt-5-nano", ContextWindow: 400_000},
+	})
+	got := r.ByProvider("openai")
+	if len(got) != 3 || got[0].ID != "gpt-5" || got[1].ID != "gpt-5-nano" || got[2].ID != "gpt-5-pro" {
+		t.Errorf("ByProvider(openai) = %v, want sorted gpt-5, gpt-5-nano, gpt-5-pro", got)
+	}
+	if got := r.ByProvider("unknown"); len(got) != 0 {
+		t.Errorf("ByProvider(unknown) = %v, want empty", got)
+	}
+}
+
+// TestLookupProviderAware verifies provider-aware resolution accepts both
+// the bare provider-side id and the prefixed full id, and rejects entries
+// that belong to another provider.
+func TestLookupProviderAware(t *testing.T) {
+	r := NewRegistry()
+	r.RegisterProviderCatalog("deepseek", []ModelInfo{
+		{ID: "deepseek-chat", ContextWindow: 163_840},
+	})
+	m, ok := r.Lookup("deepseek", "deepseek-chat")
+	if !ok || m.ContextWindow != 163_840 {
+		t.Errorf("Lookup(deepseek, deepseek-chat) = %+v, %v", m, ok)
+	}
+	// Prefixed spelling also resolves for catalog tables keyed by full id.
+	m, ok = r.Lookup("anthropic", "claude-sonnet-4.5")
+	if !ok || m.ContextWindow != DefaultModelContextWindow {
+		t.Errorf("Lookup(anthropic, claude-sonnet-4.5) = %+v, %v", m, ok)
+	}
+	// The same model id under a different provider must not resolve.
+	if _, ok := r.Lookup("openai", "claude-sonnet-4.5"); ok {
+		t.Error("Lookup matched a model of another provider")
+	}
+	if _, ok := r.Lookup("deepseek", ""); ok {
+		t.Error("Lookup with empty id resolved")
+	}
+	if _, ok := r.Lookup("", "deepseek-chat"); ok {
+		t.Error("Lookup with empty provider resolved")
+	}
+}
