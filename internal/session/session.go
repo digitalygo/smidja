@@ -191,11 +191,13 @@ type Session struct {
 	path            string
 	headerTimestamp string
 
-	mu     sync.Mutex
-	file   *os.File
-	leaf   string
-	used   map[string]struct{}
-	closed bool
+	mu      sync.Mutex
+	file    *os.File
+	lock    *fileLock
+	leaf    string
+	used    map[string]struct{}
+	closed  bool
+	profile *RuntimeProfile
 }
 
 func (sess *Session) Path() string {
@@ -347,13 +349,20 @@ func (sess *Session) Close() error {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	sess.closed = true
-	if sess.file == nil {
-		return nil
+	var closeErr error
+	if sess.file != nil {
+		closeErr = sess.file.Close()
+		sess.file = nil
 	}
-	err := sess.file.Close()
-	sess.file = nil
-	if err != nil {
-		return fmt.Errorf("session: close %q: %w", sess.path, err)
+	if sess.lock != nil {
+		lockErr := sess.lock.release()
+		sess.lock = nil
+		if closeErr == nil {
+			closeErr = lockErr
+		}
+	}
+	if closeErr != nil {
+		return fmt.Errorf("session: close %q: %w", sess.path, closeErr)
 	}
 	return nil
 }

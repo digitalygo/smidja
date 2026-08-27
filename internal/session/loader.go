@@ -14,6 +14,16 @@ import (
 
 var ErrNotASession = errors.New("session: not a valid session file")
 
+type LoadOptions struct {
+	Strict bool
+}
+
+type rawLine struct {
+	num        int
+	data       []byte
+	terminated bool
+}
+
 type Loader struct {
 	path     string
 	header   *Header
@@ -22,36 +32,48 @@ type Loader struct {
 	children map[string][]Entry
 	roots    []Entry
 	leaf     Entry
+
+	fileEndsWithNewline bool
 }
 
 func Load(path string) (*Loader, error) {
-	rawLines, err := readSessionLines(path)
+	return LoadWithOptions(path, LoadOptions{})
+}
+
+func LoadWithOptions(path string, opts LoadOptions) (*Loader, error) {
+	rawLines, endsWithNewline, err := readSessionLines(path)
 	if err != nil {
 		return nil, err
 	}
-	l := &Loader{path: path}
+	l := &Loader{path: path, fileEndsWithNewline: endsWithNewline}
 	seenHeader := false
 	for _, raw := range rawLines {
 		if !seenHeader {
 			var probe struct {
 				Type json.RawMessage `json:"type"`
 			}
-			if err := json.Unmarshal(raw, &probe); err != nil {
+			if err := json.Unmarshal(raw.data, &probe); err != nil {
+				if opts.Strict && !recoverableTrailingLine(raw, rawLines) {
+					return nil, fmt.Errorf("session: line %d: %w", raw.num, err)
+				}
 				continue
 			}
 			if !bytes.Equal(probe.Type, []byte(`"`+EntryTypeSession+`"`)) {
 				return nil, ErrNotASession
 			}
 			var h Header
-			if err := json.Unmarshal(raw, &h); err != nil {
+			if err := json.Unmarshal(raw.data, &h); err != nil {
 				return nil, ErrNotASession
 			}
 			l.header = &h
 			seenHeader = true
 			continue
 		}
-		e, err := DecodeEntry(raw)
+		e, err := DecodeEntry(raw.data)
 		if err != nil {
+			if opts.Strict && !recoverableTrailingLine(raw, rawLines) {
+				return nil, fmt.Errorf("session: line %d: %w", raw.num, err)
+			}
 			continue
 		}
 		if e.EntryType() == EntryTypeSession {
@@ -66,28 +88,38 @@ func Load(path string) (*Loader, error) {
 	return l, nil
 }
 
-func readSessionLines(path string) ([][]byte, error) {
+func recoverableTrailingLine(raw rawLine, all []rawLine) bool {
+	return raw.num == all[len(all)-1].num && !raw.terminated
+}
+
+func readSessionLines(path string) ([]rawLine, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("session: open %q: %w", path, err)
+		return nil, false, fmt.Errorf("session: open %q: %w", path, err)
 	}
 	defer f.Close()
 	br := bufio.NewReader(f)
-	var lines [][]byte
+	var lines []rawLine
+	lineNum := 0
+	endsWithNewline := false
 	for {
 		chunk, err := br.ReadBytes('\n')
+		if len(chunk) > 0 {
+			endsWithNewline = chunk[len(chunk)-1] == '\n'
+		}
+		lineNum++
 		line := bytes.TrimRight(chunk, "\r\n")
 		if len(bytes.TrimSpace(line)) > 0 {
-			lines = append(lines, line)
+			lines = append(lines, rawLine{num: lineNum, data: line, terminated: err == nil})
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("session: read %q: %w", path, err)
+			return nil, false, fmt.Errorf("session: read %q: %w", path, err)
 		}
 	}
-	return lines, nil
+	return lines, endsWithNewline, nil
 }
 
 func (l *Loader) buildIndex() {

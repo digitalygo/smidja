@@ -35,6 +35,8 @@ type Deps struct {
 
 	FetchModels func(ctx context.Context) ([]models.ModelInfo, error)
 
+	ModelsCatalog *models.CatalogSource
+
 	NewUpdateClient func() *update.Client
 
 	HTTPClient *http.Client
@@ -64,7 +66,8 @@ type Deps struct {
 
 func Run(args []string) error {
 	return RunWithDeps(args, &Deps{
-		FetchModels: fetchOpenRouterModels,
+		FetchModels:   fetchOpenRouterModels,
+		ModelsCatalog: &models.CatalogSource{},
 	})
 }
 

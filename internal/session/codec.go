@@ -30,6 +30,8 @@ type Header struct {
 	ParentSession *string `json:"parentSession,omitempty"`
 }
 
+func (h *Header) EntryType() string { return h.Type }
+
 type EntryBase struct {
 	Type      string  `json:"type"`
 	ID        string  `json:"id"`

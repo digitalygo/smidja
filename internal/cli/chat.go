@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/digitalygo/smidja/internal/agent"
 	"github.com/digitalygo/smidja/internal/config"
+	"github.com/digitalygo/smidja/internal/content"
 	"github.com/digitalygo/smidja/internal/contextmanager"
 	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/loopdetector"
@@ -149,7 +151,11 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	hooks := runtime.Dispatcher()
 
-	skillCat, err := buildSkillCatalog(d)
+	snapshot, err := buildContentSnapshot(d, cfg.WorkspaceRoot)
+	if err != nil {
+		return fail(d, err)
+	}
+	skillCat, err := snapshotSkillCatalog(snapshot)
 	if err != nil {
 		return fail(d, err)
 	}
@@ -187,6 +193,13 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 			modelReg.Merge(infos)
 		}
 	}
+	if d.ModelsCatalog != nil {
+		storePath := models.StorePathFor(cfg.SessionDir)
+		_ = d.ModelsCatalog.RefreshTo(storePath)
+		if store, err := models.LoadStore(storePath); err == nil {
+			modelReg.MergeRefreshed(store, localModelOverrides(d, cfg.WorkspaceRoot))
+		}
+	}
 
 	window := cfg.ContextWindowTokens
 	if window <= 0 {
@@ -201,6 +214,15 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	sysPrompt := system
 	if sysPrompt == "" {
 		sysPrompt = defaultSystemPrompt
+	}
+	instr, err := content.DiscoverInstructions(cwd, content.InstructionsOptions{
+		WorkspaceRoot: cfg.WorkspaceRoot,
+		UserHome:      d.Home(),
+	})
+	if err == nil {
+		if suffix := instr.Suffix(); suffix != "" {
+			sysPrompt = sysPrompt + "\n\n" + suffix
+		}
 	}
 
 	rd := &runDeps{
@@ -255,20 +277,57 @@ func loadChatConfig(d *Deps) (*config.Config, error) {
 	return config.LoadWithDefaults(d.Env, d.Getwd, d.Home, nil, pkgDefaults)
 }
 
-func buildSkillCatalog(d *Deps) (*skills.Catalog, error) {
-	cat, err := skills.FromBundle(d.Bundle)
+func buildContentSnapshot(d *Deps, workspaceRoot string) (content.Snapshot, error) {
+	dirs, err := activePackageDirs(d)
 	if err != nil {
-		return nil, err
+		return content.Snapshot{}, err
 	}
+	return content.Load(content.Options{
+		BundleID:       d.Bundle.ID,
+		BundleFS:       d.Bundle.FS,
+		WorkspaceDir:   workspaceRoot,
+		UserHome:       d.Home(),
+		PackagesDirs:   dirs,
+		TrustWorkspace: true,
+	})
+}
+
+func activePackageDirs(d *Deps) ([]string, error) {
 	store, err := packages.Open(packageStoreRoot(d))
 	if err != nil {
 		return nil, err
 	}
-	pkgCat, err := skills.FromPackages(store)
+	active, err := store.Active()
 	if err != nil {
 		return nil, err
 	}
-	return cat, cat.Merge(pkgCat)
+	dirs := make([]string, 0, len(active))
+	for _, a := range active {
+		dirs = append(dirs, filepath.Join(store.Root(), a.ID, a.Version))
+	}
+	return dirs, nil
+}
+
+func snapshotSkillCatalog(snapshot content.Snapshot) (*skills.Catalog, error) {
+	c := skills.New()
+	for _, ref := range snapshot.Skills {
+		if err := c.Add(ref.Package, ref.Name, ref.Content); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
+func localModelOverrides(d *Deps, workspaceRoot string) []models.ModelInfo {
+	path := models.LocalOverridesPath(workspaceRoot, d.Home())
+	if path == "" {
+		return nil
+	}
+	overrides, err := models.LoadLocalOverrides(path)
+	if err != nil {
+		return nil
+	}
+	return overrides
 }
 
 func packageStoreRoot(d *Deps) string {

@@ -823,6 +823,27 @@ func TestCompactUsesEntryIDs(t *testing.T) {
 	}
 }
 
+func TestCompactCacheStaleGate(t *testing.T) {
+	msgs := compactFixture(12, 150)
+	occ := estimateTokens("", msgs)
+	cfg := baseConfig()
+	cfg.KeepRecentMessages = 2
+	cfg.ContextWindowTokens = compactWindow(t, occ)
+	m, now := newTestManager(t, cfg, nil)
+
+	m.ObserveResponse(&agent.AssistantMessage{Usage: agent.Usage{}})
+	res := prepare(t, m, agent.ContextRequest{Messages: msgs})
+	if res.Compacted || len(res.Pruned) != 0 {
+		t.Fatalf("warm cache must freeze the prefix: got Compacted=%v Pruned=%v", res.Compacted, res.Pruned)
+	}
+
+	*now = now.Add(cfg.CacheMissAfter + time.Second)
+	res = prepare(t, m, agent.ContextRequest{Messages: msgs})
+	if !res.Compacted || res.Compaction == nil {
+		t.Fatalf("stale cache must allow compact, got %+v", res)
+	}
+}
+
 func TestSafetyCompactIgnoresCacheAge(t *testing.T) {
 	msgs := compactFixture(12, 60)
 	occ := estimateTokens("", msgs)
