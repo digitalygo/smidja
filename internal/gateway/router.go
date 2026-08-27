@@ -46,6 +46,13 @@ func (r *Router) Actor(key string) (*Actor, error) {
 	return a, nil
 }
 
+func (r *Router) Lookup(key string) (*Actor, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a, ok := r.actors[key]
+	return a, ok
+}
+
 func (r *Router) Shutdown() {
 	r.mu.Lock()
 	actors := make([]*Actor, 0, len(r.actors))

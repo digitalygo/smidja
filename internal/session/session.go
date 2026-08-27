@@ -204,6 +204,10 @@ func (sess *Session) Path() string {
 	return sess.path
 }
 
+func (sess *Session) ID() string {
+	return sess.id
+}
+
 func (sess *Session) AppendUser(m *agent.UserMessage) error {
 	if m == nil {
 		return errors.New("session: nil user message")

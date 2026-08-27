@@ -86,6 +86,10 @@ func New(opts Options) (*Gateway, error) {
 			Key:         key,
 			Workspace:   workspace,
 			SessionHint: sessionHint,
+			ResolveHint: func() string {
+				_, hint := opts.Resolver(key)
+				return hint
+			},
 			MailboxSize: opts.MailboxSize,
 			Runner:      opts.Runner,
 			Marker:      journal,
@@ -226,6 +230,18 @@ func (g *Gateway) RegisterSink(transport string, sink DeliverySink) {
 		return
 	}
 	g.sinks[transport] = sink
+}
+
+func (g *Gateway) Cancel(transport, externalChatKey string) bool {
+	actor, ok := g.router.Lookup(RoutingKey(transport, externalChatKey))
+	if !ok {
+		return false
+	}
+	if !actor.Busy() {
+		return false
+	}
+	actor.CancelCurrent()
+	return true
 }
 
 func (g *Gateway) routeDelivery(d Delivery) {

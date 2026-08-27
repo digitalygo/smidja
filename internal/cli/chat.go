@@ -70,7 +70,7 @@ type runDeps struct {
 	handlerContext func(context.Context) sdk.HandlerContext
 }
 
-func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool) error {
+func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string) error {
 	ctx := d.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -122,7 +122,12 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if err != nil {
 		return fail(d, err)
 	}
-	sess, err := store.Create(cwd)
+	var sess *session.Session
+	if continuePath != "" {
+		sess, err = store.Open(continuePath, session.OpenOptions{Strict: true})
+	} else {
+		sess, err = store.Create(cwd)
+	}
 	if err != nil {
 		return fail(d, err)
 	}
@@ -222,6 +227,21 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if err == nil {
 		if suffix := instr.Suffix(); suffix != "" {
 			sysPrompt = sysPrompt + "\n\n" + suffix
+		}
+	}
+
+	if continuePath != "" {
+		providerID := provider
+		if providerID == "" {
+			providerID = "openrouter"
+		}
+		cur := currentRuntimeProfile(cfg, providerID, sysPrompt, toolsetFingerprint(catalog, toolSet), cfg.WorkspaceRoot)
+		reset, err := syncRuntimeProfile(sess, cur, func() string { return snapshot.Fingerprint() })
+		if err != nil {
+			return fail(d, err)
+		}
+		if reset {
+			fmt.Fprintf(d.Stderr, "smidja: runtime profile changed, context cache reset\n")
 		}
 	}
 

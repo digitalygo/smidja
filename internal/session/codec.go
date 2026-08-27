@@ -285,3 +285,8 @@ func envelopeOf(e Entry) (id string, parentID *string, timestamp string) {
 	}
 	return base.ID, base.ParentID, base.Timestamp
 }
+
+func EntryID(e Entry) string {
+	id, _, _ := envelopeOf(e)
+	return id
+}

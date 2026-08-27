@@ -119,16 +119,18 @@ func run(args []string, d *Deps) error {
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	var (
-		prompt   string
-		model    string
-		system   string
-		provider string
-		version  bool
+		prompt       string
+		model        string
+		system       string
+		provider     string
+		continuePath string
+		version      bool
 	)
 	fs.StringVar(&prompt, "p", "", "run one turn with the given prompt and exit")
 	fs.StringVar(&model, "model", "", "override the configured model")
 	fs.StringVar(&system, "system", "", "override the default system prompt")
 	fs.StringVar(&provider, "provider", "", "select the provider driver (manifest id or OAuth provider)")
+	fs.StringVar(&continuePath, "continue", "", "resume the session at the given path or id")
 	fs.BoolVar(&version, "version", false, "print the version and exit")
 	var allowWorkspaceMCP bool
 	fs.BoolVar(&allowWorkspaceMCP, "allow-workspace-mcp", false, "spawn MCP servers defined in the workspace .smidja/mcp.json")
@@ -156,7 +158,7 @@ func run(args []string, d *Deps) error {
 			model = def
 		}
 	}
-	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP)
+	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP, continuePath)
 }
 
 func versionFor(d *Deps) string {
@@ -187,6 +189,7 @@ var subcommands = map[string]bool{
 	"update":  true,
 	"version": true,
 	"pkg":     true,
+	"gateway": true,
 }
 
 func isSubcommand(name string) bool {
@@ -205,6 +208,8 @@ func runSubcommand(name string, args []string, d *Deps) error {
 		return runUpdate(args, d)
 	case "pkg":
 		return runPkg(args, d)
+	case "gateway":
+		return runGateway(args, d)
 	case "run":
 		return fail(d, fmt.Errorf("%s: not implemented yet", name))
 	default:
@@ -226,6 +231,9 @@ to stdout. With -p it runs a single turn and exits.
 
 flags:
   -p prompt       run one turn with the given prompt and exit
+  -continue path  resume the session at the given path or id instead of
+                  creating a new one (keeps the transcript and runtime
+                  profile continuity of -p single turns)
   -model string   override the configured model (default: SMIDJA_MODEL)
   -provider id    select the provider driver (default: openrouter)
   -system string  override the default system prompt
@@ -236,6 +244,7 @@ flags:
 
 subcommands:
   auth     manage provider credentials
+  gateway  run the headless gateway (Telegram + local web server)
   import   import Pi sessions into the session store
   pkg      manage optional packages (install, list, inspect, activate,
            deactivate, update, verify, uninstall)

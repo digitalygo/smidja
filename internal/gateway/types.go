@@ -18,6 +18,11 @@ const (
 	StatusOutcomeUnknown = "outcome_unknown"
 )
 
+const (
+	DeliveryKindResponse = "response"
+	DeliveryKindSummary  = "summary"
+)
+
 var (
 	ErrDuplicate         = errors.New("gateway: duplicate message id")
 	ErrMailboxFull       = errors.New("gateway: actor mailbox full")
@@ -48,14 +53,17 @@ type Receipt struct {
 }
 
 type WorkItem struct {
+	Key         string
 	SessionPath string
 	Text        string
 	EntriesDone func()
 }
 
 type RunResult struct {
-	Text      string
-	SessionID string
+	Text         string
+	SessionID    string
+	Summary      string
+	ProfileReset bool
 }
 
 type Delivery struct {
@@ -66,6 +74,7 @@ type Delivery struct {
 	Text            string
 	Result          RunResult
 	Err             error
+	Kind            string
 }
 
 type TurnRunner interface {

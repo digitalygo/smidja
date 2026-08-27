@@ -104,7 +104,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request, a authCtx)
 		writeError(w, http.StatusBadRequest, "invalid cancel body")
 		return
 	}
-	if err := s.cfg.Gateway.Cancel(transportWeb, a.userID); err != nil {
+	if !s.cfg.Gateway.Cancel(transportWeb, a.userID) {
 		writeError(w, http.StatusNotFound, "no active turn")
 		return
 	}
@@ -276,6 +276,7 @@ func (s *Server) Deliver(ctx context.Context, d gateway.Delivery) error {
 		key:       d.ExternalChatKey,
 		ID:        d.ID,
 		SessionID: d.Result.SessionID,
+		Type:      d.Kind,
 		Text:      d.Text,
 	}
 	if d.Err != nil {

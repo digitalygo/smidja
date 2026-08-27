@@ -265,7 +265,7 @@ func TestCancelFlow(t *testing.T) {
 
 func TestCancelGatewayError(t *testing.T) {
 	s, fw := newTestServer(t, nil)
-	fw.cancelErr = errors.New("no actor")
+	fw.cancelOK = false
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 	client := jarClient(t, ts)

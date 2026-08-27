@@ -22,7 +22,7 @@ type fakeGateway struct {
 	submitted  []gateway.InboundMessage
 	sink       gateway.DeliverySink
 	submitErr  error
-	cancelErr  error
+	cancelOK   bool
 	cancelKeys []string
 }
 
@@ -42,11 +42,11 @@ func (f *fakeGateway) RegisterSink(transport string, sink gateway.DeliverySink) 
 	f.sink = sink
 }
 
-func (f *fakeGateway) Cancel(transport, externalChatKey string) error {
+func (f *fakeGateway) Cancel(transport, externalChatKey string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cancelKeys = append(f.cancelKeys, transport+":"+externalChatKey)
-	return f.cancelErr
+	return f.cancelOK
 }
 
 func (f *fakeGateway) delivered() []gateway.InboundMessage {
@@ -62,7 +62,7 @@ func newTestServer(t *testing.T, workspaces map[string]string) (*Server, *fakeGa
 	if workspaces == nil {
 		workspaces = map[string]string{"demo": t.TempDir()}
 	}
-	fw := &fakeGateway{}
+	fw := &fakeGateway{cancelOK: true}
 	s, err := New(Config{
 		ListenAddr:   "127.0.0.1:8179",
 		WebTokenFunc: func() (string, error) { return "secret-token", nil },

@@ -38,7 +38,7 @@ const (
 type Gateway interface {
 	Submit(ctx context.Context, msg gateway.InboundMessage) (gateway.Receipt, error)
 	RegisterSink(transport string, sink gateway.DeliverySink)
-	Cancel(transport, externalChatKey string) error
+	Cancel(transport, externalChatKey string) bool
 }
 
 type Config struct {

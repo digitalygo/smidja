@@ -22,6 +22,7 @@ type deliveryEvent struct {
 	Seq       int64  `json:"seq"`
 	ID        string `json:"id"`
 	SessionID string `json:"sessionID,omitempty"`
+	Type      string `json:"type,omitempty"`
 	Text      string `json:"text,omitempty"`
 	Result    string `json:"result,omitempty"`
 	Error     string `json:"error,omitempty"`

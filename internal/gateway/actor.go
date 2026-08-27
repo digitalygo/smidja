@@ -24,6 +24,7 @@ type ActorConfig struct {
 	Key         string
 	Workspace   string
 	SessionHint string
+	ResolveHint func() string
 	MailboxSize int
 	Runner      TurnRunner
 	Marker      TurnMarker
@@ -37,6 +38,7 @@ type Actor struct {
 	key         string
 	workspace   string
 	sessionHint string
+	resolveHint func() string
 	runner      TurnRunner
 	marker      TurnMarker
 	sched       scheduler
@@ -83,6 +85,7 @@ func NewActor(cfg ActorConfig) *Actor {
 		key:         cfg.Key,
 		workspace:   cfg.Workspace,
 		sessionHint: cfg.SessionHint,
+		resolveHint: cfg.ResolveHint,
 		runner:      cfg.Runner,
 		marker:      cfg.Marker,
 		sched:       cfg.Scheduler,
@@ -187,7 +190,7 @@ func (a *Actor) process(base context.Context, msg InboundMessage) {
 		a.deliverTurn(msg, RunResult{}, err)
 		return
 	}
-	work := WorkItem{SessionPath: a.sessionHint, Text: msg.Text, EntriesDone: a.entriesDone}
+	work := WorkItem{Key: a.key, SessionPath: a.turnSessionHint(), Text: msg.Text, EntriesDone: a.entriesDone}
 	result, runErr := a.runner.Run(turnCtx, work)
 	if runErr != nil {
 		if turnCtx.Err() != nil {
@@ -199,6 +202,11 @@ func (a *Actor) process(base context.Context, msg InboundMessage) {
 		return
 	}
 	a.marker.MarkCompleted(msg.ID)
+	if result.Summary != "" {
+		summary := result
+		summary.Text = result.Summary
+		a.deliverKind(msg, summary, nil, DeliveryKindSummary)
+	}
 	a.deliverTurn(msg, result, nil)
 }
 
@@ -224,7 +232,20 @@ func (a *Actor) cancelMessage(msg InboundMessage) {
 	a.deliverTurn(msg, RunResult{}, ErrTurnCancelled)
 }
 
+func (a *Actor) turnSessionHint() string {
+	if a.resolveHint != nil {
+		if h := a.resolveHint(); h != "" {
+			return h
+		}
+	}
+	return a.sessionHint
+}
+
 func (a *Actor) deliverTurn(msg InboundMessage, result RunResult, err error) {
+	a.deliverKind(msg, result, err, DeliveryKindResponse)
+}
+
+func (a *Actor) deliverKind(msg InboundMessage, result RunResult, err error, kind string) {
 	if a.deliver == nil {
 		return
 	}
@@ -236,6 +257,7 @@ func (a *Actor) deliverTurn(msg InboundMessage, result RunResult, err error) {
 		Text:            msg.Text,
 		Result:          result,
 		Err:             err,
+		Kind:            kind,
 	})
 }
 
