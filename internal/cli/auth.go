@@ -6,10 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +33,21 @@ type oauthProvider struct {
 	login   func(context.Context, oauth.Options) (authstore.Entry, error)
 	refresh func(context.Context, authstore.Entry, ...oauth.Options) (authstore.Entry, error)
 	build   func(*oauthCredential, *http.Client) providers.Driver
+}
+
+var infraProviders = map[string]struct{ EnvVar string }{
+	"telegram": {EnvVar: "TELEGRAM_BOT_TOKEN"},
+	"web":      {EnvVar: "SMIDJA_WEB_TOKEN"},
+}
+
+func infraTokenTitle(provider string) string {
+	switch provider {
+	case "telegram":
+		return "Telegram bot token"
+	case "web":
+		return "Smidja web token"
+	}
+	return provider + " token"
 }
 
 var oauthProviders = []oauthProvider{
@@ -165,10 +182,40 @@ func runAuthLogin(args []string, d *Deps) error {
 		return fail(d, errors.New("auth login: exactly one provider argument is required"))
 	}
 	provider := positionals[0]
+	if _, ok := infraProviders[provider]; ok {
+		return authLoginInfra(d, provider, apiKeyMode)
+	}
 	if apiKeyMode {
 		return authLoginAPIKey(d, provider)
 	}
 	return authLoginOAuth(d, provider)
+}
+
+func authLoginInfra(d *Deps, provider string, envFirst bool) error {
+	key := ""
+	if envFirst {
+		key = d.Env(infraProviders[provider].EnvVar)
+	}
+	if key == "" {
+		lineUI := ui.New(d.Stdin, d.Stdout, d.Stderr, sdk.ModeInteractive)
+		entered, err := lineUI.Input(infraTokenTitle(provider), "")
+		if err != nil {
+			return fail(d, fmt.Errorf("auth login %s: %w", provider, err))
+		}
+		key = strings.TrimSpace(entered)
+		if key == "" {
+			return fail(d, errors.New("auth login: empty token"))
+		}
+	}
+	store, err := loadAuthStore(d)
+	if err != nil {
+		return fail(d, err)
+	}
+	if err := store.Set(provider, authstore.Entry{Type: "api_key", Key: key}); err != nil {
+		return fail(d, fmt.Errorf("auth login %s: %w", provider, err))
+	}
+	fmt.Fprintf(d.Stdout, "smidja: stored token for %s\n", provider)
+	return nil
 }
 
 func authLoginOAuth(d *Deps, provider string) error {
@@ -290,12 +337,16 @@ func runAuthStatus(args []string, d *Deps) error {
 	if err != nil {
 		return fail(d, err)
 	}
-	rows := make([]statusRow, 0, len(manifest.All)+len(oauthProviders))
+	rows := make([]statusRow, 0, len(manifest.All)+len(oauthProviders)+len(infraProviders))
 	for _, spec := range manifest.All {
 		rows = append(rows, statusRow{provider: spec.ID, kind: "api_key", status: manifestStatus(spec, store, d.Env)})
 	}
 	for _, p := range oauthProviders {
 		rows = append(rows, statusRow{provider: p.id, kind: "oauth", status: oauthStatus(p, store)})
+	}
+	for _, id := range slices.Sorted(maps.Keys(infraProviders)) {
+		spec := infraProviders[id]
+		rows = append(rows, statusRow{provider: id, kind: "api_key", status: manifestStatus(manifest.Spec{ID: id, EnvVar: spec.EnvVar}, store, d.Env)})
 	}
 	printStatusTable(d.Stdout, rows)
 	return nil
@@ -470,5 +521,6 @@ commands:
 
 OAuth providers: openrouter, anthropic, codex, xai, kimi
 API-key providers: any provider of the manifest, for example deepseek or openai
+Infra credentials: telegram (TELEGRAM_BOT_TOKEN), web (SMIDJA_WEB_TOKEN)
 `)
 }

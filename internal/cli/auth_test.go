@@ -321,6 +321,182 @@ func TestAuthLoginUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestAuthLoginTelegramFromStdin(t *testing.T) {
+	home := authHome(t)
+	deps, stdout, stderr := authDeps(home, nil, nil, nil, "123456:ABC-secret\n")
+	if err := run([]string{"auth", "login", "telegram"}, deps); err != nil {
+		t.Fatalf("auth login telegram: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "stored token for telegram") {
+		t.Errorf("stdout = %q, want the success line", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Telegram bot token:") {
+		t.Errorf("stderr = %q, want the interactive prompt", stderr.String())
+	}
+	entry := readAuthStore(t, home)["telegram"]
+	if entry["type"] != "api_key" || entry["key"] != "123456:ABC-secret" {
+		t.Errorf("telegram entry = %v", entry)
+	}
+	assertRedacted(t, "123456:ABC-secret", stdout.String(), stderr.String())
+}
+
+func TestAuthLoginTelegramAPIKeyFlagFromEnv(t *testing.T) {
+	home := authHome(t)
+	deps, stdout, stderr := authDeps(home, map[string]string{"TELEGRAM_BOT_TOKEN": "789:env-secret"}, nil, nil, "")
+	if err := run([]string{"auth", "login", "telegram", "--api-key"}, deps); err != nil {
+		t.Fatalf("auth login telegram --api-key: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "stored token for telegram") {
+		t.Errorf("stdout = %q, want the success line", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "Telegram bot token:") {
+		t.Errorf("stderr = %q, the env flow must not prompt", stderr.String())
+	}
+	entry := readAuthStore(t, home)["telegram"]
+	if entry["type"] != "api_key" || entry["key"] != "789:env-secret" {
+		t.Errorf("telegram entry = %v", entry)
+	}
+	assertRedacted(t, "789:env-secret", stdout.String(), stderr.String())
+}
+
+func TestAuthLoginTelegramAPIKeyFlagFromStdin(t *testing.T) {
+	home := authHome(t)
+	deps, stdout, stderr := authDeps(home, nil, nil, nil, "1011:stdin-secret\n")
+	if err := run([]string{"auth", "login", "telegram", "--api-key"}, deps); err != nil {
+		t.Fatalf("auth login telegram --api-key: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "stored token for telegram") {
+		t.Errorf("stdout = %q, want the success line", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Telegram bot token:") {
+		t.Errorf("stderr = %q, want the interactive prompt", stderr.String())
+	}
+	entry := readAuthStore(t, home)["telegram"]
+	if entry["type"] != "api_key" || entry["key"] != "1011:stdin-secret" {
+		t.Errorf("telegram entry = %v", entry)
+	}
+	assertRedacted(t, "1011:stdin-secret", stdout.String(), stderr.String())
+}
+
+func TestAuthLoginTelegramEmptyToken(t *testing.T) {
+	home := authHome(t)
+	deps, _, stderr := authDeps(home, nil, nil, nil, "")
+	err := run([]string{"auth", "login", "telegram"}, deps)
+	if err == nil || !strings.Contains(err.Error(), "empty token") {
+		t.Errorf("err = %v, want empty token", err)
+	}
+	if _, ok := readAuthStoreIfExists(t, home)["telegram"]; ok {
+		t.Error("empty login stored an entry")
+	}
+	if !strings.Contains(stderr.String(), "smidja:") {
+		t.Errorf("stderr = %q, want the smidja error line", stderr.String())
+	}
+}
+
+func TestAuthLoginWebFromEnv(t *testing.T) {
+	home := authHome(t)
+	deps, stdout, _ := authDeps(home, map[string]string{"SMIDJA_WEB_TOKEN": "web-secret"}, nil, nil, "")
+	if err := run([]string{"auth", "login", "web", "--api-key"}, deps); err != nil {
+		t.Fatalf("auth login web --api-key: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "stored token for web") {
+		t.Errorf("stdout = %q, want the success line", stdout.String())
+	}
+	entry := readAuthStore(t, home)["web"]
+	if entry["type"] != "api_key" || entry["key"] != "web-secret" {
+		t.Errorf("web entry = %v", entry)
+	}
+	assertRedacted(t, "web-secret", stdout.String())
+}
+
+func TestAuthLoginWebFromStdin(t *testing.T) {
+	home := authHome(t)
+	deps, stdout, stderr := authDeps(home, nil, nil, nil, "web-stdin-secret\n")
+	if err := run([]string{"auth", "login", "web"}, deps); err != nil {
+		t.Fatalf("auth login web: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "stored token for web") {
+		t.Errorf("stdout = %q, want the success line", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Smidja web token:") {
+		t.Errorf("stderr = %q, want the interactive prompt", stderr.String())
+	}
+	entry := readAuthStore(t, home)["web"]
+	if entry["type"] != "api_key" || entry["key"] != "web-stdin-secret" {
+		t.Errorf("web entry = %v", entry)
+	}
+	assertRedacted(t, "web-stdin-secret", stdout.String(), stderr.String())
+}
+
+func TestInfraTokenTitleFallback(t *testing.T) {
+	if got := infraTokenTitle("future"); got != "future token" {
+		t.Errorf("infraTokenTitle(future) = %q, want the generic fallback", got)
+	}
+}
+
+func TestAuthStatusShowsInfraCredentials(t *testing.T) {
+	home := authHome(t)
+	seedStore(t, home, map[string]authstore.Entry{
+		"telegram": {Type: "api_key", Key: "tg-status-secret"},
+	})
+	deps, stdout, _ := authDeps(home, map[string]string{"SMIDJA_WEB_TOKEN": "web-status-secret"}, nil, nil, "")
+	if err := run([]string{"auth", "status"}, deps); err != nil {
+		t.Fatalf("auth status: %v", err)
+	}
+	out := stdout.String()
+	for _, want := range []string{"telegram", "web", "configured (store)", "configured (env)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status output missing %q:\n%s", want, out)
+		}
+	}
+	for _, secret := range []string{"tg-status-secret", "web-status-secret"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("status output leaked %q:\n%s", secret, out)
+		}
+	}
+}
+
+func TestAuthLoginTelegramCorruptStore(t *testing.T) {
+	home := authHome(t)
+	if err := os.MkdirAll(filepath.Dir(authFile(home)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(authFile(home), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deps, _, _ := authDeps(home, nil, nil, nil, "123:abc\n")
+	err := run([]string{"auth", "login", "telegram"}, deps)
+	if err == nil || !strings.Contains(err.Error(), "auth.json") {
+		t.Errorf("err = %v, want the corrupt store error", err)
+	}
+}
+
+func TestAuthLoginTelegramStoreWriteError(t *testing.T) {
+	home := authHome(t)
+	dir := filepath.Dir(authFile(home))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	deps, _, _ := authDeps(home, nil, nil, nil, "123:abc\n")
+	err := run([]string{"auth", "login", "telegram"}, deps)
+	if err == nil || !strings.Contains(err.Error(), "auth login telegram") {
+		t.Errorf("err = %v, want the store write failure wrapped", err)
+	}
+}
+
+func assertRedacted(t *testing.T, token string, outputs ...string) {
+	t.Helper()
+	for i, out := range outputs {
+		if strings.Contains(out, token) {
+			t.Errorf("output %d leaked the token %q", i, token)
+		}
+	}
+}
+
 func TestAuthDispatchErrors(t *testing.T) {
 	home := authHome(t)
 	deps, _, stderr := authDeps(home, nil, nil, nil, "")
