@@ -521,6 +521,15 @@ Solo task, nessuna stima di giorni.
 - **Approval:** Explicit user instruction to match Pi.
 - **Resolution:** Implemented and verified 2026-08-25 (checkpoint 2026-08-25T12:15:00+02:00).
 
+### Variation V-015: Fase 4 revised scope frozen (content parity, cache-preserving reopen policy, gateways)
+
+- **Baseline reference:** Fase 4 baseline (gateway Telegram/Discord/sessioni remote); solution-architect proposal 2026-08-26.
+- **Discovered evidence:** User decisions: Discord excluded; web gateway included v0; content loading parity with Pi under ~/.smidja (skills, agents-subagents, sessions incl subagent-sessions layout, AGENTS.md, auth.json, models-store.json, models.json, settings.json) with dual origin bundle-first > .smidja dynamic; models consumed temporarily from Pi unified endpoint (pi.dev/api/models, verified live) until Smidja owns one - endpoint URL stays configurable; every Telegram message drives a headless-like run that stops at completion while REOPENING the same session JSONL to preserve provider-side prompt cache across invocations (applies uniformly to telegram/headless/interactive); resume shows the user a deterministic digest (last intents, turn/tool counts, last excerpt) NOT injected into model context; Telegram Bot API 10.x rich messages are MANDATORY for AI output (user verified: sendRichMessage/sendRichMessageDraft, 32768 UTF-8 chars, native tables/math/thinking blocks) replacing chunking as primary path with legacy fallback. CORRECTION by user overriding architect+orchestrator amendment: CacheMissAfter staleness REMAINS a legitimate prune/compact gate - rationale: cached input ~1/10 cost, expired cache makes mutations free-to-beneficial on the very first full-price call; compact is verbatim selection (never a summary) paying one expensive turn then re-caching cheaper; safety threshold acts regardless of cache state; warm cache freezes the prefix.
+- **Decision:** Accepted: four-wave implementation per architect structure (contracts/fixtures -> content+models | sessions/cache | gateway kernel -> telegram rick-message transport + web + bundle adaptation -> integration/gates). Confirmed architectural findings to fix in-scope: Store lacks append-reopen; Loader silently skips malformed lines (strict mode required); skills catalog missing ~/.smidja/skills source; authstore needs cross-process RMW locking.
+- **Scope and downstream impact:** Provider request-prefix fidelity becomes a tested contract (replay goldens per driver); gateway runs N concurrent sessions with per-workspace exclusive locks; journal durability under ~/.smidja/gateway/.
+- **Approval:** Explicit user decisions; live Telegram testing will use a user-provided bot token stored locally in authstore (never in fixtures/chat).
+- **Resolution:** Implementation starts.
+
 ### Variation V-013: Fase 3 scope frozen (real Digitalygo bundle, MCP client in core, packaging stack)
 
 - **Baseline reference:** Fase 3 steps 1-4; open MCP question from Fase 3 discussion.
