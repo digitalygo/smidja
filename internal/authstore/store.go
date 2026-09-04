@@ -67,10 +67,18 @@ type Store struct {
 }
 
 func Load(path string) (*Store, error) {
+	data, err := readStoreData(path)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{path: path, data: data}, nil
+}
+
+func readStoreData(path string) (map[string]Entry, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return &Store{path: path, data: make(map[string]Entry)}, nil
+			return make(map[string]Entry), nil
 		}
 		return nil, fmt.Errorf("authstore: read %s: %w", path, err)
 	}
@@ -78,7 +86,7 @@ func Load(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authstore: load %s: %w", path, err)
 	}
-	return &Store{path: path, data: data}, nil
+	return data, nil
 }
 
 func parse(content []byte) (map[string]Entry, error) {
@@ -140,49 +148,67 @@ func (s *Store) Set(provider string, e Entry) error {
 	if provider == "" {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	next := make(map[string]Entry, len(s.data)+1)
-	for k, v := range s.data {
-		next[k] = v
-	}
-	next[provider] = e
-	if err := s.write(next); err != nil {
-		return err
-	}
-	s.data = next
-	return nil
+	return s.mutate(func(current map[string]Entry) (map[string]Entry, bool) {
+		next := make(map[string]Entry, len(current)+1)
+		for k, v := range current {
+			next[k] = v
+		}
+		next[provider] = e
+		return next, true
+	})
 }
 
 func (s *Store) Remove(provider string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.data[provider]; !ok {
-		return nil
-	}
-	next := make(map[string]Entry, len(s.data)-1)
-	for k, v := range s.data {
-		if k != provider {
-			next[k] = v
+	return s.mutate(func(current map[string]Entry) (map[string]Entry, bool) {
+		if _, ok := current[provider]; !ok {
+			return current, false
 		}
-	}
-	if err := s.write(next); err != nil {
-		return err
-	}
-	s.data = next
-	return nil
+		next := make(map[string]Entry, len(current)-1)
+		for k, v := range current {
+			if k != provider {
+				next[k] = v
+			}
+		}
+		return next, true
+	})
 }
 
-func (s *Store) write(data map[string]Entry) error {
+func (s *Store) mutate(apply func(map[string]Entry) (map[string]Entry, bool)) (err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("authstore: create %s: %w", dir, err)
 	}
+	lock, err := acquireFileLock(s.path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if relErr := lock.release(); err == nil {
+			err = relErr
+		}
+	}()
+	current, err := readStoreData(s.path)
+	if err != nil {
+		return err
+	}
+	next, changed := apply(current)
+	if changed {
+		if err := writeStoreData(s.path, next); err != nil {
+			return err
+		}
+	}
+	s.data = next
+	return nil
+}
+
+func writeStoreData(path string, data map[string]Entry) error {
 	body, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("authstore: encode: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".auth-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".auth-*.tmp")
 	if err != nil {
 		return fmt.Errorf("authstore: create temp: %w", err)
 	}
@@ -199,8 +225,8 @@ func (s *Store) write(data map[string]Entry) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("authstore: close temp: %w", err)
 	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		return fmt.Errorf("authstore: rename %s: %w", s.path, err)
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("authstore: rename %s: %w", path, err)
 	}
 	return nil
 }

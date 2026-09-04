@@ -111,6 +111,16 @@ func New(cfg Config) (*Server, error) {
 	return s, nil
 }
 
+func TokenFromAuth(store *authstore.Store, env func(string) string) func() (string, error) {
+	return func() (string, error) {
+		token, ok := authstore.ResolveCredential("web", webTokenEnv, store, env)
+		if !ok {
+			return "", nil
+		}
+		return token, nil
+	}
+}
+
 func loopbackHost(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {

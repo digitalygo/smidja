@@ -472,6 +472,132 @@ func TestGatewaySubcommandNoTelegramNoWebFlags(t *testing.T) {
 	}
 }
 
+func TestAuthLoginWebStoreAuthenticatesGatewayWebPath(t *testing.T) {
+	cwd := t.TempDir()
+	sessDir := t.TempDir()
+	gatewayDir := t.TempDir()
+	pkgDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("SMIDJA_GATEWAY_DIR", gatewayDir)
+	t.Setenv("SMIDJA_SESSION_DIR", sessDir)
+	t.Setenv("SMIDJA_PACKAGES_DIR", pkgDir)
+	t.Setenv("SMIDJA_WEB_TOKEN", "")
+	t.Setenv("SMIDJA_OFFLINE", "1")
+
+	loginDeps, loginStdout, _ := authDeps(home, nil, nil, nil, "web-stored-secret\n")
+	if err := run([]string{"auth", "login", "web"}, loginDeps); err != nil {
+		t.Fatalf("auth login web: %v", err)
+	}
+	if !strings.Contains(loginStdout.String(), "stored token for web") {
+		t.Errorf("login stdout = %q, want the success line", loginStdout.String())
+	}
+	entry := readAuthStore(t, home)["web"]
+	if entry["type"] != "api_key" || entry["key"] != "web-stored-secret" {
+		t.Fatalf("web entry = %v, want the stored stdin token", entry)
+	}
+
+	cfg, err := config.Load(
+		envFrom(map[string]string{
+			"OPENROUTER_API_KEY":  "sk-test",
+			"SMIDJA_SESSION_DIR":  sessDir,
+			"SMIDJA_PACKAGES_DIR": pkgDir,
+		}),
+		func() (string, error) { return cwd, nil },
+		func() string { return home },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.NewStore(sessDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr syncBuffer
+	ctx, cancel := context.WithCancel(context.Background())
+	deps := &Deps{
+		Context: ctx,
+		Env:     envFrom(map[string]string{"SMIDJA_GATEWAY_DIR": gatewayDir}),
+		Getwd:   func() (string, error) { return cwd, nil },
+		Home:    func() string { return home },
+		Stdin:   strings.NewReader(""),
+		Stdout:  io.Discard,
+		Stderr:  &stderr,
+		Config:  cfg,
+		Store:   store,
+		Client:  &gatewayFakeClient{script: []*agent.AssistantMessage{textStop("unused")}},
+		Tools:   []agent.Tool{&probeTool{calls: new(int)}},
+		FetchModels: func(context.Context) ([]models.ModelInfo, error) {
+			return nil, errors.New("catalog fetch unavailable")
+		},
+		ModelsCatalog: &models.CatalogSource{},
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runGatewayServer(deps, gatewayServerOptions{webAddr: "127.0.0.1:0"})
+	}()
+	waitForString(t, &stderr, "gateway listening telegram=off web=http://127.0.0.1:", "startup line")
+	webURL := ""
+	for _, field := range strings.Fields(stderr.String()) {
+		if strings.HasPrefix(field, "web=http://") {
+			webURL = strings.TrimPrefix(field, "web=")
+		}
+	}
+	if webURL == "" {
+		t.Fatalf("no web url in startup line %q", stderr.String())
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	webClient := &http.Client{Jar: jar}
+	csrf := loginWeb(t, webURL, "web-stored-secret", webClient)
+	if csrf == "" {
+		t.Fatal("stored-credential login returned no csrf")
+	}
+
+	wrongReq, err := http.NewRequest("POST", webURL+"/login", bytes.NewReader([]byte(`{"token":"wrong"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongReq.Header.Set("Content-Type", "application/json")
+	wrongResp, err := webClient.Do(wrongReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongResp.Body.Close()
+	if wrongResp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong-token login status = %d, want 401", wrongResp.StatusCode)
+	}
+
+	bearerReq, err := http.NewRequest("GET", webURL+"/api/sessions", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bearerReq.Header.Set("Authorization", "Bearer web-stored-secret")
+	bearerResp, err := webClient.Do(bearerReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bearerResp.Body.Close()
+	if bearerResp.StatusCode != http.StatusOK {
+		t.Errorf("bearer sessions status = %d, want 200", bearerResp.StatusCode)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("gateway shutdown error: %v", err)
+		}
+	case <-time.After(12 * time.Second):
+		t.Fatal("gateway did not shut down")
+	}
+	if errStr := stderr.String(); strings.Contains(errStr, "smidja: web:") {
+		t.Errorf("web transport reported an error:\n%s", errStr)
+	}
+}
+
 func TestGatewayFlagParsing(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	d := testDeps("", &stdout, &stderr)

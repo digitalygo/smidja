@@ -311,9 +311,10 @@ func runGatewayServer(d *Deps, opts gatewayServerOptions) error {
 			addr = defaultGatewayListen
 		}
 		webSrv, err := web.New(web.Config{
-			ListenAddr: addr,
-			Gateway:    g,
-			Workspaces: webWorkspaces,
+			ListenAddr:   addr,
+			Gateway:      g,
+			Workspaces:   webWorkspaces,
+			WebTokenFunc: web.TokenFromAuth(authStore, d.Env),
 		})
 		if err != nil {
 			cancelAll()
