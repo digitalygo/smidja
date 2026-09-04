@@ -7,22 +7,22 @@ planner: hermes-decision-draft
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-08-25T00:05:00+02:00
-last_updated_at: 2026-08-25T00:05:00+02:00
+last_updated_at: 2026-09-04T22:30:33+02:00
 ---
 
 # Piano Smidja harness
 
 ## Current execution snapshot
 
-- **Status:** In progress. Fase 0 completed with verified evidence; Fase 1 design decisions being collected.
+- **Status:** In progress. Fasi 0-4 completed and gated; Fase 5 ready for execution.
 - **Baseline identity:** `2026-08-24-smidja-harness-plan`, baseline version 1, planner handoff date 2026-08-24.
-- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629.
-- **Active phase:** Fase 1, MVP interno (design decisions in progress; implementation not started).
-- **Last verified checkpoint:** CP-012 runaway guards removed (loop unbounded like Pi); prior CP-011 Fase 1 design decisions from user.
-- **Last successful checks:** go build/vet/gofmt clean, go test -count=1 ./... all green, CGO_ENABLED=0 static binary verified, live OpenRouter demo successful (also via .env credentials), paired Pi benchmarks recorded, quality gate PASS, cumulative security gate PASS.
-- **Open blockers:** None for Fase 0. Fase 1 implementation pending interface design answers from the user.
-- **Required approvals and gates:** unchanged from baseline.
-- **Next action:** Collect user decisions on extension interface shape (single large interface vs per-group interfaces) and v0 hook set, then delegate Fase 1 implementation.
+- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629; Fase 4 review base a08ea0b and closed target 7184165.
+- **Active phase:** Fase 5, ecosistema (handoff; implementation not started).
+- **Last verified checkpoint:** Checkpoint 2026-09-04T22:30:33+02:00, Fase 5 handoff after Fase 4 closure.
+- **Last successful checks:** Fase 4 deterministic, quality and focused security gates all PASS on artifact 05b81207; aggregate delta-package coverage 89.2%.
+- **Open blockers:** None for Fase 4. Fase 5 requires implementation and external creator validation.
+- **Required approvals and gates:** Explicit multi-repository approval before changing the template or registry-index repositories; quality and proportional security gates on each implementation delta.
+- **Next action:** Present the bounded Fase 5 work and request multi-repository approval only when implementation is commissioned.
 
 #### Checkpoint 2026-08-25T11:00:00+02:00: runaway guards removed, loop unbounded like Pi
 
@@ -463,7 +463,67 @@ Solo task, nessuna stima di giorni.
 
 ### Fase 4, gateway remoto execution checkpoints
 
+#### Checkpoint 2026-09-04T14:09:25+02:00: Fase 4 resumed and closure gaps audited
+
+- **Event:** Fase 4 execution resumed from a stale ledger after its implementation commits had landed without phase checkpoints or gate evidence.
+- **Planner prediction:** Baseline Fase 4 predicted Telegram and later Discord with remote-session parity; V-015 revised the approved scope to Telegram plus web, cache-preserving session reopen, Pi-aligned content and model loading, deterministic resume digest, rich Telegram output, gateway durability, and four implementation waves ending in integration and gates.
+- **Subagent claims:** Traces and codebase locators delimited the historical delta as a08ea0b..5e7e364. Analyzer and solution-architect audits found the gateway kernel, Telegram/web transports, session continuity, content/model loading and credential login present, but identified unclosed V-015 requirements and one repository-rule violation.
+- **Orchestrator finding:** Direct inspection confirmed missing cross-process authstore RMW locking, absent per-driver request-prefix replay goldens, no persisted settings loader or user-facing models-catalog URL, ineffective cross-tier content precedence, missing bundle instruction/model wiring, absent stored web-token wiring, and a prose comment added under internal/session. Discord and the unfinished `smidja run` subcommand are outside the approved Fase 4 closure boundary.
+- **Independently verified facts:** Default branch `alpha` was clean and synchronized at 5e7e36461cc70d9f8c13c1cb3a04819217225cff; the immutable Fase 4 review base is a08ea0b5f1e2cde5075e0db19a66843e80ce61e9. The historical delta contains five commits and 73 files. `go build ./...`, `go vet ./...`, `gofmt -l .`, and `go test -count=1 ./...` passed before corrections. Source inspection and repository searches confirmed the listed gaps.
+- **Decision and impact:** Fase 4 remains in progress. The missing items are corrections within already approved V-015 scope, so no new behavior approval is required. The final quality and security reviews will cover the complete historical delta plus corrections from the Fase 3 closure base.
+- **Next action:** Delegate the correction slices, rerun deterministic verification and delta coverage, then submit the same frozen artifact to quality and focused security review.
+
+#### Checkpoint 2026-09-04T21:41:53+02:00: V-015 corrections complete and deterministic gate passed
+
+- **Event:** The bounded Fase 4 correction package completed and its deterministic gate passed on the full historical phase delta.
+- **Planner prediction:** V-015 required cross-process authstore RMW safety, strict settings and content/model parity, configurable catalog sourcing, cache-preserving reopen, stored gateway credentials, provider request-prefix fidelity, and integration gates.
+- **Subagent claims:** Backend races selected the stronger authstore/web and settings/content implementations after independent verification and architect adjudication. A focused provider task added four replay-golden contracts and order-sensitive runtime-profile tests. A documentation task aligned README, auth and settings guidance.
+- **Orchestrator finding:** Inspection of production files, new tests, fixtures and documentation confirmed that the audited V-015 gaps are closed. The final executable delta adds fresh-read locked auth mutations, stored web-token resolution, trusted persisted settings, canonical content precedence, rooted bundle instructions/models/settings, configured provider/retry/catalog wiring, request replay goldens for all four drivers, and tool-order-sensitive profile identity.
+- **Independently verified facts:** Artifact target 7184165fe3599c343813e954a289d4b3080dc74a has tree 1b329e71f65fad3118eed4f2e413ecb20127432d, changed-file manifest hash 2c9d6c70469f28e928c002fd0a73dfdc9899edefa852caedff11ee1e738176f3, and binary diff hash 05b81207373af1aea4e0c7d2a610bf2c2af6b5cafd69f3d7b6c0ccfbcd8d57b1 from base a08ea0b. `git diff --check`, repository comment compliance, `go build ./...`, Linux and Darwin static cross-builds, targeted Windows builds for authstore/session, `go vet ./...`, `go test -count=1 ./...`, 20x auth concurrency tests, 20x provider replay goldens, 100x gateway cancellation test, race tests across all 15 delta packages, and aggregate delta-package coverage all passed; coverage was 89.2%. An extra unsupported full Windows build failed in unchanged `internal/tools/exec.go`; targeted changed lock packages compiled for Windows. A repeated MCP stress run exposed a pre-existing out-of-delta timing failure while the required full suite passed.
+- **Decision and impact:** Fase 4 implementation and deterministic verification are complete. Artifact 05b81207 is frozen for both judgment gates; any correction will create a new artifact and invalidate prior verdicts.
+- **Next action:** Run the dedicated quality judgment pass against artifact 05b81207, then the focused security review against the same artifact.
+
+#### Checkpoint 2026-09-04T21:47:54+02:00: Fase 4 quality gate passed
+
+- **Event:** The dedicated quality judgment completed on the frozen Fase 4 artifact.
+- **Planner prediction:** Fase 4 required an integration gate after the Telegram/web, session, content and provider work; repository rules additionally require mapped tests, no weakened tests, no prose code comments, and 80-100% coverage on changed executable lines.
+- **Subagent claims:** The quality-gate specialist returned exact verdict PASS after reproducing the tree, manifest and binary-diff hashes and inspecting the complete delta, tests and documentation.
+- **Orchestrator finding:** The judgment covered a08ea0b..7184165 with living-plan edits excluded. It confirmed every V-015 acceptance surface, no deleted or weakened tests, cohesive file sizes, accurate documentation, and sufficient mapped coverage.
+- **Independently verified facts:** The deterministic pass preceding judgment was PASS with aggregate coverage 89.2%. Quality artifact identifiers are target 7184165fe3599c343813e954a289d4b3080dc74a, tree 1b329e71f65fad3118eed4f2e413ecb20127432d, manifest 2c9d6c70469f28e928c002fd0a73dfdc9899edefa852caedff11ee1e738176f3, and binary diff 05b81207373af1aea4e0c7d2a610bf2c2af6b5cafd69f3d7b6c0ccfbcd8d57b1. Directives and expectations are absent. The only advisories are the unchanged unsupported full Windows build, the pre-existing out-of-delta MCP stress flake, and the 30-second stale-lock failure mode on non-Linux systems.
+- **Decision and impact:** Quality gate PASS. Artifact 05b81207 advances unchanged to focused security review.
+- **Next action:** Run focused security review on artifact 05b81207 with V-009 accepted-design posture preserved.
+
+#### Checkpoint 2026-09-04T21:55:43+02:00: Fase 4 security gate passed
+
+- **Event:** The focused security review completed on the unchanged frozen Fase 4 artifact.
+- **Planner prediction:** Fase 4 required fail-closed gateway trust, local credential safety, durable session/journal handling, bounded remote inputs, and security review after integration; V-009 requires treating uncapped provider streams as accepted design.
+- **Subagent claims:** The security-review specialist returned exact verdict PASS after source review of 46 production files and the relevant tests and fixtures.
+- **Orchestrator finding:** The review covered authstore lock and atomic-write behavior, OAuth refresh concurrency, Telegram allowlists and token redaction, web loopback/auth/CSRF/origin/body limits, trusted settings and catalog SSRF boundaries, content/session containment, journal recovery and concurrency, and synthetic provider replay fixtures. No blocking finding remained.
+- **Independently verified facts:** Security artifact identifiers match the quality artifact: target 7184165fe3599c343813e954a289d4b3080dc74a, tree 1b329e71f65fad3118eed4f2e413ecb20127432d, manifest 2c9d6c70469f28e928c002fd0a73dfdc9899edefa852caedff11ee1e738176f3, and binary diff 05b81207373af1aea4e0c7d2a610bf2c2af6b5cafd69f3d7b6c0ccfbcd8d57b1. Review mode was strict read-only and response-only. Hardening notes were non-blocking: root-symlink defense in depth, non-Linux stale lock availability, models-store directory mode consistency, web login throttling, stricter missing-Origin handling, future multi-user transcript filtering, and SSE client caps.
+- **Decision and impact:** Security gate PASS. All technical Fase 4 work and gates are closed; only the real-world phone-workday completion criterion remains unresolved.
+- **Next action:** Verify real phone-workday evidence or obtain explicit user approval to defer that adoption criterion, then append the Fase 4 completion checkpoint.
+
+#### Checkpoint 2026-09-04T22:30:32+02:00: Fase 4 completed and gated
+
+- **Event:** Fase 4 completed after the user explicitly approved deferring the real-world phone-workday criterion as a non-blocking adoption check.
+- **Planner prediction:** Baseline Fase 4 predicted remote gateway operation and correct session resume; V-015 revised the approved implementation to Telegram plus web, Pi-aligned content/configuration, cache-preserving reopen, deterministic digest, rich Telegram output, durable concurrent sessions and complete gates.
+- **Subagent claims:** Implementation agents reported all correction slices complete; quality-gate and security-review specialists returned PASS on the same frozen artifact.
+- **Orchestrator finding:** Planned gateway work became `internal/gateway{,/telegram,/web}` plus CLI wiring. Actual supporting changes also span `internal/session`, `internal/content`, `internal/config`, `internal/models`, `internal/summary`, `internal/authstore`, provider replay tests and user documentation. Direct inspection found no unresolved V-015 implementation requirement.
+- **Independently verified facts:** Artifact 05b81207373af1aea4e0c7d2a610bf2c2af6b5cafd69f3d7b6c0ccfbcd8d57b1 at target 7184165 passed the deterministic gate, dedicated quality judgment and focused security review. Coverage was 89.2%. Local journal metadata could not prove the baseline phone-workday criterion, and the user approved its explicit deferral on 2026-09-04. Technical limitations and non-blocking hardening notes remain recorded in the preceding gate checkpoints.
+- **Decision and impact:** Fase 4 status is COMPLETED. The deferred phone-workday check remains post-phase adoption evidence and does not reopen implementation or gate status. Discord remains excluded, `smidja run` remains outside this phase, and the overall plan stays in progress for Fase 5.
+- **Next action:** Activate the Fase 5 handoff with its scope reconciled against V-013.
+
 ### Fase 5, ecosistema execution checkpoints
+
+#### Checkpoint 2026-09-04T22:30:33+02:00: Fase 5 handoff after Fase 4 closure
+
+- **Event:** Fase 5 became the active phase; no Fase 5 implementation started.
+- **Planner prediction:** The baseline proposed a package-template repository, package-creator documentation, optional no-rebuild extensions if demanded, and autonomous publication by an external creator.
+- **Subagent claims:** Earlier traces/codebase audits found no package-template repository or creator guide in this repository and recorded the package index as not yet created.
+- **Orchestrator finding:** V-013 permanently ruled out subprocess, WASM, Go plugins and every other no-rebuild extension mechanism. The remaining phase is a template for compiled bundle distributions, creator documentation, the deferred registry index when publication requires it, and an external clean-room publish/install acceptance test.
+- **Independently verified facts:** The current repository has package consumption and validation under `internal/packages` and `smidja pkg`, but no package-authoring guide or template implementation. The plan records `digitalygo/smidja-packages` as deferred; its current external GitHub state was not rechecked in this checkpoint.
+- **Decision and impact:** Fase 5 remains pending and the plan status remains `in-progress`. Template and registry-index work may affect additional repositories, so implementation cannot begin without explicit multi-repository approval.
+- **Next action:** Present the remaining Fase 5 work, repository boundaries, acceptance test and gate sequence to the user.
 
 ## Plan-variation ledger
 
@@ -623,22 +683,44 @@ Solo task, nessuna stima di giorni.
 - **Approval:** Security-mandated hardening of tooling output; no requirement-level behavior change; no approval gate required.
 - **Resolution:** Checkpoint 2026-08-25T05:30:00+02:00.
 
+### Variation V-016: Fase 4 phone-workday criterion deferred after technical closure
+
+- **Baseline reference:** Fase 4 completion criterion required one complete workday from a phone without opening a laptop.
+- **Discovered evidence:** All implementation and technical gates passed, but privacy-preserving local journal metadata showed only two failed Telegram turns on one date and no completed turn, so the real-world criterion could not be verified.
+- **Decision:** Defer the phone-workday criterion as post-phase adoption evidence; do not treat it as an implementation or gate blocker.
+- **Scope and downstream impact:** No code or gateway behavior changes. Fase 4 may close technically while the deferred adoption check remains visible for later real use.
+- **Approval:** Explicit user approval on 2026-09-04.
+- **Resolution:** Fase 4 completion checkpoint 2026-09-04T22:30:32+02:00.
+
+### Variation V-017: Fase 5 no-rebuild extension step removed
+
+- **Baseline reference:** Fase 5 step 3 proposed subprocess or WASM extensions without rebuilding the binary if demand emerged.
+- **Discovered evidence:** V-013 records the user's permanent decision that built-in extension composition is the harness identity and no no-rebuild extension mechanism will be supported.
+- **Decision:** Remove subprocess, WASM, Go plugins and equivalent dynamic mechanisms from Fase 5. Preserve compiled Go extensions through bundle builds.
+- **Scope and downstream impact:** Fase 5 is limited to the bundle/package template, creator documentation, deferred registry index and external publication acceptance test.
+- **Approval:** Existing explicit user decision recorded by V-013 on 2026-08-26.
+- **Resolution:** Fase 5 handoff checkpoint 2026-09-04T22:30:33+02:00.
+
 ## Closure evidence
 
 ### Final outcome
 
-- **Fase 0, spike: COMPLETED** on 2026-08-25 with independently verified evidence.
-- Deliverables: minimal agentic Go harness (module github.com/digitalygo/smidja) with OpenRouter SSE streaming, tools read/write/edit/exec, Pi-v3-aligned JSONL sessions, line-oriented CLI (-p single-shot, REPL, -version); benchmark harness under bench/; methodology and results in docs/benchmarks/phase-0.md.
-- Completion criterion evidence: working CLI demo on a real task (file creation + exec round-trip against live OpenRouter) plus comparison numbers vs Pi 0.84.2 on three identical tasks: static binary 6,443,170 bytes; startup 1.49 ms vs 584.5 ms median; idle RSS 5.2 MB vs 178 MB tree; task outcomes equivalent (both solved all three; wall times within provider variance).
-- Workspace open question closed within Fase 0 as planned: `<repo>/.smidja/` chosen over `.agent/`.
-- Pi JSONL stability question partially resolved: format v3 verified against installed Pi 0.84.2 source and live sessions; upstream history review deferred to Fase 1 import work.
-- Fasi 1-5 remain pending with their baseline gates unchanged.
+- **Fase 0, spike: COMPLETED** on 2026-08-25 with independently verified CLI, benchmark and Pi-v3 session evidence.
+- **Fase 1, MVP interno: COMPLETED** on 2026-08-25 with code and gates complete; daily team adoption and multi-machine update evidence remain deferred operational checks.
+- **Fase 2, distribuzione: COMPLETED** on 2026-08-26 with public repositories, release v0.1.0 and brew tap verified; unassisted external installation remains deferred adoption evidence.
+- **Fase 3, pacchetti opzionali: COMPLETED** on 2026-08-26 with package format, MCP client, CLI lifecycle and tests gated; team usage and registry-index creation remain demand-driven follow-ups.
+- **Fase 4, gateway remoto: COMPLETED** on 2026-09-04 with Telegram and web gateways, session continuity, content/configuration parity, quality PASS and security PASS. The user approved deferring the phone-workday criterion under V-016.
+- **Fase 5, ecosistema: PENDING.** The overall plan remains `in-progress` with the Fase 5 handoff active.
 
 ### Quality and security evidence
 
-- Quality gate: dedicated quality-gate subagent, final verdict PASS. Full-session package v3 hash 8161e0bfdccc9a66d0b806001093327b9cfee65c41f0a694f4b9804c4f25a6b4; incremental cursor advanced through security-driven deltas to ddd94a16278468ef3bde74824c5cd21627b82a5bd5ef8f9605e1b111024ccd3e (bench/run-task.sh). All earlier FAILs were package-metadata completeness or hash-canonicalization issues, corrected by refreezing.
-- Security gate: dedicated security-review-specialist, eight rounds, final verdict PASS on cumulative package 064cd7a51e8f44d93baac56ef8d7517cce147b27c90693735da8286d501843fb (51 files). Seven blocking findings resolved through delegated corrections (bench runner hardened to silent synchronous checker with exit-code-only verdict; SSE stream bounded cumulatively). Informational notes only in final round.
-- Canonical verification at closure (orchestrator-run): go build ./... OK; go vet ./... clean; gofmt -l . empty; go test -count=1 ./... all packages ok; CGO_ENABLED=0 static ELF confirmed via file(1); secret scan no hits; bash -n bench scripts clean; live OpenRouter smoke post-changes successful.
-- Limitations: staticcheck/shellcheck/govulncheck unavailable on machine; one paired trial per benchmark task (indicative numbers); metrics.sh idle phase pending fix (manual procedure substituted and documented); cmd/smidja 0% direct coverage (thin wiring).
+- Fase 0 quality and security gates remain recorded in its execution checkpoints and operation record, including final quality artifact 8161e0bfdccc9a66d0b806001093327b9cfee65c41f0a694f4b9804c4f25a6b4 and security artifact 064cd7a51e8f44d93baac56ef8d7517cce147b27c90693735da8286d501843fb.
+- Fase 1 quality and security PASS are recorded at checkpoints 2026-08-25T15:30:00+02:00 and 2026-08-25T16:30:00+02:00.
+- Fase 2 quality and security PASS are recorded at checkpoint 2026-08-26T01:30:00+02:00; release and brew verification followed at 2026-08-26T12:00:00+02:00.
+- Fase 3 quality and security PASS are recorded at checkpoint 2026-08-26T20:00:00+02:00 on artifact 672c8ace.
+- Fase 4 deterministic, dedicated quality and focused security gates all passed on target 7184165fe3599c343813e954a289d4b3080dc74a, tree 1b329e71f65fad3118eed4f2e413ecb20127432d, manifest 2c9d6c70469f28e928c002fd0a73dfdc9899edefa852caedff11ee1e738176f3, and binary diff 05b81207373af1aea4e0c7d2a610bf2c2af6b5cafd69f3d7b6c0ccfbcd8d57b1. Aggregate delta-package coverage was 89.2%.
+- Fase 4 verification included supported static cross-builds, full build/vet/test, repeated auth concurrency and provider replay tests, 100 gateway cancellation repetitions and race tests across all 15 delta packages. The unsupported full Windows build and pre-existing MCP stress flake remain out-of-delta signals; focused Windows builds for changed lock packages passed.
 
 ### Operation record
+
+- [Fase 4 gateway implementation operation](../operations/2026-09-04-smidja-fase4-gateway-implementation.md) summarizes the completed work and links back to this evidence ledger.
