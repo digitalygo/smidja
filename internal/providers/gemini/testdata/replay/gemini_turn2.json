@@ -1,0 +1,169 @@
+{
+  "contents": [
+    {
+      "parts": [
+        {
+          "text": "Summarize the replay fixture plan."
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "parts": [
+        {
+          "text": "Aligning fixture blocks before answering.",
+          "thought": true,
+          "thoughtSignature": "c2lnX3JlcGxheTAxMjM0NQ=="
+        },
+        {
+          "text": "Plan summary ready."
+        },
+        {
+          "functionCall": {
+            "args": {
+              "serial": "rz-001"
+            },
+            "id": "call_a1",
+            "name": "zprobe"
+          }
+        }
+      ],
+      "role": "model"
+    },
+    {
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "call_a1",
+            "name": "zprobe",
+            "response": {
+              "output": "probe rz-001 ok"
+            }
+          }
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "parts": [
+        {
+          "text": "Comparison "
+        },
+        {
+          "text": "queued."
+        },
+        {
+          "functionCall": {
+            "args": {
+              "label": "compare"
+            },
+            "id": "call_b2",
+            "name": "aprobe"
+          }
+        },
+        {
+          "functionCall": {
+            "args": {
+              "enabled": true
+            },
+            "id": "call_c3",
+            "name": "midprobe"
+          }
+        }
+      ],
+      "role": "model"
+    },
+    {
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "call_b2",
+            "name": "aprobe",
+            "response": {
+              "output": "label matched"
+            }
+          }
+        },
+        {
+          "functionResponse": {
+            "id": "call_c3",
+            "name": "midprobe",
+            "response": {
+              "error": "flag set"
+            }
+          }
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "parts": [
+        {
+          "text": "Follow up: ship the fixture report."
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "systemInstruction": {
+    "parts": [
+      {
+        "text": "You are smidja replay fixture. Answer with exactly one sentence."
+      }
+    ]
+  },
+  "thinkingConfig": {
+    "includeThoughts": true
+  },
+  "tools": [
+    {
+      "functionDeclarations": [
+        {
+          "description": "Probe tool ordered first on the wire despite sorting last alphabetically.",
+          "name": "zprobe",
+          "parametersJsonSchema": {
+            "properties": {
+              "serial": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "serial"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Probe tool ordered second on the wire despite sorting first alphabetically.",
+          "name": "aprobe",
+          "parametersJsonSchema": {
+            "properties": {
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "description": "Probe tool with a boolean flag argument.",
+          "name": "midprobe",
+          "parametersJsonSchema": {
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "enabled"
+            ],
+            "type": "object"
+          }
+        }
+      ]
+    }
+  ]
+}

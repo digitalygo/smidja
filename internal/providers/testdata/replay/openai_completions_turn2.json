@@ -1,0 +1,129 @@
+{
+  "messages": [
+    {
+      "content": "You are smidja replay fixture. Answer with exactly one sentence.",
+      "role": "system"
+    },
+    {
+      "content": "Summarize the replay fixture plan.",
+      "role": "user"
+    },
+    {
+      "content": "Plan summary ready.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"serial\":\"rz-001\"}",
+            "name": "zprobe"
+          },
+          "id": "call_a1",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "probe rz-001 ok",
+      "role": "tool",
+      "tool_call_id": "call_a1"
+    },
+    {
+      "content": "Comparison queued.",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"label\":\"compare\"}",
+            "name": "aprobe"
+          },
+          "id": "call_b2",
+          "type": "function"
+        },
+        {
+          "function": {
+            "arguments": "{\"enabled\":true}",
+            "name": "midprobe"
+          },
+          "id": "call_c3",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "label matched",
+      "role": "tool",
+      "tool_call_id": "call_b2"
+    },
+    {
+      "content": "flag set",
+      "role": "tool",
+      "tool_call_id": "call_c3"
+    },
+    {
+      "content": "Follow up: ship the fixture report.",
+      "role": "user"
+    }
+  ],
+  "model": "replay-gpt-test",
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "function": {
+        "description": "Probe tool ordered first on the wire despite sorting last alphabetically.",
+        "name": "zprobe",
+        "parameters": {
+          "properties": {
+            "serial": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "serial"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Probe tool ordered second on the wire despite sorting first alphabetically.",
+        "name": "aprobe",
+        "parameters": {
+          "properties": {
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "Probe tool with a boolean flag argument.",
+        "name": "midprobe",
+        "parameters": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
-	"sort"
 	"strings"
 
 	"github.com/digitalygo/smidja/internal/agent"
@@ -306,7 +305,6 @@ func toolsetFingerprint(catalog agent.ToolCatalog, tools []agent.Tool) string {
 		}
 		specs = append(specs, toolSpec{Name: t.Name(), Description: t.Description(), Schema: t.Schema()})
 	}
-	sort.Slice(specs, func(i, j int) bool { return specs[i].Name < specs[j].Name })
 	b, err := json.Marshal(specs)
 	if err != nil {
 		return ""

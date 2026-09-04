@@ -1,0 +1,182 @@
+{
+  "input": [
+    {
+      "content": [
+        {
+          "text": "Summarize the replay fixture plan.",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "Aligning fixture blocks before answering.",
+          "type": "reasoning_text"
+        }
+      ],
+      "encrypted_content": "enc-replay-001",
+      "id": "rs_1",
+      "summary": [
+        {
+          "text": "Aligning fixture blocks before answering.",
+          "type": "summary_text"
+        }
+      ],
+      "type": "reasoning"
+    },
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "Plan summary ready.",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_pi_1",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    },
+    {
+      "arguments": "{\"serial\":\"rz-001\"}",
+      "call_id": "call_a1",
+      "id": "fc_item_a1",
+      "name": "zprobe",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_a1",
+      "output": "probe rz-001 ok",
+      "type": "function_call_output"
+    },
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "Reviewing probe outputs before wrap up.",
+          "type": "reasoning_text"
+        }
+      ],
+      "encrypted_content": "enc-replay-002",
+      "id": "rs_2",
+      "summary": [
+        {
+          "text": "Reviewing probe outputs before wrap up.",
+          "type": "summary_text"
+        }
+      ],
+      "type": "reasoning"
+    },
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "Comparison ",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_pi_3",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "annotations": [],
+          "text": "queued.",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_pi_3_1",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    },
+    {
+      "arguments": "{\"label\":\"compare\"}",
+      "call_id": "call_b2",
+      "id": "fc_item_b2",
+      "name": "aprobe",
+      "type": "function_call"
+    },
+    {
+      "arguments": "{\"enabled\":true}",
+      "call_id": "call_c3",
+      "id": "fc_item_c3",
+      "name": "midprobe",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_b2",
+      "output": "label matched",
+      "type": "function_call_output"
+    },
+    {
+      "call_id": "call_c3",
+      "output": "flag set",
+      "type": "function_call_output"
+    }
+  ],
+  "instructions": "You are smidja replay fixture. Answer with exactly one sentence.",
+  "model": "replay-gpt-responses",
+  "store": false,
+  "stream": true,
+  "tools": [
+    {
+      "description": "Probe tool ordered first on the wire despite sorting last alphabetically.",
+      "name": "zprobe",
+      "parameters": {
+        "properties": {
+          "serial": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serial"
+        ],
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    },
+    {
+      "description": "Probe tool ordered second on the wire despite sorting first alphabetically.",
+      "name": "aprobe",
+      "parameters": {
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    },
+    {
+      "description": "Probe tool with a boolean flag argument.",
+      "name": "midprobe",
+      "parameters": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    }
+  ]
+}

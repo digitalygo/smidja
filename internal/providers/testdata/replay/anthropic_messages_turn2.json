@@ -1,0 +1,154 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": "Summarize the replay fixture plan.",
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "signature": "sig-anthropic-replay-001",
+          "thinking": "Aligning fixture blocks before answering.",
+          "type": "thinking"
+        },
+        {
+          "text": "Plan summary ready.",
+          "type": "text"
+        },
+        {
+          "id": "call_a1",
+          "input": {
+            "serial": "rz-001"
+          },
+          "name": "zprobe",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "probe rz-001 ok",
+          "is_error": false,
+          "tool_use_id": "call_a1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "data": "opaque-redacted-payload-01",
+          "type": "redacted_thinking"
+        },
+        {
+          "text": "Comparison ",
+          "type": "text"
+        },
+        {
+          "text": "queued.",
+          "type": "text"
+        },
+        {
+          "id": "call_b2",
+          "input": {
+            "label": "compare"
+          },
+          "name": "aprobe",
+          "type": "tool_use"
+        },
+        {
+          "id": "call_c3",
+          "input": {
+            "enabled": true
+          },
+          "name": "midprobe",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "label matched",
+          "is_error": false,
+          "tool_use_id": "call_b2",
+          "type": "tool_result"
+        },
+        {
+          "content": "flag set",
+          "is_error": true,
+          "tool_use_id": "call_c3",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": "Follow up: ship the fixture report.",
+      "role": "user"
+    }
+  ],
+  "model": "claude-replay-test",
+  "stream": true,
+  "system": [
+    {
+      "text": "You are smidja replay fixture. Answer with exactly one sentence.",
+      "type": "text"
+    }
+  ],
+  "tool_choice": {
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "Probe tool ordered first on the wire despite sorting last alphabetically.",
+      "input_schema": {
+        "properties": {
+          "serial": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serial"
+        ],
+        "type": "object"
+      },
+      "name": "zprobe"
+    },
+    {
+      "description": "Probe tool ordered second on the wire despite sorting first alphabetically.",
+      "input_schema": {
+        "properties": {
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "name": "aprobe"
+    },
+    {
+      "description": "Probe tool with a boolean flag argument.",
+      "input_schema": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "name": "midprobe"
+    }
+  ]
+}
