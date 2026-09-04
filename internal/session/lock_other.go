@@ -9,8 +9,6 @@ import (
 	"os"
 )
 
-// On platforms without flock the lock file's exclusive existence is the
-// cross-process lock; it is removed on release.
 type fileLock struct {
 	path string
 	ok   bool

@@ -5,10 +5,63 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/digitalygo/smidja/internal/authstore"
 )
+
+func TestTokenFromAuthEnvFirst(t *testing.T) {
+	store, err := authstore.Load(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	if err := store.Set("web", authstore.Entry{Type: "api_key", Key: "stored-token"}); err != nil {
+		t.Fatalf("set store: %v", err)
+	}
+	resolve := TokenFromAuth(store, func(key string) string {
+		if key == webTokenEnv {
+			return "env-token"
+		}
+		return ""
+	})
+	token, err := resolve()
+	if err != nil || token != "env-token" {
+		t.Fatalf("token = %q, err = %v; want the env token", token, err)
+	}
+}
+
+func TestTokenFromAuthStoreFallback(t *testing.T) {
+	store, err := authstore.Load(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	if err := store.Set("web", authstore.Entry{Type: "api_key", Key: "stored-token"}); err != nil {
+		t.Fatalf("set store: %v", err)
+	}
+	resolve := TokenFromAuth(store, func(string) string { return "" })
+	token, err := resolve()
+	if err != nil || token != "stored-token" {
+		t.Fatalf("token = %q, err = %v; want the stored token", token, err)
+	}
+}
+
+func TestTokenFromAuthMissing(t *testing.T) {
+	store, err := authstore.Load(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	resolve := TokenFromAuth(store, func(string) string { return "" })
+	token, err := resolve()
+	if err != nil {
+		t.Fatalf("err = %v, want nil with an empty token", err)
+	}
+	if token != "" {
+		t.Errorf("token = %q, want empty", token)
+	}
+}
 
 func TestLoginFlowCookieAndCSRF(t *testing.T) {
 	_, _, ts := startTestServer(t, nil)
