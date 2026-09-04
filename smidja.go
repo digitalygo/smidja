@@ -70,8 +70,12 @@ func compose(ctx context.Context, bundle sdk.Bundle, info sdk.BuildInfo) (*cli.D
 	if err != nil {
 		return nil, err
 	}
+	bundleSettings, err := config.ReadBundleSettings(bundle.FS)
+	if err != nil {
+		return nil, err
+	}
 
-	cfg, err := config.LoadWithDefaults(env, getwd, home, bundleDefaults(bundle.ConfigDefaults), pkgDefaults)
+	cfg, err := config.LoadWithSources(env, getwd, home, config.DefaultsFromAny(bundle.ConfigDefaults), bundleSettings, pkgDefaults)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +115,7 @@ func compose(ctx context.Context, bundle sdk.Bundle, info sdk.BuildInfo) (*cli.D
 		FetchModels: func(ctx context.Context) ([]models.ModelInfo, error) {
 			return models.FetchOpenRouterModels(ctx, nil)
 		},
+		ModelsCatalog:    &models.CatalogSource{BaseURL: cfg.ModelsCatalogURL},
 		Bundle:           bundle,
 		BuildInfo:        info,
 		Config:           cfg,
@@ -120,15 +125,4 @@ func compose(ctx context.Context, bundle sdk.Bundle, info sdk.BuildInfo) (*cli.D
 		ModelRegistry:    models.NewRegistry(),
 		ExtensionRuntime: runtime,
 	}, nil
-}
-
-func bundleDefaults(m map[string]any) map[string]string {
-	if len(m) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = fmt.Sprint(v)
-	}
-	return out
 }

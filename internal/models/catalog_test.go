@@ -506,6 +506,19 @@ func TestLoadLocalOverridesMissingAndBad(t *testing.T) {
 	}
 }
 
+func TestParseOverridesUnifiedShape(t *testing.T) {
+	got, err := ParseOverrides([]byte(`{"anthropic":{"claude-fable-5":{"id":"claude-fable-5","provider":"anthropic","contextWindow":333}}}`))
+	if err != nil {
+		t.Fatalf("ParseOverrides: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "anthropic/claude-fable-5" || got[0].ContextWindow != 333 {
+		t.Errorf("got %+v", got)
+	}
+	if _, err := ParseOverrides([]byte("{bad")); err == nil {
+		t.Fatal("ParseOverrides accepted garbage")
+	}
+}
+
 func TestLocalOverridesPathPreference(t *testing.T) {
 	ws := t.TempDir()
 	home := t.TempDir()

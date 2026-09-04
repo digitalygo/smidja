@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -27,7 +28,6 @@ import (
 	"github.com/digitalygo/smidja/internal/gateway/web"
 	"github.com/digitalygo/smidja/internal/loopdetector"
 	"github.com/digitalygo/smidja/internal/models"
-	"github.com/digitalygo/smidja/internal/openrouter"
 	"github.com/digitalygo/smidja/internal/retry"
 	"github.com/digitalygo/smidja/internal/session"
 	"github.com/digitalygo/smidja/internal/subagent"
@@ -87,17 +87,9 @@ func runGatewayServer(d *Deps, opts gatewayServerOptions) error {
 	if opts.model != "" {
 		cfg.Model = opts.model
 	}
-	var client agent.Client
-	if opts.provider != "" {
-		built, err := buildProviderClient(d, opts.provider)
-		if err != nil {
-			return fail(d, err)
-		}
-		client = built
-	} else if d.Client != nil {
-		client = d.Client
-	} else {
-		client = openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil)
+	client, selectedProvider, err := selectChatClient(d, cfg, opts.provider)
+	if err != nil {
+		return fail(d, err)
 	}
 	toolSet := d.Tools
 	if len(toolSet) == 0 {
@@ -218,7 +210,9 @@ func runGatewayServer(d *Deps, opts gatewayServerOptions) error {
 	if modelReg == nil {
 		modelReg = models.NewRegistry()
 	}
-	refreshModelRegistry(ctx, d, cfg, modelReg)
+	if err := refreshModelRegistry(ctx, d, cfg, modelReg); err != nil {
+		return fail(d, err)
+	}
 
 	window := cfg.ContextWindowTokens
 	if window <= 0 {
@@ -234,13 +228,14 @@ func runGatewayServer(d *Deps, opts gatewayServerOptions) error {
 	if sysPrompt == "" {
 		sysPrompt = defaultSystemPrompt
 	}
-	providerID := opts.provider
-	if providerID == "" {
-		providerID = "openrouter"
+	policy := agent.RetryPolicy{
+		Enabled:     cfg.RetryEnabled,
+		MaxRetries:  cfg.RetryMaxRetries,
+		BaseDelayMs: cfg.RetryBaseDelayMs,
 	}
 	runner := newGatewayRunner(gatewayRunnerConfig{
 		cfg:                cfg,
-		providerID:         providerID,
+		providerID:         selectedProvider,
 		model:              cfg.Model,
 		system:             sysPrompt,
 		home:               home,
@@ -259,6 +254,9 @@ func runGatewayServer(d *Deps, opts gatewayServerOptions) error {
 		showThinking:       envTruthy(d.Env("SMIDJA_SHOW_THINKING")),
 		stdout:             d.Stderr,
 		stderr:             d.Stderr,
+		retryPolicy:        policy,
+		retryPolicySet:     true,
+		bundleFS:           d.Bundle.FS,
 	})
 
 	g, err := gateway.New(gateway.Options{
@@ -367,7 +365,7 @@ func runGatewayServer(d *Deps, opts gatewayServerOptions) error {
 	return shutdownErr
 }
 
-func refreshModelRegistry(ctx context.Context, d *Deps, cfg *config.Config, modelReg *models.Registry) {
+func refreshModelRegistry(ctx context.Context, d *Deps, cfg *config.Config, modelReg *models.Registry) error {
 	if d.FetchModels != nil {
 		fctx, cancel := context.WithTimeout(ctx, modelFetchTimeout)
 		infos, ferr := d.FetchModels(fctx)
@@ -377,13 +375,39 @@ func refreshModelRegistry(ctx context.Context, d *Deps, cfg *config.Config, mode
 		}
 	}
 	if d.ModelsCatalog != nil {
+		src := *d.ModelsCatalog
+		if src.BaseURL == "" {
+			src.BaseURL = cfg.ModelsCatalogURL
+		}
 		storePath := models.StorePathFor(cfg.SessionDir)
-		_ = d.ModelsCatalog.RefreshTo(storePath)
+		_ = src.RefreshTo(storePath)
 		if store, err := models.LoadStore(storePath); err == nil {
 			modelReg.MergeRefreshed(store, localModelOverrides(d, cfg.WorkspaceRoot))
 		}
 	}
+	bundleOverrides, err := bundleModelOverrides(d.Bundle)
+	if err != nil {
+		return err
+	}
+	modelReg.Merge(bundleOverrides)
+	return nil
 }
+
+func bundleModelOverrides(b sdk.Bundle) ([]models.ModelInfo, error) {
+	if b.FS == nil {
+		return nil, nil
+	}
+	for _, name := range bundleModelLocations {
+		data, err := fs.ReadFile(b.FS, name)
+		if err != nil {
+			continue
+		}
+		return models.ParseOverrides(data)
+	}
+	return nil, nil
+}
+
+var bundleModelLocations = []string{"models.json", "content/models.json"}
 
 func workspaceRootForChat(chatKey, defaultRoot string, webWorkspaces map[string]string) string {
 	if strings.HasPrefix(chatKey, "web:") && len(webWorkspaces) == 1 {

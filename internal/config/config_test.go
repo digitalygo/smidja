@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -547,8 +548,9 @@ func TestConfigDefaultChainWithPackageDefaults(t *testing.T) {
 	c := &Config{
 		env:             envFrom(map[string]string{"SMIDJA_MODEL": "env/model"}),
 		dotenv:          map[string]string{"SMIDJA_MODEL": "dotenv/model"},
-		packageDefaults: map[string]string{"SMIDJA_MODEL": "package/model"},
 		bundleDefaults:  map[string]string{"SMIDJA_MODEL": "bundle/model"},
+		userSettings:    map[string]string{"SMIDJA_MODEL": "user/model"},
+		packageDefaults: map[string]string{"SMIDJA_MODEL": "package/model"},
 	}
 	if got := c.Default("SMIDJA_MODEL"); got != "env/model" {
 		t.Errorf("Default = %q, want the env value", got)
@@ -558,12 +560,20 @@ func TestConfigDefaultChainWithPackageDefaults(t *testing.T) {
 		t.Errorf("Default = %q, want the dotenv value", got)
 	}
 	c.dotenv = nil
+	if got := c.Default("SMIDJA_MODEL"); got != "bundle/model" {
+		t.Errorf("Default = %q, want the bundle value above user settings and packages", got)
+	}
+	c.bundleDefaults = nil
+	if got := c.Default("SMIDJA_MODEL"); got != "user/model" {
+		t.Errorf("Default = %q, want the user settings value above packages", got)
+	}
+	c.userSettings = nil
 	if got := c.Default("SMIDJA_MODEL"); got != "package/model" {
 		t.Errorf("Default = %q, want the package value", got)
 	}
 	c.packageDefaults = nil
-	if got := c.Default("SMIDJA_MODEL"); got != "bundle/model" {
-		t.Errorf("Default = %q, want the bundle value", got)
+	if got := c.Default("SMIDJA_MODEL"); got != "" {
+		t.Errorf("Default = %q, want empty", got)
 	}
 	if got := c.Default("SMIDJA_UNKNOWN"); got != "" {
 		t.Errorf("Default(unknown) = %q, want empty", got)
@@ -577,3 +587,272 @@ func TestLoadDotEnvExported(t *testing.T) {
 		t.Errorf("LoadDotEnv = %v", values)
 	}
 }
+
+func withUserSettings(t *testing.T, home, content string) {
+	t.Helper()
+	dir := filepath.Join(home, ".smidja")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadDefaultsKeepRetryAndProviderDefaults(t *testing.T) {
+	c, err := Load(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Provider != "" {
+		t.Errorf("Provider = %q, want empty", c.Provider)
+	}
+	if c.ModelsCatalogURL != "" {
+		t.Errorf("ModelsCatalogURL = %q, want empty (the caller falls back to the built-in URL)", c.ModelsCatalogURL)
+	}
+	if !c.RetryEnabled {
+		t.Error("RetryEnabled = false, want true by default")
+	}
+	if c.RetryMaxRetries != 10 {
+		t.Errorf("RetryMaxRetries = %d, want 10", c.RetryMaxRetries)
+	}
+	if c.RetryBaseDelayMs != 2000 {
+		t.Errorf("RetryBaseDelayMs = %d, want 2000", c.RetryBaseDelayMs)
+	}
+}
+
+func TestLoadSettingsEnvOverrides(t *testing.T) {
+	env := map[string]string{
+		"SMIDJA_PROVIDER":            "deepseek",
+		"SMIDJA_MODELS_CATALOG_URL":  "https://catalog.example.test/api/models",
+		"SMIDJA_RETRY":               "false",
+		"SMIDJA_RETRY_MAX_RETRIES":   "3",
+		"SMIDJA_RETRY_BASE_DELAY_MS": "150",
+	}
+	c, err := Load(
+		envFrom(env),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Provider != "deepseek" {
+		t.Errorf("Provider = %q, want deepseek", c.Provider)
+	}
+	if c.ModelsCatalogURL != "https://catalog.example.test/api/models" {
+		t.Errorf("ModelsCatalogURL = %q, want the env value", c.ModelsCatalogURL)
+	}
+	if c.RetryEnabled {
+		t.Error("RetryEnabled = true, want false from the env override")
+	}
+	if c.RetryMaxRetries != 3 {
+		t.Errorf("RetryMaxRetries = %d, want 3", c.RetryMaxRetries)
+	}
+	if c.RetryBaseDelayMs != 150 {
+		t.Errorf("RetryBaseDelayMs = %d, want 150", c.RetryBaseDelayMs)
+	}
+}
+
+func TestLoadSettingsInvalidEnvFallsBack(t *testing.T) {
+	env := map[string]string{
+		"SMIDJA_RETRY_MAX_RETRIES":   "-4",
+		"SMIDJA_RETRY_BASE_DELAY_MS": "later",
+	}
+	c, err := Load(
+		envFrom(env),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.RetryMaxRetries != 10 {
+		t.Errorf("RetryMaxRetries = %d, want the default 10", c.RetryMaxRetries)
+	}
+	if c.RetryBaseDelayMs != 2000 {
+		t.Errorf("RetryBaseDelayMs = %d, want the default 2000", c.RetryBaseDelayMs)
+	}
+}
+
+func TestLoadUserSettingsTier(t *testing.T) {
+	home := t.TempDir()
+	withUserSettings(t, home, `{
+		"defaultProvider": "anthropic",
+		"defaultModel": "settings/model",
+		"sessionDir": "/settings/sessions",
+		"retry": {"enabled": false, "maxRetries": 4, "baseDelayMs": 250},
+		"compaction": {"enabled": false},
+		"modelsCatalogUrl": "https://settings.test/api/models"
+	}`)
+	c, err := Load(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return home },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Provider != "anthropic" {
+		t.Errorf("Provider = %q, want anthropic", c.Provider)
+	}
+	if c.Model != "settings/model" {
+		t.Errorf("Model = %q, want settings/model", c.Model)
+	}
+	if c.SessionDir != "/settings/sessions" {
+		t.Errorf("SessionDir = %q, want /settings/sessions", c.SessionDir)
+	}
+	if c.RetryEnabled {
+		t.Error("RetryEnabled = true, want false from user settings")
+	}
+	if c.RetryMaxRetries != 4 {
+		t.Errorf("RetryMaxRetries = %d, want 4", c.RetryMaxRetries)
+	}
+	if c.RetryBaseDelayMs != 250 {
+		t.Errorf("RetryBaseDelayMs = %d, want 250", c.RetryBaseDelayMs)
+	}
+	if c.ContextEnabled {
+		t.Error("ContextEnabled = true, want false from compaction.enabled")
+	}
+	if c.ModelsCatalogURL != "https://settings.test/api/models" {
+		t.Errorf("ModelsCatalogURL = %q, want the settings value", c.ModelsCatalogURL)
+	}
+	if got := c.Default("SMIDJA_MODEL"); got != "settings/model" {
+		t.Errorf("Default(SMIDJA_MODEL) = %q, want the settings value", got)
+	}
+}
+
+func TestLoadPrecedenceOverUserSettings(t *testing.T) {
+	home := t.TempDir()
+	withUserSettings(t, home, `{"defaultModel": "settings/model", "sessionDir": "/settings/sessions"}`)
+	packageDefaults := map[string]string{"SMIDJA_MAX_READ_LINES": "21"}
+	env := map[string]string{"SMIDJA_MODEL": "env/model"}
+	withDotEnv(t, "SMIDJA_EXEC_TIMEOUT_SECS=9\n")
+
+	c, err := LoadWithSources(
+		envFrom(env),
+		func() (string, error) { return "/work", nil },
+		func() string { return home },
+		map[string]string{"SMIDJA_MODEL": "bundle/model"},
+		nil,
+		packageDefaults,
+	)
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	if c.Model != "env/model" {
+		t.Errorf("Model = %q, want env above bundle and settings", c.Model)
+	}
+	if c.SessionDir != "/settings/sessions" {
+		t.Errorf("SessionDir = %q, want the user settings value above the core default", c.SessionDir)
+	}
+	if c.ExecTimeoutSecs != 9 {
+		t.Errorf("ExecTimeoutSecs = %d, want the dotenv value above the package tier", c.ExecTimeoutSecs)
+	}
+	if c.MaxReadLines != 21 {
+		t.Errorf("MaxReadLines = %d, want the package value above the core default", c.MaxReadLines)
+	}
+
+	c, err = LoadWithSources(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return home },
+		nil,
+		nil,
+		packageDefaults,
+	)
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	if c.Model != "settings/model" {
+		t.Errorf("Model = %q, want the user settings value above the package tier", c.Model)
+	}
+	if c.MaxReadLines != 21 {
+		t.Errorf("MaxReadLines = %d, want the package value above the core default", c.MaxReadLines)
+	}
+}
+
+func TestLoadBundleSettingsTier(t *testing.T) {
+	home := t.TempDir()
+	withUserSettings(t, home, `{"defaultModel": "user/model", "defaultProvider": "user-provider"}`)
+	bundleSettings := &Settings{
+		DefaultModel:    "bundle-settings/model",
+		DefaultProvider: "bundle-provider",
+		SessionDir:      "/bundle-settings/sessions",
+		Retry:           RetrySettings{MaxRetries: ptrInt(2)},
+	}
+	c, err := LoadWithSources(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return home },
+		map[string]string{"SMIDJA_SESSION_DIR": "/configdefaults/sessions"},
+		bundleSettings,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	if c.Model != "bundle-settings/model" {
+		t.Errorf("Model = %q, want the bundle settings value above user settings", c.Model)
+	}
+	if c.Provider != "bundle-provider" {
+		t.Errorf("Provider = %q, want the bundle settings value above user settings", c.Provider)
+	}
+	if c.SessionDir != "/configdefaults/sessions" {
+		t.Errorf("SessionDir = %q, want ConfigDefaults to win inside the bundle tier", c.SessionDir)
+	}
+	if c.RetryMaxRetries != 2 {
+		t.Errorf("RetryMaxRetries = %d, want 2 from bundle settings", c.RetryMaxRetries)
+	}
+}
+
+func TestLoadIgnoresWorkspaceSettings(t *testing.T) {
+	ws := t.TempDir()
+	withUserSettings(t, ws, `{"defaultModel": "workspace/model"}`)
+	c, err := Load(
+		envFrom(nil),
+		func() (string, error) { return ws, nil },
+		func() string { return t.TempDir() },
+	)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Model == "workspace/model" {
+		t.Error("workspace settings must never be read")
+	}
+	if c.Model != defaultModel {
+		t.Errorf("Model = %q, want the compiled default", c.Model)
+	}
+}
+
+func TestLoadFailsOnInvalidUserSettings(t *testing.T) {
+	home := t.TempDir()
+	withUserSettings(t, home, `{"retry": {"maxRetries": -1}}`)
+	_, err := Load(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return home },
+	)
+	if err == nil {
+		t.Fatal("Load: expected an error for invalid user settings")
+	}
+	if !strings.Contains(err.Error(), "retry.maxRetries") || !strings.Contains(err.Error(), "nonnegative") {
+		t.Errorf("Load error = %v, want a field-specific retry.maxRetries error", err)
+	}
+}
+
+func TestDefaultsFromAny(t *testing.T) {
+	if got := DefaultsFromAny(nil); got != nil {
+		t.Errorf("DefaultsFromAny(nil) = %v, want nil", got)
+	}
+	got := DefaultsFromAny(map[string]any{"SMIDJA_MODEL": "m", "SMIDJA_RETRY_MAX_RETRIES": 3})
+	if got["SMIDJA_MODEL"] != "m" || got["SMIDJA_RETRY_MAX_RETRIES"] != "3" {
+		t.Errorf("DefaultsFromAny = %v", got)
+	}
+}
+
+func ptrInt(v int) *int { return &v }

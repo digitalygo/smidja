@@ -356,6 +356,10 @@ func LoadLocalOverrides(path string) ([]ModelInfo, error) {
 	return parseLocalOverrides(data)
 }
 
+func ParseOverrides(data []byte) ([]ModelInfo, error) {
+	return parseLocalOverrides(data)
+}
+
 func parseLocalOverrides(data []byte) ([]ModelInfo, error) {
 	trimmed := strings.TrimSpace(string(data))
 	if trimmed == "" {

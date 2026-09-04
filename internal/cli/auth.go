@@ -18,6 +18,8 @@ import (
 
 	"github.com/digitalygo/smidja/internal/agent"
 	"github.com/digitalygo/smidja/internal/authstore"
+	"github.com/digitalygo/smidja/internal/config"
+	"github.com/digitalygo/smidja/internal/openrouter"
 	"github.com/digitalygo/smidja/internal/providers"
 	"github.com/digitalygo/smidja/internal/providers/manifest"
 	"github.com/digitalygo/smidja/internal/providers/oauth"
@@ -474,6 +476,24 @@ func (c *oauthCredential) resolve(ctx context.Context) (string, error) {
 		entry = refreshed
 	}
 	return entry.Access, nil
+}
+
+func selectChatClient(d *Deps, cfg *config.Config, providerFlag string) (agent.Client, string, error) {
+	selected := providerFlag
+	if selected == "" {
+		selected = cfg.Provider
+	}
+	if selected != "" {
+		built, err := buildProviderClient(d, selected)
+		if err != nil {
+			return nil, selected, err
+		}
+		return built, selected, nil
+	}
+	if d.Client != nil {
+		return d.Client, "", nil
+	}
+	return openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil), "", nil
 }
 
 func buildProviderClient(d *Deps, provider string) (agent.Client, error) {

@@ -20,7 +20,10 @@ func sourcesFor(opts Options, kind string, tier Tier) []source {
 		if opts.BundleFS == nil {
 			return nil
 		}
-		root, ok := subDir(opts.BundleFS, "content/"+kind)
+		root, ok := subDir(opts.BundleFS, kind)
+		if !ok {
+			root, ok = subDir(opts.BundleFS, "content/"+kind)
+		}
 		if !ok {
 			return nil
 		}
