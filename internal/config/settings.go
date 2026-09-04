@@ -27,23 +27,26 @@ type RetrySettings struct {
 }
 
 type Settings struct {
-	DefaultProvider string
+	DefaultProvider *string
 
-	DefaultModel string
+	DefaultModel *string
 
-	SessionDir string
+	SessionDir *string
 
 	Retry RetrySettings
 
 	CompactionEnabled *bool
 
-	ModelsCatalogURL string
+	ModelsCatalogURL *string
 }
 
 func ParseSettings(data []byte) (*Settings, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
+	}
+	if fields == nil {
+		return nil, fmt.Errorf("want a JSON object")
 	}
 	out := &Settings{}
 	var err error
@@ -113,17 +116,17 @@ func (s *Settings) envMap() map[string]string {
 		return nil
 	}
 	m := make(map[string]string, 8)
-	if s.DefaultModel != "" {
-		m[envModel] = s.DefaultModel
+	if s.DefaultModel != nil {
+		m[envModel] = *s.DefaultModel
 	}
-	if s.DefaultProvider != "" {
-		m[envProvider] = s.DefaultProvider
+	if s.DefaultProvider != nil {
+		m[envProvider] = *s.DefaultProvider
 	}
-	if s.SessionDir != "" {
-		m[envSessionDir] = s.SessionDir
+	if s.SessionDir != nil {
+		m[envSessionDir] = *s.SessionDir
 	}
-	if s.ModelsCatalogURL != "" {
-		m[envModelsCatalogURL] = s.ModelsCatalogURL
+	if s.ModelsCatalogURL != nil {
+		m[envModelsCatalogURL] = *s.ModelsCatalogURL
 	}
 	if s.Retry.Enabled != nil {
 		m[envRetry] = strconv.FormatBool(*s.Retry.Enabled)
@@ -140,22 +143,28 @@ func (s *Settings) envMap() map[string]string {
 	return m
 }
 
-func settingsString(fields map[string]json.RawMessage, key string) (string, error) {
+func settingsString(fields map[string]json.RawMessage, key string) (*string, error) {
 	raw, ok := fields[settingsLeaf(key)]
-	if !ok || jsonNull(raw) {
-		return "", nil
+	if !ok {
+		return nil, nil
+	}
+	if jsonNull(raw) {
+		return nil, fmt.Errorf("field %q: must not be null", key)
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err != nil {
-		return "", fmt.Errorf("field %q: want a string", key)
+		return nil, fmt.Errorf("field %q: want a string", key)
 	}
-	return s, nil
+	return &s, nil
 }
 
 func settingsBool(fields map[string]json.RawMessage, key string) (*bool, error) {
 	raw, ok := fields[settingsLeaf(key)]
-	if !ok || jsonNull(raw) {
+	if !ok {
 		return nil, nil
+	}
+	if jsonNull(raw) {
+		return nil, fmt.Errorf("field %q: must not be null", key)
 	}
 	var b bool
 	if err := json.Unmarshal(raw, &b); err != nil {
@@ -166,8 +175,11 @@ func settingsBool(fields map[string]json.RawMessage, key string) (*bool, error) 
 
 func settingsNonNegativeInt(fields map[string]json.RawMessage, key string) (*int, error) {
 	raw, ok := fields[settingsLeaf(key)]
-	if !ok || jsonNull(raw) {
+	if !ok {
 		return nil, nil
+	}
+	if jsonNull(raw) {
+		return nil, fmt.Errorf("field %q: must not be null", key)
 	}
 	v, err := settingsNonNegativeJSONInt(raw, key)
 	if err != nil {
@@ -179,8 +191,11 @@ func settingsNonNegativeInt(fields map[string]json.RawMessage, key string) (*int
 
 func settingsNonNegativeInt64(fields map[string]json.RawMessage, key string) (*int64, error) {
 	raw, ok := fields[settingsLeaf(key)]
-	if !ok || jsonNull(raw) {
+	if !ok {
 		return nil, nil
+	}
+	if jsonNull(raw) {
+		return nil, fmt.Errorf("field %q: must not be null", key)
 	}
 	v, err := settingsNonNegativeJSONInt(raw, key)
 	if err != nil {
@@ -218,8 +233,11 @@ func isJSONNumberStart(b byte) bool {
 
 func settingsObject(fields map[string]json.RawMessage, key string) (map[string]json.RawMessage, error) {
 	raw, ok := fields[settingsLeaf(key)]
-	if !ok || jsonNull(raw) {
+	if !ok {
 		return nil, nil
+	}
+	if jsonNull(raw) {
+		return nil, fmt.Errorf("field %q: must not be null", key)
 	}
 	var sub map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &sub); err != nil {

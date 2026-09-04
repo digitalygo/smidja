@@ -10,7 +10,6 @@ import (
 	"github.com/digitalygo/smidja/internal/config"
 	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/models"
-	"github.com/digitalygo/smidja/internal/openrouter"
 	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/session"
 	"github.com/digitalygo/smidja/internal/tools"
@@ -94,7 +93,6 @@ func compose(ctx context.Context, bundle sdk.Bundle, info sdk.BuildInfo) (*cli.D
 	if err != nil {
 		return nil, err
 	}
-	client := openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil)
 
 	registry := extensions.NewRegistry()
 	for _, ext := range bundle.Extensions {
@@ -119,7 +117,6 @@ func compose(ctx context.Context, bundle sdk.Bundle, info sdk.BuildInfo) (*cli.D
 		Bundle:           bundle,
 		BuildInfo:        info,
 		Config:           cfg,
-		Client:           client,
 		Tools:            toolSet,
 		Store:            store,
 		ModelRegistry:    models.NewRegistry(),

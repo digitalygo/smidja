@@ -308,6 +308,83 @@ func TestRunBundleSettingsSupplyCatalogAndDefaults(t *testing.T) {
 	}
 }
 
+func TestRunBundleConfiguredOpenRouterUsesConfigDefaults(t *testing.T) {
+	var mu sync.Mutex
+	var authHeader string
+	chatSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		authHeader = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fl := w.(http.Flusher)
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"gen_1","choices":[{"index":0,"delta":{"content":"hello from configured openrouter"}}]}`)
+		fl.Flush()
+		fmt.Fprintf(w, "data: %s\n\n", `{"id":"gen_1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
+		fl.Flush()
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		fl.Flush()
+	}))
+	t.Cleanup(chatSrv.Close)
+
+	sessDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	for _, k := range []string{"SMIDJA_PROVIDER", "SMIDJA_OPENROUTER_URL", "OPENROUTER_API_KEY", "SMIDJA_SESSION_DIR", "SMIDJA_MODEL"} {
+		t.Setenv(k, "")
+	}
+
+	bundle := sdk.Bundle{
+		ID:     "digitalygo",
+		Origin: "github.com/digitalygo/smidja",
+		FS:     fstest.MapFS{"settings.json": {Data: []byte(`{"defaultProvider": "openrouter"}`)}},
+		ConfigDefaults: map[string]any{
+			"SMIDJA_OPENROUTER_URL": chatSrv.URL,
+			"OPENROUTER_API_KEY":    "sk-bundle-openrouter",
+			"SMIDJA_SESSION_DIR":    sessDir,
+		},
+	}
+
+	readOut := captureStream(t, &os.Stdout)
+	readErr := captureStream(t, &os.Stderr)
+	code := smidja.Run(context.Background(), bundle, validInfo(), []string{"-p", "hello"})
+	if code != 0 {
+		t.Fatalf("Run(-p) = %d, want 0 (stderr %q)", code, readErr())
+	}
+	if got := readOut(); !strings.Contains(got, "hello from configured openrouter") {
+		t.Errorf("stdout = %q, want the configured openrouter response", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if authHeader != "Bearer sk-bundle-openrouter" {
+		t.Errorf("Authorization = %q, want the bundle-configured api key", authHeader)
+	}
+}
+
+func TestRunBundleConfiguredNonOpenRouterProviderBuildsProvider(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	t.Setenv("SMIDJA_RETRY", "false")
+	for _, k := range []string{"SMIDJA_PROVIDER", "SMIDJA_OPENROUTER_URL", "OPENROUTER_API_KEY", "SMIDJA_SESSION_DIR", "SMIDJA_MODEL", "DEEPSEEK_API_KEY"} {
+		t.Setenv(k, "")
+	}
+
+	bundle := sdk.Bundle{
+		ID:     "digitalygo",
+		Origin: "github.com/digitalygo/smidja",
+		FS:     fstest.MapFS{"settings.json": {Data: []byte(`{"defaultProvider": "deepseek"}`)}},
+	}
+
+	readErr := captureStream(t, &os.Stderr)
+	code := smidja.Run(context.Background(), bundle, validInfo(), []string{"-p", "hello"})
+	if code == 0 {
+		t.Fatal("Run(-p) = 0, want a failure without a deepseek credential")
+	}
+	if got := readErr(); !strings.Contains(got, "no credential for provider deepseek") {
+		t.Errorf("stderr = %q, want the deepseek driver credential error instead of an openrouter fallback", got)
+	}
+}
+
 func feedStdin(t *testing.T, content string) {
 	t.Helper()
 	r, w, err := os.Pipe()

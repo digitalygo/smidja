@@ -105,16 +105,19 @@ func (c *Config) Default(key string) string {
 			return v
 		}
 	}
-	if v := c.dotenv[key]; v != "" {
+	if v, ok := c.dotenv[key]; ok {
 		return v
 	}
-	if v := c.bundleDefaults[key]; v != "" {
+	if v, ok := c.bundleDefaults[key]; ok {
 		return v
 	}
-	if v := c.userSettings[key]; v != "" {
+	if v, ok := c.userSettings[key]; ok {
 		return v
 	}
-	return c.packageDefaults[key]
+	if v, ok := c.packageDefaults[key]; ok {
+		return v
+	}
+	return ""
 }
 
 func Load(env func(string) string, getwd func() (string, error), home func() string) (*Config, error) {
@@ -146,12 +149,6 @@ func LoadWithSources(env func(string) string, getwd func() (string, error), home
 	}
 
 	dotenv := loadDotEnv(cwd)
-	lookup := func(k string) string {
-		if v := env(k); v != "" {
-			return v
-		}
-		return dotenv[k]
-	}
 
 	homeDir := home()
 	if homeDir == "" {
@@ -170,17 +167,26 @@ func LoadWithSources(env func(string) string, getwd func() (string, error), home
 	}
 	bundleTier := mergeBundleTier(defaults, bundleSettings)
 	userTier := userSettings.envMap()
+	resolve := func(k string) string {
+		if v := env(k); v != "" {
+			return v
+		}
+		if v, ok := dotenv[k]; ok {
+			return v
+		}
+		if v, ok := bundleTier[k]; ok {
+			return v
+		}
+		if v, ok := userTier[k]; ok {
+			return v
+		}
+		if v, ok := packageDefaults[k]; ok {
+			return v
+		}
+		return ""
+	}
 	value := func(k, def string) string {
-		if v := lookup(k); v != "" {
-			return v
-		}
-		if v := bundleTier[k]; v != "" {
-			return v
-		}
-		if v := userTier[k]; v != "" {
-			return v
-		}
-		if v := packageDefaults[k]; v != "" {
+		if v := resolve(k); v != "" {
 			return v
 		}
 		return def
@@ -228,9 +234,7 @@ func mergeBundleTier(defaults map[string]string, settings *Settings) map[string]
 		out[k] = v
 	}
 	for k, v := range defaults {
-		if v != "" {
-			out[k] = v
-		}
+		out[k] = v
 	}
 	return out
 }

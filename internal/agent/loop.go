@@ -39,6 +39,8 @@ type LoopDeps struct {
 
 	RetryPolicy RetryPolicy
 
+	RetryPolicySet bool
+
 	Retry func(ctx context.Context, produce func(context.Context) (*AssistantMessage, error), policy RetryPolicy, callbacks *RetryCallbacks) (*AssistantMessage, error)
 
 	IsContextOverflow func(errorMessage string) bool
@@ -132,9 +134,9 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 		}
 	}
 
-	policy := deps.RetryPolicy
-	if policy == (RetryPolicy{}) {
-		policy = DefaultRetryPolicy()
+	policy := DefaultRetryPolicy()
+	if deps.RetryPolicySet || deps.RetryPolicy != (RetryPolicy{}) {
+		policy = deps.RetryPolicy
 	}
 	overflow := deps.IsContextOverflow
 

@@ -780,9 +780,9 @@ func TestLoadBundleSettingsTier(t *testing.T) {
 	home := t.TempDir()
 	withUserSettings(t, home, `{"defaultModel": "user/model", "defaultProvider": "user-provider"}`)
 	bundleSettings := &Settings{
-		DefaultModel:    "bundle-settings/model",
-		DefaultProvider: "bundle-provider",
-		SessionDir:      "/bundle-settings/sessions",
+		DefaultModel:    ptrString("bundle-settings/model"),
+		DefaultProvider: ptrString("bundle-provider"),
+		SessionDir:      ptrString("/bundle-settings/sessions"),
 		Retry:           RetrySettings{MaxRetries: ptrInt(2)},
 	}
 	c, err := LoadWithSources(
@@ -845,6 +845,143 @@ func TestLoadFailsOnInvalidUserSettings(t *testing.T) {
 	}
 }
 
+func TestLoadExplicitEmptySettingsClearLowerTiers(t *testing.T) {
+	t.Run("bundle defaults clear user settings provider", func(t *testing.T) {
+		home := t.TempDir()
+		withUserSettings(t, home, `{"defaultProvider": "anthropic"}`)
+		c, err := LoadWithSources(
+			envFrom(nil),
+			func() (string, error) { return "/work", nil },
+			func() string { return home },
+			map[string]string{"SMIDJA_PROVIDER": ""},
+			nil,
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("LoadWithSources: %v", err)
+		}
+		if c.Provider != "" {
+			t.Errorf("Provider = %q, want the explicit empty bundle default to clear the user setting", c.Provider)
+		}
+	})
+
+	t.Run("bundle settings clear user settings catalog url", func(t *testing.T) {
+		home := t.TempDir()
+		withUserSettings(t, home, `{"modelsCatalogUrl": "https://user.test/api/models"}`)
+		c, err := LoadWithSources(
+			envFrom(nil),
+			func() (string, error) { return "/work", nil },
+			func() string { return home },
+			nil,
+			&Settings{ModelsCatalogURL: ptrString("")},
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("LoadWithSources: %v", err)
+		}
+		if c.ModelsCatalogURL != "" {
+			t.Errorf("ModelsCatalogURL = %q, want the explicit empty bundle setting to clear the user setting", c.ModelsCatalogURL)
+		}
+	})
+
+	t.Run("dotenv clears user settings provider", func(t *testing.T) {
+		home := t.TempDir()
+		withUserSettings(t, home, `{"defaultProvider": "anthropic"}`)
+		withDotEnv(t, "SMIDJA_PROVIDER=\n")
+		c, err := Load(
+			envFrom(nil),
+			func() (string, error) { return "/work", nil },
+			func() string { return home },
+		)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if c.Provider != "" {
+			t.Errorf("Provider = %q, want the explicit empty dotenv value to clear the user setting", c.Provider)
+		}
+	})
+
+	t.Run("empty process env means absent", func(t *testing.T) {
+		home := t.TempDir()
+		withUserSettings(t, home, `{"defaultProvider": "anthropic"}`)
+		c, err := Load(
+			envFrom(map[string]string{"SMIDJA_PROVIDER": ""}),
+			func() (string, error) { return "/work", nil },
+			func() string { return home },
+		)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if c.Provider != "anthropic" {
+			t.Errorf("Provider = %q, want the user setting because an empty env value means absent", c.Provider)
+		}
+	})
+
+	t.Run("default lookup clears lower tiers", func(t *testing.T) {
+		c := &Config{
+			env:             envFrom(nil),
+			dotenv:          map[string]string{"SMIDJA_PROVIDER": ""},
+			userSettings:    map[string]string{"SMIDJA_PROVIDER": "anthropic"},
+			packageDefaults: map[string]string{"SMIDJA_PROVIDER": "deepseek"},
+		}
+		if got := c.Default("SMIDJA_PROVIDER"); got != "" {
+			t.Errorf("Default = %q, want the present empty dotenv value to clear lower tiers", got)
+		}
+		c.dotenv = nil
+		if got := c.Default("SMIDJA_PROVIDER"); got != "anthropic" {
+			t.Errorf("Default = %q, want the user settings value", got)
+		}
+	})
+}
+
+func TestLoadConfigDefaultsEmptyBeatsBundleSettings(t *testing.T) {
+	c, err := LoadWithSources(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return "/home/tester" },
+		map[string]string{"SMIDJA_PROVIDER": "", "SMIDJA_MODELS_CATALOG_URL": ""},
+		&Settings{
+			DefaultProvider:  ptrString("bundle-provider"),
+			ModelsCatalogURL: ptrString("https://bundle.test/api/models"),
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	if c.Provider != "" {
+		t.Errorf("Provider = %q, want ConfigDefaults to win inside the bundle tier even when explicitly empty", c.Provider)
+	}
+	if c.ModelsCatalogURL != "" {
+		t.Errorf("ModelsCatalogURL = %q, want ConfigDefaults to win inside the bundle tier even when explicitly empty", c.ModelsCatalogURL)
+	}
+}
+
+func TestLoadClearedModelAndSessionDirKeepCompiledDefaults(t *testing.T) {
+	home := t.TempDir()
+	withUserSettings(t, home, `{"defaultModel": "user/model", "sessionDir": "/user/sessions"}`)
+	c, err := LoadWithSources(
+		envFrom(nil),
+		func() (string, error) { return "/work", nil },
+		func() string { return home },
+		map[string]string{"SMIDJA_MODEL": "", "SMIDJA_SESSION_DIR": ""},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	if c.Model != defaultModel {
+		t.Errorf("Model = %q, want the compiled default instead of a cleared or lower-tier value", c.Model)
+	}
+	if c.SessionDir != filepath.Join(home, ".smidja", "sessions") {
+		t.Errorf("SessionDir = %q, want the compiled home default instead of a cleared or lower-tier value", c.SessionDir)
+	}
+	if c.Provider != "" || c.ModelsCatalogURL != "" {
+		t.Errorf("Provider = %q, ModelsCatalogURL = %q, want both empty", c.Provider, c.ModelsCatalogURL)
+	}
+}
+
 func TestDefaultsFromAny(t *testing.T) {
 	if got := DefaultsFromAny(nil); got != nil {
 		t.Errorf("DefaultsFromAny(nil) = %v, want nil", got)
@@ -856,3 +993,5 @@ func TestDefaultsFromAny(t *testing.T) {
 }
 
 func ptrInt(v int) *int { return &v }
+
+func ptrString(v string) *string { return &v }

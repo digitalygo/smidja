@@ -20,14 +20,14 @@ func TestParseSettingsAllFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSettings: %v", err)
 	}
-	if s.DefaultProvider != "anthropic" {
-		t.Errorf("DefaultProvider = %q, want anthropic", s.DefaultProvider)
+	if s.DefaultProvider == nil || *s.DefaultProvider != "anthropic" {
+		t.Errorf("DefaultProvider = %v, want anthropic", s.DefaultProvider)
 	}
-	if s.DefaultModel != "acme/model" {
-		t.Errorf("DefaultModel = %q, want acme/model", s.DefaultModel)
+	if s.DefaultModel == nil || *s.DefaultModel != "acme/model" {
+		t.Errorf("DefaultModel = %v, want acme/model", s.DefaultModel)
 	}
-	if s.SessionDir != "/data/sessions" {
-		t.Errorf("SessionDir = %q, want /data/sessions", s.SessionDir)
+	if s.SessionDir == nil || *s.SessionDir != "/data/sessions" {
+		t.Errorf("SessionDir = %v, want /data/sessions", s.SessionDir)
 	}
 	if s.Retry.Enabled == nil || !*s.Retry.Enabled {
 		t.Error("Retry.Enabled = nil/false, want true")
@@ -41,8 +41,8 @@ func TestParseSettingsAllFields(t *testing.T) {
 	if s.CompactionEnabled == nil || *s.CompactionEnabled {
 		t.Error("CompactionEnabled = nil/true, want false")
 	}
-	if s.ModelsCatalogURL != "https://catalog.test/api/models" {
-		t.Errorf("ModelsCatalogURL = %q", s.ModelsCatalogURL)
+	if s.ModelsCatalogURL == nil || *s.ModelsCatalogURL != "https://catalog.test/api/models" {
+		t.Errorf("ModelsCatalogURL = %v", s.ModelsCatalogURL)
 	}
 }
 
@@ -51,7 +51,7 @@ func TestParseSettingsEmptyObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseSettings: %v", err)
 	}
-	if s.DefaultProvider != "" || s.DefaultModel != "" || s.SessionDir != "" || s.ModelsCatalogURL != "" {
+	if s.DefaultProvider != nil || s.DefaultModel != nil || s.SessionDir != nil || s.ModelsCatalogURL != nil {
 		t.Errorf("settings = %+v, want all unset", s)
 	}
 	if s.Retry.Enabled != nil || s.Retry.MaxRetries != nil || s.Retry.BaseDelayMs != nil || s.CompactionEnabled != nil {
@@ -77,17 +77,52 @@ func TestParseSettingsIgnoresUnsupportedFields(t *testing.T) {
 	}
 }
 
-func TestParseSettingsNullValuesIgnored(t *testing.T) {
+func TestParseSettingsRejectsNullValues(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{"root null", `null`, "want a JSON object"},
+		{"defaultProvider null", `{"defaultProvider": null}`, `field "defaultProvider": must not be null`},
+		{"defaultModel null", `{"defaultModel": null}`, `field "defaultModel": must not be null`},
+		{"sessionDir null", `{"sessionDir": null}`, `field "sessionDir": must not be null`},
+		{"modelsCatalogUrl null", `{"modelsCatalogUrl": null}`, `field "modelsCatalogUrl": must not be null`},
+		{"retry null", `{"retry": null}`, `field "retry": must not be null`},
+		{"compaction null", `{"compaction": null}`, `field "compaction": must not be null`},
+		{"retry.enabled null", `{"retry": {"enabled": null}}`, `field "retry.enabled": must not be null`},
+		{"retry.maxRetries null", `{"retry": {"maxRetries": null}}`, `field "retry.maxRetries": must not be null`},
+		{"retry.baseDelayMs null", `{"retry": {"baseDelayMs": null}}`, `field "retry.baseDelayMs": must not be null`},
+		{"compaction.enabled null", `{"compaction": {"enabled": null}}`, `field "compaction.enabled": must not be null`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseSettings([]byte(tc.content))
+			if err == nil {
+				t.Fatalf("ParseSettings(%s): expected an error for an explicit null", tc.content)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("ParseSettings(%s) error = %v, want it to mention %q", tc.content, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseSettingsIgnoresUnknownNullValues(t *testing.T) {
 	s, err := ParseSettings([]byte(`{
-		"defaultProvider": null,
-		"retry": null,
-		"compaction": {"enabled": null}
+		"unknownTop": null,
+		"theme": null,
+		"retry": {"enabled": true, "bogus": null},
+		"compaction": {"enabled": false, "model": null}
 	}`))
 	if err != nil {
 		t.Fatalf("ParseSettings: %v", err)
 	}
-	if s.DefaultProvider != "" || s.Retry.Enabled != nil || s.CompactionEnabled != nil {
-		t.Errorf("explicit nulls must be treated as absent, got %+v", s)
+	if s.Retry.Enabled == nil || !*s.Retry.Enabled {
+		t.Error("Retry.Enabled must survive unknown null siblings")
+	}
+	if s.CompactionEnabled == nil || *s.CompactionEnabled {
+		t.Error("CompactionEnabled must survive unknown null siblings")
 	}
 }
 
@@ -161,7 +196,7 @@ func TestReadUserSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadUserSettings: %v", err)
 	}
-	if s == nil || s.DefaultModel != "m" {
+	if s == nil || s.DefaultModel == nil || *s.DefaultModel != "m" {
 		t.Errorf("ReadUserSettings = %+v, want defaultModel m", s)
 	}
 
@@ -202,15 +237,15 @@ func TestReadBundleSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadBundleSettings: %v", err)
 	}
-	if s.DefaultModel != "rooted" {
-		t.Errorf("DefaultModel = %q, want the rooted settings.json to win", s.DefaultModel)
+	if s.DefaultModel == nil || *s.DefaultModel != "rooted" {
+		t.Errorf("DefaultModel = %v, want the rooted settings.json to win", s.DefaultModel)
 	}
 	legacy := fstest.MapFS{"content/settings.json": {Data: []byte(`{"defaultModel":"legacy"}`)}}
 	s, err = ReadBundleSettings(legacy)
 	if err != nil {
 		t.Fatalf("ReadBundleSettings: %v", err)
 	}
-	if s == nil || s.DefaultModel != "legacy" {
+	if s == nil || s.DefaultModel == nil || *s.DefaultModel != "legacy" {
 		t.Errorf("ReadBundleSettings = %+v, want the legacy content/settings.json", s)
 	}
 	broken := fstest.MapFS{"settings.json": {Data: []byte(`{"sessionDir": 5}`)}}
@@ -233,10 +268,10 @@ func TestSettingsEnvMap(t *testing.T) {
 	maxRetries := 3
 	baseDelay := int64(120)
 	s := &Settings{
-		DefaultProvider:   "deepseek",
-		DefaultModel:      "m",
-		SessionDir:        "/s",
-		ModelsCatalogURL:  "https://c.test",
+		DefaultProvider:   ptrString("deepseek"),
+		DefaultModel:      ptrString("m"),
+		SessionDir:        ptrString("/s"),
+		ModelsCatalogURL:  ptrString("https://c.test"),
 		Retry:             RetrySettings{Enabled: &enabled, MaxRetries: &maxRetries, BaseDelayMs: &baseDelay},
 		CompactionEnabled: &disabled,
 	}
@@ -250,6 +285,33 @@ func TestSettingsEnvMap(t *testing.T) {
 		"SMIDJA_RETRY_MAX_RETRIES":   "3",
 		"SMIDJA_RETRY_BASE_DELAY_MS": "120",
 		"SMIDJA_CONTEXT":             "false",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("envMap = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("envMap[%q] = %q, want %q", k, got[k], v)
+		}
+	}
+}
+
+func TestSettingsEnvMapKeepsExplicitEmptyStrings(t *testing.T) {
+	s, err := ParseSettings([]byte(`{
+		"defaultProvider": "",
+		"defaultModel": "",
+		"sessionDir": "",
+		"modelsCatalogUrl": ""
+	}`))
+	if err != nil {
+		t.Fatalf("ParseSettings: %v", err)
+	}
+	got := s.envMap()
+	want := map[string]string{
+		"SMIDJA_PROVIDER":           "",
+		"SMIDJA_MODEL":              "",
+		"SMIDJA_SESSION_DIR":        "",
+		"SMIDJA_MODELS_CATALOG_URL": "",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("envMap = %v, want %v", got, want)

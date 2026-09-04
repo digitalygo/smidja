@@ -532,9 +532,8 @@ func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 		Retry:             d.retry,
 		IsContextOverflow: d.isOverflow,
 		Detector:          d.detector,
-	}
-	if d.retryPolicySet {
-		deps.RetryPolicy = d.retryPolicy
+		RetryPolicy:       d.retryPolicy,
+		RetryPolicySet:    d.retryPolicySet,
 	}
 	return deps
 }

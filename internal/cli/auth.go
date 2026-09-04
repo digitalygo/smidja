@@ -478,42 +478,54 @@ func (c *oauthCredential) resolve(ctx context.Context) (string, error) {
 	return entry.Access, nil
 }
 
+const openrouterProviderName = "openrouter"
+
 func selectChatClient(d *Deps, cfg *config.Config, providerFlag string) (agent.Client, string, error) {
-	selected := providerFlag
-	if selected == "" {
-		selected = cfg.Provider
-	}
-	if selected != "" {
-		built, err := buildProviderClient(d, selected)
-		if err != nil {
-			return nil, selected, err
-		}
-		return built, selected, nil
+	if providerFlag != "" {
+		return buildSelectedClient(d, cfg, providerFlag)
 	}
 	if d.Client != nil {
 		return d.Client, "", nil
 	}
+	if cfg.Provider != "" {
+		return buildSelectedClient(d, cfg, cfg.Provider)
+	}
 	return openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil), "", nil
 }
 
-func buildProviderClient(d *Deps, provider string) (agent.Client, error) {
+func buildSelectedClient(d *Deps, cfg *config.Config, name string) (agent.Client, string, error) {
+	if name == openrouterProviderName {
+		return openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil), openrouterProviderName, nil
+	}
+	client, id, err := buildProviderClient(d, name)
+	if err != nil {
+		return nil, "", err
+	}
+	return client, id, nil
+}
+
+func buildProviderClient(d *Deps, provider string) (agent.Client, string, error) {
 	store, err := loadAuthStore(d)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if p, ok := oauthProviderByID(provider); ok {
 		if storeHasAccess(store, p.id) {
-			return p.build(newOAuthCredential(store, p, nil), d.HTTPClient), nil
+			return p.build(newOAuthCredential(store, p, nil), d.HTTPClient), p.id, nil
 		}
 		if _, ok := manifest.Lookup(provider); !ok {
-			return nil, fmt.Errorf("no oauth credential for %s: run smidja auth login %s", p.name, p.name)
+			return nil, "", fmt.Errorf("no oauth credential for %s: run smidja auth login %s", p.name, p.name)
 		}
+	}
+	spec, ok := manifest.Lookup(provider)
+	if !ok {
+		return nil, "", fmt.Errorf("manifest: unknown provider %q", provider)
 	}
 	drv, err := manifest.Build(provider, manifest.Deps{Env: d.Env, Store: store, HTTP: d.HTTPClient})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return drv, nil
+	return drv, spec.ID, nil
 }
 
 func providerDefaultModel(provider string) (string, bool) {

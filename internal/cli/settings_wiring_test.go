@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -128,9 +129,31 @@ func TestSelectChatClient(t *testing.T) {
 		t.Errorf("flag provider error = %v, want unknown provider", err)
 	}
 
-	bogusCfg := settingsWiringConfig(t, map[string]string{"SMIDJA_PROVIDER": "bogus"}, "/work")
-	if _, _, err := selectChatClient(depsWithHome(nil), bogusCfg, ""); err == nil || !strings.Contains(err.Error(), "unknown provider") {
+	client, _, err = selectChatClient(depsWithHome(nil), settingsWiringConfig(t, map[string]string{"SMIDJA_PROVIDER": "bogus"}, "/work"), "")
+	if err != nil {
+		t.Fatalf("selectChatClient(configured provider with injected client): %v", err)
+	}
+	if client != agent.Client(injected) {
+		t.Error("an injected client must stay authoritative over a configured provider")
+	}
+
+	client, _, err = selectChatClient(&Deps{Env: envFrom(nil), Home: func() string { return t.TempDir() }}, settingsWiringConfig(t, map[string]string{"SMIDJA_PROVIDER": "bogus"}, "/work"), "")
+	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
 		t.Errorf("config provider error = %v, want unknown provider", err)
+	} else if client != nil {
+		t.Error("a failed provider build must not yield a client")
+	}
+
+	cfgOpenRouter := settingsWiringConfig(t, map[string]string{"SMIDJA_PROVIDER": "openrouter", "SMIDJA_OPENROUTER_URL": "https://cfg.test/v1/chat/completions", "OPENROUTER_API_KEY": "sk-cfg"}, "/work")
+	client, selected, err = selectChatClient(&Deps{Env: envFrom(nil), Home: func() string { return t.TempDir() }}, cfgOpenRouter, "")
+	if err != nil {
+		t.Fatalf("selectChatClient(configured openrouter): %v", err)
+	}
+	if selected != "openrouter" {
+		t.Errorf("selected = %q, want openrouter", selected)
+	}
+	if client == nil || client == agent.Client(injected) {
+		t.Error("a configured openrouter must build a dedicated client")
 	}
 }
 
@@ -140,7 +163,6 @@ func TestProviderSelectionFromConfigReachesChat(t *testing.T) {
 	deps.Env = envFrom(map[string]string{"SMIDJA_PROVIDER": "bogus", "SMIDJA_PACKAGES_DIR": t.TempDir()})
 	deps.Stdout = &stdout
 	deps.Stderr = &stderr
-	deps.Client = &capturingClient{script: []*agent.AssistantMessage{textStop("ok")}}
 	deps.Stdin = strings.NewReader("")
 	deps.Store = wiringStore(t)
 
@@ -148,6 +170,54 @@ func TestProviderSelectionFromConfigReachesChat(t *testing.T) {
 		t.Fatal("RunWithDeps: expected the provider selection error")
 	} else if !strings.Contains(err.Error(), `unknown provider "bogus"`) {
 		t.Errorf("error = %v, want unknown provider", err)
+	}
+}
+
+func TestInjectedClientBeatsConfiguredProvider(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	deps := wiringTestDeps(t.TempDir())
+	deps.Env = envFrom(map[string]string{"SMIDJA_PROVIDER": "bogus", "SMIDJA_PACKAGES_DIR": t.TempDir()})
+	deps.Stdout = &stdout
+	deps.Stderr = &stderr
+	client := &capturingClient{script: []*agent.AssistantMessage{textStop("from injected client")}}
+	deps.Client = client
+	deps.Stdin = strings.NewReader("")
+	deps.Store = wiringStore(t)
+
+	if err := RunWithDeps([]string{"-p", "hello"}, deps); err != nil {
+		t.Fatalf("RunWithDeps: %v (stderr %q)", err, stderr.String())
+	}
+	if client.calls != 1 {
+		t.Errorf("injected client calls = %d, want the configured provider to be ignored", client.calls)
+	}
+	if !strings.Contains(stdout.String(), "from injected client") {
+		t.Errorf("stdout = %q, want the injected client response", stdout.String())
+	}
+}
+
+func TestConfiguredProviderReachesChatAndStreams(t *testing.T) {
+	srv, captured := completionsStream(t, "hello from config provider")
+	var stdout, stderr bytes.Buffer
+	deps := wiringTestDeps(t.TempDir())
+	deps.Env = envFrom(map[string]string{
+		"SMIDJA_PROVIDER":       "openrouter",
+		"SMIDJA_OPENROUTER_URL": srv.URL,
+		"OPENROUTER_API_KEY":    "sk-cfg-openrouter",
+		"SMIDJA_PACKAGES_DIR":   t.TempDir(),
+	})
+	deps.Stdout = &stdout
+	deps.Stderr = &stderr
+	deps.Stdin = strings.NewReader("")
+	deps.Store = wiringStore(t)
+
+	if err := RunWithDeps([]string{"-p", "hello"}, deps); err != nil {
+		t.Fatalf("RunWithDeps: %v (stderr %q)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "hello from config provider") {
+		t.Errorf("stdout = %q, want the configured provider response", stdout.String())
+	}
+	if got := captured.header.Get("Authorization"); got != "Bearer sk-cfg-openrouter" {
+		t.Errorf("Authorization = %q, want the configured api key", got)
 	}
 }
 
@@ -211,6 +281,28 @@ func TestRetryDisabledFromConfigStopsFirstFailure(t *testing.T) {
 	}
 }
 
+func TestExplicitAllZeroRetrySettingsStopFirstFailure(t *testing.T) {
+	home := t.TempDir()
+	withUserSettingsFile(t, home, `{"retry": {"enabled": false, "maxRetries": 0, "baseDelayMs": 0}}`)
+	var stdout, stderr bytes.Buffer
+	deps := wiringTestDeps(t.TempDir())
+	deps.Env = envFrom(map[string]string{"SMIDJA_PACKAGES_DIR": t.TempDir()})
+	deps.Home = func() string { return home }
+	deps.Stdout = &stdout
+	deps.Stderr = &stderr
+	client := &errorStopClient{}
+	deps.Client = client
+	deps.Stdin = strings.NewReader("")
+	deps.Store = wiringStore(t)
+
+	if err := RunWithDeps([]string{"-p", "hello"}, deps); err == nil {
+		t.Fatal("RunWithDeps: expected the provider error")
+	}
+	if got := client.callCount(); got != 1 {
+		t.Errorf("client calls = %d, want 1 with an explicit all-zero retry policy", got)
+	}
+}
+
 func TestGatewayRetryPolicyFromConfig(t *testing.T) {
 	cfg := settingsWiringConfig(t, map[string]string{"SMIDJA_RETRY_MAX_RETRIES": "2", "SMIDJA_RETRY_BASE_DELAY_MS": "1"}, t.TempDir())
 	store, err := session.NewStore(t.TempDir())
@@ -239,6 +331,54 @@ func TestGatewayRetryPolicyFromConfig(t *testing.T) {
 	}
 	if got := client.callCount(); got != 3 {
 		t.Errorf("gateway client calls = %d, want 3 (first attempt plus 2 configured retries)", got)
+	}
+}
+
+func TestGatewayExplicitZeroRetryPolicy(t *testing.T) {
+	cfg := settingsWiringConfig(t, map[string]string{"SMIDJA_RETRY": "false", "SMIDJA_RETRY_MAX_RETRIES": "0", "SMIDJA_RETRY_BASE_DELAY_MS": "0"}, t.TempDir())
+	store, err := session.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &errorStopClient{}
+	bindings, err := loadBindings(filepath.Join(t.TempDir(), "bindings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := newGatewayRunner(gatewayRunnerConfig{
+		cfg:            cfg,
+		providerID:     "openrouter",
+		model:          "test/model",
+		store:          store,
+		bindings:       bindings,
+		client:         client,
+		catalog:        extensions.NewToolCatalog(),
+		retry:          retryAdapter,
+		retryPolicy:    agent.RetryPolicy{Enabled: cfg.RetryEnabled, MaxRetries: cfg.RetryMaxRetries, BaseDelayMs: cfg.RetryBaseDelayMs},
+		retryPolicySet: true,
+	})
+	if _, err := runner.Run(context.Background(), gateway.WorkItem{Text: "hello"}); err == nil {
+		t.Fatal("gateway run: expected the provider error")
+	}
+	if got := client.callCount(); got != 1 {
+		t.Errorf("gateway client calls = %d, want 1 with an explicit all-zero retry policy", got)
+	}
+}
+
+func TestLoopDepsRetryPolicyPresence(t *testing.T) {
+	unset := loopDeps(&runDeps{retry: retryAdapter}, io.Discard)
+	if unset.RetryPolicySet {
+		t.Error("RetryPolicySet = true, want false when the caller does not set a policy")
+	}
+	if unset.RetryPolicy != (agent.RetryPolicy{}) {
+		t.Errorf("RetryPolicy = %+v, want the zero policy when unset", unset.RetryPolicy)
+	}
+	zero := loopDeps(&runDeps{retry: retryAdapter, retryPolicySet: true}, io.Discard)
+	if !zero.RetryPolicySet {
+		t.Error("RetryPolicySet = false, want true for an explicitly set zero policy")
+	}
+	if zero.RetryPolicy != (agent.RetryPolicy{}) {
+		t.Errorf("RetryPolicy = %+v, want the explicit zero policy preserved", zero.RetryPolicy)
 	}
 }
 
