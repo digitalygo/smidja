@@ -163,11 +163,10 @@ func addSource(byKey map[string]itemRef, src source) error {
 		if len(data) > MaxArtifactBytes {
 			return fmt.Errorf("content: %s/%s: %d bytes exceeds the %d byte cap", src.pkg, name, len(data), MaxArtifactBytes)
 		}
-		key := src.pkg + "/" + name
-		if existing, ok := byKey[key]; ok && tierRank(existing.Tier) > tierRank(src.tier) {
+		if existing, ok := byKey[name]; ok && tierRank(existing.Tier) > tierRank(src.tier) {
 			return nil
 		}
-		byKey[key] = itemRef{
+		byKey[name] = itemRef{
 			Package: src.pkg,
 			Name:    name,
 			Path:    p,

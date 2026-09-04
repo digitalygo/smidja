@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"sort"
 	"strings"
 
@@ -42,6 +43,9 @@ type gatewayRunnerConfig struct {
 	showThinking       bool
 	stdout             io.Writer
 	stderr             io.Writer
+	retryPolicy        agent.RetryPolicy
+	retryPolicySet     bool
+	bundleFS           fs.FS
 }
 
 type gatewayRunner struct {
@@ -65,6 +69,9 @@ type gatewayRunner struct {
 	showThinking       bool
 	stdout             io.Writer
 	stderr             io.Writer
+	retryPolicy        agent.RetryPolicy
+	retryPolicySet     bool
+	bundleFS           fs.FS
 }
 
 func newGatewayRunner(cfg gatewayRunnerConfig) *gatewayRunner {
@@ -110,6 +117,9 @@ func newGatewayRunner(cfg gatewayRunnerConfig) *gatewayRunner {
 		showThinking:       cfg.showThinking,
 		stdout:             cfg.stdout,
 		stderr:             cfg.stderr,
+		retryPolicy:        cfg.retryPolicy,
+		retryPolicySet:     cfg.retryPolicySet,
+		bundleFS:           cfg.bundleFS,
 	}
 }
 
@@ -147,21 +157,23 @@ func (r *gatewayRunner) Run(ctx context.Context, work gateway.WorkItem) (gateway
 	}
 	outWriter := &trailingWriter{w: sink}
 	rd := &runDeps{
-		model:        r.model,
-		system:       sysPrompt,
-		showThinking: r.showThinking,
-		sessionPath:  sess.Path(),
-		client:       r.client,
-		tools:        r.tools,
-		recorder:     &sessionRecorder{sess},
-		stdout:       outWriter,
-		stderr:       r.stderr,
-		preparer:     r.preparer,
-		hooks:        r.hooks,
-		retry:        r.retry,
-		isOverflow:   r.isOverflow,
-		detector:     r.detector,
-		catalog:      r.catalog,
+		model:          r.model,
+		system:         sysPrompt,
+		showThinking:   r.showThinking,
+		sessionPath:    sess.Path(),
+		client:         r.client,
+		tools:          r.tools,
+		recorder:       &sessionRecorder{sess},
+		stdout:         outWriter,
+		stderr:         r.stderr,
+		preparer:       r.preparer,
+		hooks:          r.hooks,
+		retryPolicy:    r.retryPolicy,
+		retryPolicySet: r.retryPolicySet,
+		retry:          r.retry,
+		isOverflow:     r.isOverflow,
+		detector:       r.detector,
+		catalog:        r.catalog,
 	}
 	deps := loopDeps(rd, outWriter)
 	deps.SessionEntryIDs = entryIDs
@@ -228,6 +240,7 @@ func (r *gatewayRunner) loadContext(sess *session.Session, existed bool) ([]*age
 func (r *gatewayRunner) systemPrompt(root string) string {
 	p := r.system
 	if instr, err := content.DiscoverInstructions(root, content.InstructionsOptions{
+		BundleFS:      r.bundleFS,
 		WorkspaceRoot: root,
 		UserHome:      r.home,
 	}); err == nil {

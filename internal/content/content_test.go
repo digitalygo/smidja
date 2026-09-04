@@ -40,21 +40,60 @@ func TestLoadBundleOnly(t *testing.T) {
 	if len(s.Skills) != 2 {
 		t.Errorf("Skills = %v, want 2", keys(s.Skills))
 	}
-	quick, ok := s.Skills["digitalygo/quick"]
-	if !ok {
-		t.Fatal("missing digitalygo/quick")
+	if got := s.Skills["quick"]; got.Content != "# quick" || got.Tier != TierBundle || got.Package != "digitalygo" || got.Origin != "bundle:skills" {
+		t.Errorf("quick = %+v", got)
 	}
-	if quick.Content != "# quick" || quick.Tier != TierBundle || quick.Origin != "bundle:skills" {
-		t.Errorf("quick = %+v", quick)
-	}
-	if _, ok := s.Skills["digitalygo/role/orch"]; !ok {
+	if _, ok := s.Skills["role/orch"]; !ok {
 		t.Error("nested skill missing")
 	}
-	if len(s.Agents) != 1 || s.Agents["digitalygo/planner"].Tier != TierBundle {
+	if len(s.Agents) != 1 || s.Agents["planner"].Tier != TierBundle {
 		t.Errorf("Agents = %v", keys(s.Agents))
 	}
-	if len(s.Prompts) != 1 || s.Prompts["digitalygo/system"].Content != "be concise" {
+	if len(s.Prompts) != 1 || s.Prompts["system"].Content != "be concise" {
 		t.Errorf("Prompts = %v", keys(s.Prompts))
+	}
+}
+
+func TestLoadBundleRootedLayout(t *testing.T) {
+	opts := Options{
+		BundleID: "acme",
+		BundleFS: fstest.MapFS{
+			"skills/quick.md":   {Data: []byte("# quick")},
+			"agents/planner.md": {Data: []byte("# planner")},
+			"prompts/sys.md":    {Data: []byte("be brief")},
+		},
+	}
+	s, err := Load(opts)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	quick, ok := s.Skills["quick"]
+	if !ok || quick.Content != "# quick" || quick.Tier != TierBundle || quick.Origin != "bundle:skills" {
+		t.Errorf("quick = %+v ok=%v", quick, ok)
+	}
+	if _, ok := s.Agents["planner"]; !ok {
+		t.Error("rooted agents dir must load")
+	}
+	if _, ok := s.Prompts["sys"]; !ok {
+		t.Error("rooted prompts dir must load")
+	}
+}
+
+func TestLoadBundleRootedLayoutWinsOverContent(t *testing.T) {
+	opts := Options{BundleID: "acme", BundleFS: fstest.MapFS{
+		"skills/a.md":         {Data: []byte("rooted")},
+		"content/skills/b.md": {Data: []byte("legacy")},
+		"content/skills/a.md": {Data: []byte("legacy duplicate")},
+	}}
+	s, err := Load(opts)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(s.Skills) != 1 {
+		t.Fatalf("Skills = %v, want only the rooted layout", keys(s.Skills))
+	}
+	if got := s.Skills["a"]; got.Content != "rooted" {
+		t.Errorf("a = %+v, want the rooted content", got)
 	}
 }
 
@@ -88,27 +127,27 @@ func TestLoadDirectorySources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	wsSkill, ok := s.Skills["workspace/local"]
+	wsSkill, ok := s.Skills["local"]
 	if !ok {
 		t.Fatalf("workspace skill missing: %v", keys(s.Skills))
 	}
-	if wsSkill.Tier != TierWorkspace || !strings.HasSuffix(wsSkill.Origin, ".smidja/skills") {
+	if wsSkill.Tier != TierWorkspace || wsSkill.Package != "workspace" || !strings.HasSuffix(wsSkill.Origin, ".smidja/skills") {
 		t.Errorf("workspace skill = %+v", wsSkill)
 	}
-	userSkill, ok := s.Skills["user/global"]
-	if !ok || userSkill.Tier != TierUser {
+	userSkill, ok := s.Skills["global"]
+	if !ok || userSkill.Tier != TierUser || userSkill.Package != "user" {
 		t.Errorf("user skill = %+v ok=%v", userSkill, ok)
 	}
-	if _, ok := s.Agents["workspace/wsa"]; !ok {
+	if _, ok := s.Agents["wsa"]; !ok {
 		t.Error("workspace agent missing")
 	}
-	if _, ok := s.Agents["user/ua"]; !ok {
+	if _, ok := s.Agents["ua"]; !ok {
 		t.Error("user agent missing")
 	}
-	if _, ok := s.Prompts["workspace/wsp"]; !ok {
+	if _, ok := s.Prompts["wsp"]; !ok {
 		t.Error("workspace prompt missing")
 	}
-	if _, ok := s.Skills["workspace/ignored"]; ok {
+	if _, ok := s.Skills["ignored"]; ok {
 		t.Error("non-md file loaded as a skill")
 	}
 }
@@ -130,7 +169,8 @@ func TestLoadUntrustedWorkspaceSkipped(t *testing.T) {
 func TestLoadPrecedenceAcrossTiers(t *testing.T) {
 	ws := t.TempDir()
 	home := t.TempDir()
-	pkg := t.TempDir()
+	first := t.TempDir()
+	second := t.TempDir()
 	writeTree(t, filepath.Join(ws, ".smidja"), map[string]string{
 		"skills/shared.md": "workspace wins unless bundle",
 	})
@@ -138,25 +178,32 @@ func TestLoadPrecedenceAcrossTiers(t *testing.T) {
 		"skills/shared.md":    "user content",
 		"skills/user-only.md": "user only",
 	})
-	writeTree(t, pkg, map[string]string{
+	writeTree(t, first, map[string]string{
 		"smidja.json":         `{"id":"demo-pkg"}`,
 		"skills/shared.md":    "package content",
 		"skills/pkg-only.md":  "package only",
 		"agents/pkg-agent.md": "# agent",
+	})
+	writeTree(t, second, map[string]string{
+		"smidja.json":      `{"id":"demo-pkg-2"}`,
+		"skills/shared.md": "later package content",
 	})
 	opts := Options{
 		BundleID:       "b",
 		BundleFS:       fstest.MapFS{"content/skills/shared.md": {Data: []byte("bundle content")}},
 		WorkspaceDir:   ws,
 		UserHome:       home,
-		PackagesDirs:   []string{pkg},
+		PackagesDirs:   []string{first, second},
 		TrustWorkspace: true,
 	}
 	s, err := Load(opts)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := s.Skills["b/shared"]; got.Content != "bundle content" || got.Tier != TierBundle {
+	if len(s.Skills) != 3 {
+		t.Fatalf("Skills = %v, want exactly the canonical names shared, user-only and pkg-only", keys(s.Skills))
+	}
+	if got := s.Skills["shared"]; got.Content != "bundle content" || got.Tier != TierBundle || got.Package != "b" {
 		t.Errorf("bundle should beat every other tier, got %+v", got)
 	}
 	opts.BundleFS = nil
@@ -164,7 +211,7 @@ func TestLoadPrecedenceAcrossTiers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := s.Skills["workspace/shared"]; got.Content != "workspace wins unless bundle" || got.Tier != TierWorkspace {
+	if got := s.Skills["shared"]; got.Content != "workspace wins unless bundle" || got.Tier != TierWorkspace {
 		t.Errorf("workspace should beat user and packages, got %+v", got)
 	}
 	opts.TrustWorkspace = false
@@ -172,7 +219,7 @@ func TestLoadPrecedenceAcrossTiers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := s.Skills["user/shared"]; got.Content != "user content" || got.Tier != TierUser {
+	if got := s.Skills["shared"]; got.Content != "user content" || got.Tier != TierUser {
 		t.Errorf("user should beat packages, got %+v", got)
 	}
 	opts.UserHome = ""
@@ -180,16 +227,16 @@ func TestLoadPrecedenceAcrossTiers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := s.Skills["demo-pkg/shared"]; got.Content != "package content" || got.Tier != TierPackages {
-		t.Errorf("packages are the lowest wired tier, got %+v", got)
+	if got := s.Skills["shared"]; got.Content != "later package content" || got.Tier != TierPackages || got.Package != "demo-pkg-2" {
+		t.Errorf("the later package dir must win within the tier, got %+v", got)
 	}
-	if _, ok := s.Skills["demo-pkg/pkg-only"]; !ok {
+	if _, ok := s.Skills["pkg-only"]; !ok {
 		t.Error("package-only skill missing")
 	}
-	if _, ok := s.Agents["demo-pkg/pkg-agent"]; !ok {
+	if _, ok := s.Agents["pkg-agent"]; !ok {
 		t.Error("package agent missing")
 	}
-	if _, ok := s.Skills["user/user-only"]; ok {
+	if _, ok := s.Skills["user-only"]; ok {
 		t.Error("user tier must be skipped when UserHome is empty")
 	}
 }
@@ -209,9 +256,12 @@ func TestLoadPackageTierLaterDirWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	got, ok := s.Skills["pkg-b/dup"]
-	if !ok || got.Content != "from second" || got.Tier != TierPackages {
-		t.Errorf("later package dir should win within the tier, got %+v ok=%v", got, ok)
+	if len(s.Skills) != 1 {
+		t.Fatalf("Skills = %v, want a single canonical entry", keys(s.Skills))
+	}
+	got := s.Skills["dup"]
+	if got.Content != "from second" || got.Tier != TierPackages || got.Package != "pkg-b" {
+		t.Errorf("later package dir should win within the tier, got %+v", got)
 	}
 }
 
@@ -227,13 +277,13 @@ func TestLoadPackageCustomContentsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if _, ok := s.Skills["custom-pkg/s"]; !ok {
+	if _, ok := s.Skills["s"]; !ok {
 		t.Error("skill from custom contents path missing")
 	}
-	if _, ok := s.Agents["custom-pkg/a"]; !ok {
+	if _, ok := s.Agents["a"]; !ok {
 		t.Error("agent from custom contents path missing")
 	}
-	if _, ok := s.Skills["custom-pkg/ignored"]; ok {
+	if _, ok := s.Skills["ignored"]; ok {
 		t.Error("skill from the default path must not load when contents says otherwise")
 	}
 }
@@ -246,8 +296,11 @@ func TestLoadPackageManifestFallbackToBaseName(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	base := filepath.Base(pkg)
-	if _, ok := s.Skills[base+"/s"]; !ok {
-		t.Errorf("skill key %q missing, keys = %v", base+"/s", keys(s.Skills))
+	got, ok := s.Skills["s"]
+	if !ok {
+		t.Errorf("skill key %q missing, keys = %v", "s", keys(s.Skills))
+	} else if got.Package != base {
+		t.Errorf("skill package = %q, want the base name %q", got.Package, base)
 	}
 }
 
@@ -440,7 +493,7 @@ func TestLoadBundleMissingKindDirs(t *testing.T) {
 	if len(s.Skills) != 0 {
 		t.Errorf("Skills = %v, want none without a skills dir", keys(s.Skills))
 	}
-	if _, ok := s.Agents["b/a"]; !ok {
+	if _, ok := s.Agents["a"]; !ok {
 		t.Error("agents dir must still load")
 	}
 	opts.BundleFS = fstest.MapFS{"content/skills": {Data: []byte("not a dir")}}

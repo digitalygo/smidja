@@ -34,6 +34,70 @@ func runRetries(ctx context.Context, produce func(context.Context) (*AssistantMe
 	}
 }
 
+func TestRunTurnExplicitZeroRetryPolicyHonored(t *testing.T) {
+	client := &fakeClient{failFirst: 3, script: []*AssistantMessage{textStop("never reached")}}
+	rec := &fakeRecorder{}
+	var policySeen RetryPolicy
+	var finishedEvents int
+	_, err := RunTurn(context.Background(), &LoopDeps{
+		Client:         client,
+		Recorder:       rec,
+		RetryPolicy:    RetryPolicy{},
+		RetryPolicySet: true,
+		Retry: func(ctx context.Context, produce func(context.Context) (*AssistantMessage, error), policy RetryPolicy, callbacks *RetryCallbacks) (*AssistantMessage, error) {
+			policySeen = policy
+			return runRetries(ctx, produce, policy, callbacks)
+		},
+		OnRetryFinished: func(success bool, attempt int, finalError string) {
+			finishedEvents++
+		},
+	}, "m", "", nil, "hi")
+	if err == nil {
+		t.Fatal("RunTurn: expected the provider error without retries")
+	}
+	if policySeen != (RetryPolicy{}) {
+		t.Errorf("retrier saw policy %+v, want the explicit zero policy", policySeen)
+	}
+	if client.attempts != 1 {
+		t.Errorf("client invoked %d times, want 1 with an explicit all-zero policy", client.attempts)
+	}
+	if finishedEvents != 1 {
+		t.Errorf("retry finished events = %d, want a single finished event", finishedEvents)
+	}
+}
+
+func TestRunTurnLegacyNonZeroRetryPolicyWithoutFlagHonored(t *testing.T) {
+	client := &fakeClient{failFirst: 2, script: []*AssistantMessage{textStop("recovered")}}
+	rec := &fakeRecorder{}
+	legacy := RetryPolicy{Enabled: true, MaxRetries: 2, BaseDelayMs: 5}
+	var policySeen RetryPolicy
+	var scheduled []string
+	_, err := RunTurn(context.Background(), &LoopDeps{
+		Client:      client,
+		Recorder:    rec,
+		RetryPolicy: legacy,
+		Retry: func(ctx context.Context, produce func(context.Context) (*AssistantMessage, error), policy RetryPolicy, callbacks *RetryCallbacks) (*AssistantMessage, error) {
+			policySeen = policy
+			return runRetries(ctx, produce, policy, callbacks)
+		},
+		OnRetryScheduled: func(attempt, maxAttempts int, delayMs int64, errorMessage string) {
+			scheduled = append(scheduled, fmt.Sprintf("%d/%d", attempt, maxAttempts))
+		},
+	}, "m", "", nil, "hi")
+	if err != nil {
+		t.Fatalf("RunTurn: %v", err)
+	}
+	if policySeen != legacy {
+		t.Errorf("retrier saw policy %+v, want the legacy non-zero policy %+v", policySeen, legacy)
+	}
+	if client.attempts != 3 {
+		t.Errorf("client invoked %d times, want 3 (2 failures + 1 success)", client.attempts)
+	}
+	if got := strings.Join(scheduled, ","); got != "1/2,2/2" {
+		t.Errorf("OnRetryScheduled = %q, want 1/2,2/2", got)
+	}
+}
+
 func TestRunTurnRetryConsumedAndEventsOrdered(t *testing.T) {
 	client := &fakeClient{failFirst: 2, script: []*AssistantMessage{textStop("recovered")}}
 	rec := &fakeRecorder{}

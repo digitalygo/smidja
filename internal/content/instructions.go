@@ -2,6 +2,7 @@ package content
 
 import (
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,15 +10,19 @@ import (
 )
 
 type InstructionsOptions struct {
+	BundleFS      fs.FS
 	WorkspaceRoot string
 	UserHome      string
 	MaxBytes      int64
 }
 
 type Instructions struct {
+	Bundle  string
 	Project string
 	Global  string
 }
+
+var bundleInstructionsLocations = []string{"AGENTS.md", "content/AGENTS.md"}
 
 func DiscoverInstructions(cwd string, opts InstructionsOptions) (Instructions, error) {
 	max := opts.MaxBytes
@@ -25,6 +30,21 @@ func DiscoverInstructions(cwd string, opts InstructionsOptions) (Instructions, e
 		max = MaxInstructionsBytes
 	}
 	instr := Instructions{}
+	if opts.BundleFS != nil {
+		for _, name := range bundleInstructionsLocations {
+			f, err := opts.BundleFS.Open(name)
+			if err != nil {
+				continue
+			}
+			content, rerr := readBoundedReader(f, max)
+			f.Close()
+			if rerr != nil {
+				continue
+			}
+			instr.Bundle = content
+			break
+		}
+	}
 	if p, ok := findProjectInstructions(cwd, opts.WorkspaceRoot); ok {
 		content, err := readBounded(p, max)
 		if err != nil {
@@ -43,6 +63,9 @@ func DiscoverInstructions(cwd string, opts InstructionsOptions) (Instructions, e
 
 func (i Instructions) Suffix() string {
 	var sections []string
+	if i.Bundle != "" {
+		sections = append(sections, "[bundle instructions]\n\n"+i.Bundle)
+	}
 	if i.Project != "" {
 		sections = append(sections, "[project instructions]\n\n"+i.Project)
 	}
@@ -90,7 +113,11 @@ func readBounded(path string, max int64) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	return readBoundedReader(f, max)
+}
+
+func readBoundedReader(r io.Reader, max int64) (string, error) {
+	data, err := io.ReadAll(io.LimitReader(r, max+1))
 	if err != nil {
 		return "", err
 	}

@@ -15,10 +15,18 @@ const (
 	defaultExecTimeoutSecs = 30
 	defaultMaxReadLines    = 2000
 	defaultMaxOutputBytes  = 50 * 1024
+
+	defaultRetryMaxRetries  = 10
+	defaultRetryBaseDelayMs = int64(2000)
 )
 
 const (
 	envModel                      = "SMIDJA_MODEL"
+	envProvider                   = "SMIDJA_PROVIDER"
+	envModelsCatalogURL           = "SMIDJA_MODELS_CATALOG_URL"
+	envRetry                      = "SMIDJA_RETRY"
+	envRetryMaxRetries            = "SMIDJA_RETRY_MAX_RETRIES"
+	envRetryBaseDelayMs           = "SMIDJA_RETRY_BASE_DELAY_MS"
 	envOpenRouterURL              = "SMIDJA_OPENROUTER_URL"
 	envAPIKey                     = "OPENROUTER_API_KEY"
 	envSessionDir                 = "SMIDJA_SESSION_DIR"
@@ -39,6 +47,16 @@ const (
 
 type Config struct {
 	Model string
+
+	Provider string
+
+	ModelsCatalogURL string
+
+	RetryEnabled bool
+
+	RetryMaxRetries int
+
+	RetryBaseDelayMs int64
 
 	OpenRouterURL string
 
@@ -78,6 +96,7 @@ type Config struct {
 	dotenv          map[string]string
 	packageDefaults map[string]string
 	bundleDefaults  map[string]string
+	userSettings    map[string]string
 }
 
 func (c *Config) Default(key string) string {
@@ -86,20 +105,30 @@ func (c *Config) Default(key string) string {
 			return v
 		}
 	}
-	if v := c.dotenv[key]; v != "" {
+	if v, ok := c.dotenv[key]; ok {
 		return v
 	}
-	if v := c.packageDefaults[key]; v != "" {
+	if v, ok := c.bundleDefaults[key]; ok {
 		return v
 	}
-	return c.bundleDefaults[key]
+	if v, ok := c.userSettings[key]; ok {
+		return v
+	}
+	if v, ok := c.packageDefaults[key]; ok {
+		return v
+	}
+	return ""
 }
 
 func Load(env func(string) string, getwd func() (string, error), home func() string) (*Config, error) {
-	return LoadWithDefaults(env, getwd, home, nil, nil)
+	return LoadWithSources(env, getwd, home, nil, nil, nil)
 }
 
 func LoadWithDefaults(env func(string) string, getwd func() (string, error), home func() string, defaults map[string]string, packageDefaults map[string]string) (*Config, error) {
+	return LoadWithSources(env, getwd, home, defaults, nil, packageDefaults)
+}
+
+func LoadWithSources(env func(string) string, getwd func() (string, error), home func() string, defaults map[string]string, bundleSettings *Settings, packageDefaults map[string]string) (*Config, error) {
 	if env == nil {
 		return nil, fmt.Errorf("config: nil env function")
 	}
@@ -120,24 +149,6 @@ func LoadWithDefaults(env func(string) string, getwd func() (string, error), hom
 	}
 
 	dotenv := loadDotEnv(cwd)
-	lookup := func(k string) string {
-		if v := env(k); v != "" {
-			return v
-		}
-		return dotenv[k]
-	}
-	value := func(k, def string) string {
-		if v := lookup(k); v != "" {
-			return v
-		}
-		if v := packageDefaults[k]; v != "" {
-			return v
-		}
-		if v := defaults[k]; v != "" {
-			return v
-		}
-		return def
-	}
 
 	homeDir := home()
 	if homeDir == "" {
@@ -150,8 +161,44 @@ func LoadWithDefaults(env func(string) string, getwd func() (string, error), hom
 		return nil, fmt.Errorf("config: empty home directory")
 	}
 
+	userSettings, err := ReadUserSettings(homeDir)
+	if err != nil {
+		return nil, err
+	}
+	bundleTier := mergeBundleTier(defaults, bundleSettings)
+	userTier := userSettings.envMap()
+	resolve := func(k string) string {
+		if v := env(k); v != "" {
+			return v
+		}
+		if v, ok := dotenv[k]; ok {
+			return v
+		}
+		if v, ok := bundleTier[k]; ok {
+			return v
+		}
+		if v, ok := userTier[k]; ok {
+			return v
+		}
+		if v, ok := packageDefaults[k]; ok {
+			return v
+		}
+		return ""
+	}
+	value := func(k, def string) string {
+		if v := resolve(k); v != "" {
+			return v
+		}
+		return def
+	}
+
 	return &Config{
 		Model:                      value(envModel, defaultModel),
+		Provider:                   value(envProvider, ""),
+		ModelsCatalogURL:           value(envModelsCatalogURL, ""),
+		RetryEnabled:               boolDefault(value(envRetry, ""), true),
+		RetryMaxRetries:            nonNegIntDefault(value(envRetryMaxRetries, ""), defaultRetryMaxRetries),
+		RetryBaseDelayMs:           nonNegInt64Default(value(envRetryBaseDelayMs, ""), defaultRetryBaseDelayMs),
 		OpenRouterURL:              value(envOpenRouterURL, defaultOpenRouterURL),
 		APIKey:                     value(envAPIKey, ""),
 		SessionDir:                 value(envSessionDir, filepath.Join(homeDir, ".smidja", "sessions")),
@@ -172,8 +219,35 @@ func LoadWithDefaults(env func(string) string, getwd func() (string, error), hom
 		env:                        env,
 		dotenv:                     dotenv,
 		packageDefaults:            packageDefaults,
-		bundleDefaults:             defaults,
+		bundleDefaults:             bundleTier,
+		userSettings:               userTier,
 	}, nil
+}
+
+func mergeBundleTier(defaults map[string]string, settings *Settings) map[string]string {
+	settingsMap := settings.envMap()
+	if len(settingsMap) == 0 {
+		return defaults
+	}
+	out := make(map[string]string, len(defaults)+len(settingsMap))
+	for k, v := range settingsMap {
+		out[k] = v
+	}
+	for k, v := range defaults {
+		out[k] = v
+	}
+	return out
+}
+
+func DefaultsFromAny(m map[string]any) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = fmt.Sprint(v)
+	}
+	return out
 }
 
 var readDotEnvFile = os.ReadFile
@@ -230,6 +304,22 @@ func intDefault(v string, def int) int {
 func int64Default(v string, def int64) int64 {
 	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || n < 1 {
+		return def
+	}
+	return n
+}
+
+func nonNegIntDefault(v string, def int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 0 {
+		return def
+	}
+	return n
+}
+
+func nonNegInt64Default(v string, def int64) int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || n < 0 {
 		return def
 	}
 	return n

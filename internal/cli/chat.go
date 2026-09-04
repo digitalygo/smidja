@@ -18,7 +18,6 @@ import (
 	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/loopdetector"
 	"github.com/digitalygo/smidja/internal/models"
-	"github.com/digitalygo/smidja/internal/openrouter"
 	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/retry"
 	"github.com/digitalygo/smidja/internal/session"
@@ -59,11 +58,13 @@ type runDeps struct {
 	stdout   io.Writer
 	stderr   io.Writer
 
-	preparer   *contextPreparerAdapter
-	hooks      agent.HookDispatcher
-	retry      retryFunc
-	isOverflow func(string) bool
-	detector   agent.LoopDetector
+	retryPolicy    agent.RetryPolicy
+	retryPolicySet bool
+	preparer       *contextPreparerAdapter
+	hooks          agent.HookDispatcher
+	retry          retryFunc
+	isOverflow     func(string) bool
+	detector       agent.LoopDetector
 
 	catalog        *extensions.ToolCatalog
 	commands       *extensions.CommandCatalog
@@ -86,17 +87,9 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if model != "" {
 		cfg.Model = model
 	}
-	var client agent.Client
-	if provider != "" {
-		built, err := buildProviderClient(d, provider)
-		if err != nil {
-			return fail(d, err)
-		}
-		client = built
-	} else if d.Client != nil {
-		client = d.Client
-	} else {
-		client = openrouter.New(cfg.OpenRouterURL, cfg.APIKey, nil)
+	client, selectedProvider, err := selectChatClient(d, cfg, provider)
+	if err != nil {
+		return fail(d, err)
 	}
 	toolSet := d.Tools
 	if len(toolSet) == 0 {
@@ -190,20 +183,8 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if modelReg == nil {
 		modelReg = models.NewRegistry()
 	}
-	if d.FetchModels != nil {
-		fctx, cancel := context.WithTimeout(ctx, modelFetchTimeout)
-		infos, ferr := d.FetchModels(fctx)
-		cancel()
-		if ferr == nil {
-			modelReg.Merge(infos)
-		}
-	}
-	if d.ModelsCatalog != nil {
-		storePath := models.StorePathFor(cfg.SessionDir)
-		_ = d.ModelsCatalog.RefreshTo(storePath)
-		if store, err := models.LoadStore(storePath); err == nil {
-			modelReg.MergeRefreshed(store, localModelOverrides(d, cfg.WorkspaceRoot))
-		}
+	if err := refreshModelRegistry(ctx, d, cfg, modelReg); err != nil {
+		return fail(d, err)
 	}
 
 	window := cfg.ContextWindowTokens
@@ -221,6 +202,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		sysPrompt = defaultSystemPrompt
 	}
 	instr, err := content.DiscoverInstructions(cwd, content.InstructionsOptions{
+		BundleFS:      d.Bundle.FS,
 		WorkspaceRoot: cfg.WorkspaceRoot,
 		UserHome:      d.Home(),
 	})
@@ -231,7 +213,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 
 	if continuePath != "" {
-		providerID := provider
+		providerID := selectedProvider
 		if providerID == "" {
 			providerID = "openrouter"
 		}
@@ -257,11 +239,17 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		stderr:       d.Stderr,
 		preparer:     preparer,
 		hooks:        hooks,
-		retry:        retryAdapter,
-		isOverflow:   retry.IsContextOverflow,
-		detector:     newLoopDetectorAdapter(loopdetector.New(loopdetector.DefaultConfig())),
-		catalog:      catalog,
-		commands:     commands,
+		retryPolicy: agent.RetryPolicy{
+			Enabled:     cfg.RetryEnabled,
+			MaxRetries:  cfg.RetryMaxRetries,
+			BaseDelayMs: cfg.RetryBaseDelayMs,
+		},
+		retryPolicySet: true,
+		retry:          retryAdapter,
+		isOverflow:     retry.IsContextOverflow,
+		detector:       newLoopDetectorAdapter(loopdetector.New(loopdetector.DefaultConfig())),
+		catalog:        catalog,
+		commands:       commands,
 		handlerContext: func(signal context.Context) sdk.HandlerContext {
 			return runtime.HandlerContext(signal)
 		},
@@ -294,7 +282,11 @@ func loadChatConfig(d *Deps) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return config.LoadWithDefaults(d.Env, d.Getwd, d.Home, nil, pkgDefaults)
+	bundleSettings, err := config.ReadBundleSettings(d.Bundle.FS)
+	if err != nil {
+		return nil, err
+	}
+	return config.LoadWithSources(d.Env, d.Getwd, d.Home, config.DefaultsFromAny(d.Bundle.ConfigDefaults), bundleSettings, pkgDefaults)
 }
 
 func buildContentSnapshot(d *Deps, workspaceRoot string) (content.Snapshot, error) {
@@ -528,7 +520,7 @@ func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 	if d.catalog != nil {
 		catalog = d.catalog
 	}
-	return &agent.LoopDeps{
+	deps := &agent.LoopDeps{
 		Client:            d.client,
 		Tools:             d.tools,
 		Catalog:           catalog,
@@ -540,7 +532,10 @@ func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 		Retry:             d.retry,
 		IsContextOverflow: d.isOverflow,
 		Detector:          d.detector,
+		RetryPolicy:       d.retryPolicy,
+		RetryPolicySet:    d.retryPolicySet,
 	}
+	return deps
 }
 
 type retryFunc func(ctx context.Context, produce func(context.Context) (*agent.AssistantMessage, error), policy agent.RetryPolicy, callbacks *agent.RetryCallbacks) (*agent.AssistantMessage, error)

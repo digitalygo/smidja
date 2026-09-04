@@ -702,12 +702,15 @@ func TestProviderDefaultModel(t *testing.T) {
 func TestBuildProviderClientManifest(t *testing.T) {
 	home := authHome(t)
 	deps, _, _ := authDeps(home, map[string]string{"DEEPSEEK_API_KEY": "sk-ds-1"}, nil, nil, "")
-	client, err := buildProviderClient(deps, "deepseek")
+	client, id, err := buildProviderClient(deps, "deepseek")
 	if err != nil {
 		t.Fatalf("buildProviderClient(deepseek): %v", err)
 	}
 	if client == nil {
 		t.Fatal("nil client")
+	}
+	if id != "deepseek" {
+		t.Errorf("id = %q, want the manifest id deepseek", id)
 	}
 }
 
@@ -717,23 +720,47 @@ func TestBuildProviderClientOAuthFriendly(t *testing.T) {
 		"anthropic-oauth": {Type: "oauth", Access: "sk-ant-oat-1", Refresh: "rt-1", Expires: time.Now().Add(time.Hour).UnixMilli()},
 	})
 	deps, _, _ := authDeps(home, nil, nil, nil, "")
-	client, err := buildProviderClient(deps, "anthropic")
+	client, id, err := buildProviderClient(deps, "anthropic")
 	if err != nil {
 		t.Fatalf("buildProviderClient(anthropic): %v", err)
 	}
 	if client == nil {
 		t.Fatal("nil client")
 	}
+	if id != "anthropic-oauth" {
+		t.Errorf("id = %q, want the stable oauth id anthropic-oauth", id)
+	}
+}
+
+func TestBuildProviderClientCanonicalizesOAuthAliases(t *testing.T) {
+	home := authHome(t)
+	seedStore(t, home, map[string]authstore.Entry{
+		"codex":            {Type: "oauth", Access: "codex-access", Refresh: "rt", Expires: time.Now().Add(time.Hour).UnixMilli()},
+		"xai-subscription": {Type: "oauth", Access: "xai-access", Refresh: "rt", Expires: time.Now().Add(time.Hour).UnixMilli()},
+	})
+	deps, _, _ := authDeps(home, nil, nil, nil, "")
+	for _, tc := range []struct{ flag, want string }{
+		{"codex", "codex"},
+		{"xai", "xai-subscription"},
+	} {
+		_, id, err := buildProviderClient(deps, tc.flag)
+		if err != nil {
+			t.Fatalf("buildProviderClient(%s): %v", tc.flag, err)
+		}
+		if id != tc.want {
+			t.Errorf("buildProviderClient(%s) id = %q, want the stable provider id %q", tc.flag, id, tc.want)
+		}
+	}
 }
 
 func TestBuildProviderClientOAuthErrors(t *testing.T) {
 	home := authHome(t)
 	deps, _, _ := authDeps(home, nil, nil, nil, "")
-	_, err := buildProviderClient(deps, "codex")
+	_, _, err := buildProviderClient(deps, "codex")
 	if err == nil || !strings.Contains(err.Error(), "no oauth credential for codex") {
 		t.Errorf("err = %v, want the oauth guidance error", err)
 	}
-	_, err = buildProviderClient(deps, "bogus")
+	_, _, err = buildProviderClient(deps, "bogus")
 	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
 		t.Errorf("err = %v, want unknown provider", err)
 	}

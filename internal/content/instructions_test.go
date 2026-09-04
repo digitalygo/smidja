@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestDiscoverProjectInstructionsNearestWins(t *testing.T) {
@@ -152,13 +153,19 @@ func TestDiscoverInstructionsDefaultCap(t *testing.T) {
 }
 
 func TestInstructionsSuffixRender(t *testing.T) {
-	i := Instructions{Project: "proj", Global: "glob"}
+	i := Instructions{Bundle: "bund", Project: "proj", Global: "glob"}
 	suffix := i.Suffix()
+	if !strings.Contains(suffix, "[bundle instructions]") || !strings.Contains(suffix, "bund") {
+		t.Errorf("suffix = %q, want the bundle marker and content", suffix)
+	}
 	if !strings.Contains(suffix, "[project instructions]") || !strings.Contains(suffix, "proj") {
 		t.Errorf("suffix = %q, want the project marker and content", suffix)
 	}
 	if !strings.Contains(suffix, "[user instructions]") || !strings.Contains(suffix, "glob") {
 		t.Errorf("suffix = %q, want the user marker and content", suffix)
+	}
+	if strings.Index(suffix, "[bundle instructions]") > strings.Index(suffix, "[project instructions]") {
+		t.Error("bundle section must precede the project section")
 	}
 	if strings.Index(suffix, "[project instructions]") > strings.Index(suffix, "[user instructions]") {
 		t.Error("project section must precede the user section")
@@ -168,6 +175,43 @@ func TestInstructionsSuffixRender(t *testing.T) {
 	}
 	if empty := (Instructions{}).Suffix(); empty != "" {
 		t.Errorf("empty instructions suffix = %q, want empty", empty)
+	}
+}
+
+func TestDiscoverBundleInstructionsRootedPreferred(t *testing.T) {
+	bundleFS := fstest.MapFS{
+		"AGENTS.md":           {Data: []byte("# bundle rules")},
+		"content/AGENTS.md":   {Data: []byte("# legacy bundle rules")},
+		"content/skills/x.md": {Data: []byte("x")},
+	}
+	instr, err := DiscoverInstructions(t.TempDir(), InstructionsOptions{BundleFS: bundleFS})
+	if err != nil {
+		t.Fatalf("DiscoverInstructions: %v", err)
+	}
+	if instr.Bundle != "# bundle rules" {
+		t.Errorf("Bundle = %q, want the rooted AGENTS.md", instr.Bundle)
+	}
+}
+
+func TestDiscoverBundleInstructionsLegacyLocation(t *testing.T) {
+	bundleFS := fstest.MapFS{"content/AGENTS.md": {Data: []byte("# legacy bundle rules")}}
+	instr, err := DiscoverInstructions(t.TempDir(), InstructionsOptions{BundleFS: bundleFS})
+	if err != nil {
+		t.Fatalf("DiscoverInstructions: %v", err)
+	}
+	if instr.Bundle != "# legacy bundle rules" {
+		t.Errorf("Bundle = %q, want the legacy content/AGENTS.md", instr.Bundle)
+	}
+}
+
+func TestDiscoverBundleInstructionsMissingIgnored(t *testing.T) {
+	bundleFS := fstest.MapFS{"content/skills/x.md": {Data: []byte("x")}}
+	instr, err := DiscoverInstructions(t.TempDir(), InstructionsOptions{BundleFS: bundleFS})
+	if err != nil {
+		t.Fatalf("DiscoverInstructions: %v", err)
+	}
+	if instr.Bundle != "" {
+		t.Errorf("Bundle = %q, want empty without a bundle AGENTS.md", instr.Bundle)
 	}
 }
 
