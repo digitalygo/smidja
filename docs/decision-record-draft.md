@@ -42,7 +42,7 @@ Scartati TypeScript/Node per requisito (zero dipendenze, binario statico) e Rust
 - Un'estensione è un package Go conforme all'interfaccia di estensione del core, registrato nella build della propria repo. Niente caricamento dinamico nativo (il `plugin` package di Go è limitato a tre OS e fragile), niente ABI instabili.
 - Conseguenza voluta: installare l'estensione di qualcuno significa usare (o forkare) il suo pacchetto, non scaricare un file dentro un binario esistente.
 - Iterazione locale senza rebuild resta possibile sul layer dichiarativo (skill, prompt, config, definizioni agente come file MD), letto dal disco con precedenza sui baked-in.
-- Opzioni future non bloccanti: subprocess JSON-RPC o WASM (wazero) per estensioni installabili senza ricompilare. Solo se emerge il caso d'uso reale.
+- Decisione permanente: nessun meccanismo di estensione senza rebuild. Le opzioni subprocess JSON-RPC e WASM (wazero) non restano in attesa di un caso d'uso: sono scartate. Distribuire codice significa ricompilare il bundle.
 
 ### D4. Contenuti baked-in: go:embed
 
@@ -155,9 +155,10 @@ Prototipo Go che valida peso e velocità del binario e la produttività del team
 
 ### Fase 5, ecosistema
 
-- Template repo per creare pacchetti.
-- Documentazione per i creatori di pacchetti.
-- Eventuale supporto estensioni senza rebuild (subprocess o WASM) se c'è domanda.
+- Template repo pubblico per bundle compilati (`github.com/digitalygo/smidja-bundle-template`).
+- Documentazione per i creatori: bundle compilati e pacchetti di soli contenuti.
+- Indice/registry dei pacchetti differito: si crea solo quando la pubblicazione lo richiede.
+- Le estensioni restano Go compilate nella build del bundle: nessun meccanismo senza rebuild (subprocess, WASM, plugin). L'opzione "eventuale supporto senza rebuild" è rimossa.
 - Uscita: un creatore esterno pubblica il suo pacchetto in autonomia.
 
 ## Rischi

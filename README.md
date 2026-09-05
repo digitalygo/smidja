@@ -8,7 +8,7 @@ Smidja (Icelandic spelling: Smiðja) means "forge" in Old Norse. It is the forge
 
 Existing harnesses proved that a minimal core where everything is an extension works well. But they ship as TypeScript on Node.js: heavy runtime, fragile dependency trees, installs that require an ecosystem. Smidja keeps the minimal-core idea and compiles it down.
 
-A "package" here is simply a build of the binary with content baked in: skills, agents, subagents, extensions, prompts. Installing someone's package means getting a harness born with their workflow inside. Updating means updating the binary, never syncing scattered files.
+Two distribution shapes exist, and they are not interchangeable. A compiled bundle is a full build of the binary with skills, agents, prompts, and Go extensions baked in: installing someone's bundle means running their binary with their workflow already inside, and updating means updating the binary, never syncing scattered files. You create one from the public [smidja-bundle-template](https://github.com/digitalygo/smidja-bundle-template) and distribute it as release binaries. A content-only package is a versioned public GitHub repository of markdown content and config defaults with no code at all: `smidja pkg` installs it into an existing harness and it extends the workflow without touching the binary.
 
 ## Principles
 
@@ -23,7 +23,7 @@ Content precedence, highest first: bundle > trusted workspace > user content in 
 
 ## Status
 
-Implementation is complete through Fase 4 (remote gateway): the repository builds, `go vet` is clean, and the full test suite is green.
+Fasi 0-4 are complete, and the Fase 5 technical creator tooling is now available: the creator guides for compiled bundles and content packages plus the public [smidja-bundle-template](https://github.com/digitalygo/smidja-bundle-template) are published, while real external clean-room creator validation is still pending.
 
 - Fase 0 (spike): a working Go harness on OpenRouter with streaming, tools, and Pi-aligned JSONL sessions, benchmarked against Pi (see `docs/benchmarks/phase-0.md`).
 - Fase 1 (internal MVP): smart context management, extension hooks, `smidja import` for Pi sessions, and deterministic self-update.
@@ -39,6 +39,8 @@ Final gate details and the phase-by-phase execution ledger live in the plan unde
 - [Settings](docs/settings.md): the settings files, supported fields, and configuration precedence
 - [Brew tap](docs/brew.md): the future `github.com/digitalygo/homebrew-smidja` tap and its formula
 - [Providers manifest](docs/providers-manifest.md): the frozen API-key provider catalogue
+- [Creating compiled bundles](docs/creating-bundles.md): the bundle template, the `sdk.Bundle` contract, build identity, and release assets
+- [Creating content packages](docs/creating-content-packages.md): the package manifest, validation rules, and the `smidja pkg` lifecycle
 
 ## License
 
