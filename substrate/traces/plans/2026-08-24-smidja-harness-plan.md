@@ -7,22 +7,22 @@ planner: hermes-decision-draft
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-08-25T00:05:00+02:00
-last_updated_at: 2026-09-04T22:30:33+02:00
+last_updated_at: 2026-09-05T02:11:13+02:00
 ---
 
 # Piano Smidja harness
 
 ## Current execution snapshot
 
-- **Status:** In progress. Fasi 0-4 completed and gated; Fase 5 ready for execution.
+- **Status:** In progress. Fasi 0-4 completed and gated; Fase 5 technical implementation completed and gated, with external creator validation pending.
 - **Baseline identity:** `2026-08-24-smidja-harness-plan`, baseline version 1, planner handoff date 2026-08-24.
-- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629; Fase 4 review base a08ea0b and closed target 7184165.
-- **Active phase:** Fase 5, ecosistema (handoff; implementation not started).
-- **Last verified checkpoint:** Checkpoint 2026-09-04T22:30:33+02:00, Fase 5 handoff after Fase 4 closure.
-- **Last successful checks:** Fase 4 deterministic, quality and focused security gates all PASS on artifact 05b81207; aggregate delta-package coverage 89.2%.
-- **Open blockers:** None for Fase 4. Fase 5 requires implementation and external creator validation.
-- **Required approvals and gates:** Explicit multi-repository approval before changing the template or registry-index repositories; quality and proportional security gates on each implementation delta.
-- **Next action:** Present the bounded Fase 5 work and request multi-repository approval only when implementation is commissioned.
+- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629; Fase 4 review base a08ea0b and closed target 7184165; Fase 5 started from `digitalygo/smidja` a8a32dc and an absent template repository, and delivered `smidja` 42cb024 plus `smidja-bundle-template` 83492b2.
+- **Active phase:** Fase 5, ecosistema (real external creator acceptance).
+- **Last verified checkpoint:** Checkpoint 2026-09-05T02:11:13+02:00, Fase 5 technical delivery completed and gated.
+- **Last successful checks:** Template deterministic, quality, security, remote CI and internal clean-room rehearsal all PASS; documentation human review PASS; template coverage 95.1%.
+- **Open blockers:** The baseline completion criterion still requires a genuinely external creator to publish a derived bundle without Digitalygo assistance. The verified internal rehearsal is not external evidence.
+- **Required approvals and gates:** Approved two-repository implementation and all technical gates are resolved. Closing or deferring the external-creator criterion requires real external evidence or explicit user approval.
+- **Next action:** Have an external creator use the public template and guides to publish and verify a release, or obtain explicit approval to defer that adoption criterion.
 
 #### Checkpoint 2026-08-25T11:00:00+02:00: runaway guards removed, loop unbounded like Pi
 
@@ -525,6 +525,26 @@ Solo task, nessuna stima di giorni.
 - **Decision and impact:** Fase 5 remains pending and the plan status remains `in-progress`. Template and registry-index work may affect additional repositories, so implementation cannot begin without explicit multi-repository approval.
 - **Next action:** Present the remaining Fase 5 work, repository boundaries, acceptance test and gate sequence to the user.
 
+#### Checkpoint 2026-09-05T00:38:10+02:00: Fase 5 scope approved and execution resumed
+
+- **Event:** The user commissioned Fase 5 and explicitly approved the bounded multi-repository implementation.
+- **Planner prediction:** The baseline requires a package-template repository, creator documentation and autonomous publication by an external creator. V-017 removes every no-rebuild extension mechanism.
+- **Subagent claims:** Locator and analyzer agents found no applicable DRC or EXP files, no existing creator guide, no template repository and two distinct distribution contracts. The solution architect recommended a compiled-bundle template plus separate documentation for compiled bundles and content-only packages.
+- **Orchestrator finding:** `smidja pkg` installs content-only packages directly from public GitHub repositories and does not consume a registry index. The complex missing creator surface is the compiled bundle template. `digitalygo/smidja-digitalygo` is sufficient as a read-only reference and does not require modification.
+- **Independently verified facts:** `digitalygo/smidja` is clean and synchronized on default branch `alpha` at a8a32dc. `digitalygo/smidja-digitalygo` is clean and synchronized on default branch `main` at 612f3ef. GitHub has no `digitalygo/smidja-bundle-template` or `digitalygo/smidja-packages`. The user approved modifying `digitalygo/smidja` and creating the public `digitalygo/smidja-bundle-template`, while excluding the other repositories.
+- **Decision and impact:** Fase 5 implementation starts across the two approved repositories. `digitalygo/smidja-packages` remains deferred because it has no runtime consumer or current discovery requirement. The original external-creator criterion remains a closure gate, and an internal rehearsal will not be mislabeled as external evidence.
+- **Next action:** Create and implement the public compiled-bundle template, write both creator guides in the harness repository, then run repository-specific verification and gates.
+
+#### Checkpoint 2026-09-05T02:11:13+02:00: Fase 5 technical delivery completed and gated
+
+- **Event:** The approved two-repository Fase 5 implementation, publication, technical gates and internal clean-room rehearsal completed. The external-human completion criterion remains open.
+- **Planner prediction:** Fase 5 expected a package-template repository, creator documentation and an external creator able to publish autonomously.
+- **Subagent claims:** The backend implementation supplied a compiled-bundle template with immutable harness pin, embedded content, one offline extension, customization tooling, tests, cross-build and release workflows. The documentation implementation supplied separate creator guides for compiled bundles and content-only packages. Quality and security reviewers returned PASS.
+- **Orchestrator finding:** The first remote clean-room rehearsal exposed rewrite-sensitive hardcoded test fixtures after customization. A focused test-only correction made identity fixtures derive the current module, exercised the dirty-tree guard in a real git repository and validated focused identity tests inside a customized copy. A second rehearsal from the final remote commit passed for the exact previously failing origin.
+- **Independently verified facts:** `digitalygo/smidja-bundle-template` is public, uses default branch `main`, is enabled as a GitHub template and is synchronized at 83492b2. Remote CI run 33931839192 passed on that commit. `go mod verify`, formatting, vet, full tests, race tests, shellcheck, actionlint, workflow parsing, four Linux/macOS amd64/arm64 static builds, sorted checksum verification and release identity smoke passed; aggregate statement coverage is 95.1%. The frozen product artifact 18f45fb089f62567ba6ea3b5a2a704f1c54cad5951662cf3919b6a1f6b2d9c8e received quality PASS and focused security PASS. The follow-up test-only patch 691c3f10781143486723f011d8a3530053e4e059eb99017619bbad05678f377c received quality PASS; a new security review was not required because production and workflow content did not change. A fresh clone was customized to `github.com/acme/cool-bundle`, committed locally, passed full and race tests, produced all release assets with valid checksums, and reported the derived origin, version and commit correctly. `digitalygo/smidja` published README and decision-record alignment plus `docs/creating-bundles.md` and `docs/creating-content-packages.md` at 42cb024; Markdown structure, links, whitespace and sample manifest hashes and sizes passed human verification. Documentation adds no executable lines, so tests and coverage are N/A for that slice.
+- **Decision and impact:** Planned and actual harness files are `README.md`, `docs/decision-record-draft.md`, `docs/creating-bundles.md` and `docs/creating-content-packages.md`; the new template contains 25 source, test, content, workflow and repository files. `digitalygo/smidja-digitalygo` remained read-only and `digitalygo/smidja-packages` remained deferred. Technical implementation is complete, but Fase 5 and the overall plan remain `in-progress` because an internal agent rehearsal cannot satisfy the external-human criterion.
+- **Next action:** Ask a genuinely external creator to generate a repository from the template, customize it, publish a `v*` release and verify it from a clean environment without Digitalygo intervention.
+
 ## Plan-variation ledger
 
 ### Variation V-001: benchmark series limited to one paired trial per task
@@ -701,6 +721,15 @@ Solo task, nessuna stima di giorni.
 - **Approval:** Existing explicit user decision recorded by V-013 on 2026-08-26.
 - **Resolution:** Fase 5 handoff checkpoint 2026-09-04T22:30:33+02:00.
 
+### Variation V-018: Fase 5 separates the compiled template from content-package guidance
+
+- **Baseline reference:** Fase 5 step 1 predicted one package-template repository, while later package work introduced a separate content-only runtime package format and a deferred registry index.
+- **Discovered evidence:** Codebase analysis verified that compiled bundles and content-only packages have incompatible repository layouts. `smidja pkg` installs directly from public GitHub repositories and has no registry-index consumer. The complex missing creator surface was the compiled bundle build and release chain.
+- **Decision:** Create the public `digitalygo/smidja-bundle-template` for compiled distributions, document content-only package authoring separately in `digitalygo/smidja`, and keep `digitalygo/smidja-packages` deferred until discovery demand exists.
+- **Scope and downstream impact:** Fase 5 changed only `digitalygo/smidja` and the new template repository. `digitalygo/smidja-digitalygo` stayed read-only, no content-package template was added and no runtime package contract changed.
+- **Approval:** The user explicitly approved this two-repository boundary on 2026-09-05.
+- **Resolution:** Fase 5 technical delivery checkpoint 2026-09-05T02:11:13+02:00.
+
 ## Closure evidence
 
 ### Final outcome
@@ -710,7 +739,7 @@ Solo task, nessuna stima di giorni.
 - **Fase 2, distribuzione: COMPLETED** on 2026-08-26 with public repositories, release v0.1.0 and brew tap verified; unassisted external installation remains deferred adoption evidence.
 - **Fase 3, pacchetti opzionali: COMPLETED** on 2026-08-26 with package format, MCP client, CLI lifecycle and tests gated; team usage and registry-index creation remain demand-driven follow-ups.
 - **Fase 4, gateway remoto: COMPLETED** on 2026-09-04 with Telegram and web gateways, session continuity, content/configuration parity, quality PASS and security PASS. The user approved deferring the phone-workday criterion under V-016.
-- **Fase 5, ecosistema: PENDING.** The overall plan remains `in-progress` with the Fase 5 handoff active.
+- **Fase 5, ecosistema: PENDING EXTERNAL ACCEPTANCE.** Technical implementation, publication and gates completed on 2026-09-05; the baseline external-creator criterion remains open, so the overall plan stays `in-progress`.
 
 ### Quality and security evidence
 
@@ -720,6 +749,9 @@ Solo task, nessuna stima di giorni.
 - Fase 3 quality and security PASS are recorded at checkpoint 2026-08-26T20:00:00+02:00 on artifact 672c8ace.
 - Fase 4 deterministic, dedicated quality and focused security gates all passed on target 7184165fe3599c343813e954a289d4b3080dc74a, tree 1b329e71f65fad3118eed4f2e413ecb20127432d, manifest 2c9d6c70469f28e928c002fd0a73dfdc9899edefa852caedff11ee1e738176f3, and binary diff 05b81207373af1aea4e0c7d2a610bf2c2af6b5cafd69f3d7b6c0ccfbcd8d57b1. Aggregate delta-package coverage was 89.2%.
 - Fase 4 verification included supported static cross-builds, full build/vet/test, repeated auth concurrency and provider replay tests, 100 gateway cancellation repetitions and race tests across all 15 delta packages. The unsupported full Windows build and pre-existing MCP stress flake remain out-of-delta signals; focused Windows builds for changed lock packages passed.
+- Fase 5 template deterministic and quality gates passed on frozen artifact 18f45fb089f62567ba6ea3b5a2a704f1c54cad5951662cf3919b6a1f6b2d9c8e, including 95.1% statement coverage, race tests, shell and workflow validation, four static cross-builds, checksums and release identity smoke. Focused supply-chain security review passed on the same artifact.
+- Fase 5 clean-room regression patch 691c3f10781143486723f011d8a3530053e4e059eb99017619bbad05678f377c received quality PASS after reproducing and correcting customized-repository test failures. Security review was N/A because this follow-up changed tests only. Remote template CI run 33931839192 passed on final commit 83492b2.
+- Fase 5 creator documentation at `smidja` commit 42cb024 passed human Markdown, link and manifest-example verification. Tests and coverage were N/A because the slice changed documentation only.
 
 ### Operation record
 
