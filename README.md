@@ -23,7 +23,7 @@ Content precedence, highest first: bundle > trusted workspace > user content in 
 
 ## Status
 
-Fasi 0-4 are complete, and the Fase 5 technical creator tooling is now available: the creator guides for compiled bundles and content packages plus the public [smidja-bundle-template](https://github.com/digitalygo/smidja-bundle-template) are published, while real external clean-room creator validation is still pending.
+Fasi 0-4 are complete, and the Fase 5 technical creator tooling is now available: the creator guides for compiled bundles and content packages plus the public [smidja-bundle-template](https://github.com/digitalygo/smidja-bundle-template) are published, the public [smidja-packages](https://github.com/digitalygo/smidja-packages) package catalog is available for discovery, and real external clean-room creator validation is still pending.
 
 - Fase 0 (spike): a working Go harness on OpenRouter with streaming, tools, and Pi-aligned JSONL sessions, benchmarked against Pi (see `docs/benchmarks/phase-0.md`).
 - Fase 1 (internal MVP): smart context management, extension hooks, `smidja import` for Pi sessions, and deterministic self-update.
@@ -41,6 +41,7 @@ Final gate details and the phase-by-phase execution ledger live in the plan unde
 - [Providers manifest](docs/providers-manifest.md): the frozen API-key provider catalogue
 - [Creating compiled bundles](docs/creating-bundles.md): the bundle template, the `sdk.Bundle` contract, build identity, and release assets
 - [Creating content packages](docs/creating-content-packages.md): the package manifest, validation rules, and the `smidja pkg` lifecycle
+- [Public package catalog](https://github.com/digitalygo/smidja-packages): the publisher-maintained discovery index for content packages; listing is not endorsement and installation never depends on it
 
 ## License
 

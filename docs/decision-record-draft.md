@@ -157,7 +157,7 @@ Prototipo Go che valida peso e velocità del binario e la produttività del team
 
 - Template repo pubblico per bundle compilati (`github.com/digitalygo/smidja-bundle-template`).
 - Documentazione per i creatori: bundle compilati e pacchetti di soli contenuti.
-- Indice/registry dei pacchetti differito: si crea solo quando la pubblicazione lo richiede.
+- Indice/registry dei pacchetti: si fornisce una directory di scoperta pubblica mantenuta dai publisher in `github.com/digitalygo/smidja-packages`. Non media l'installazione né la risoluzione delle versioni: l'installazione resta diretta da `owner/repo@version` e i tag restano l'unica autorità sulle versioni.
 - Le estensioni restano Go compilate nella build del bundle: nessun meccanismo senza rebuild (subprocess, WASM, plugin). L'opzione "eventuale supporto senza rebuild" è rimossa.
 - Uscita: un creatore esterno pubblica il suo pacchetto in autonomia.
 

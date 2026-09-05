@@ -1,6 +1,6 @@
 # Creating content packages
 
-A content-only package extends an installed smidja harness after the fact with skills, prompts, agents, and config defaults. It carries no code and is installed straight from a public GitHub repository with `smidja pkg install <owner/repo@version>`. No registry or index is involved; the direct `owner/repo@version` form is the only install path today, and the `digitalygo/smidja-packages` index remains deferred until publication actually needs it.
+A content-only package extends an installed smidja harness after the fact with skills, prompts, agents, and config defaults. It carries no code and is installed straight from a public GitHub repository with `smidja pkg install <owner/repo@version>`. Installation always remains direct and never depends on the optional public discovery registry: the direct `owner/repo@version` form is the only install path, and the [digitalygo/smidja-packages](https://github.com/digitalygo/smidja-packages) catalog is a discovery aid that never mediates installation or version resolution.
 
 If you want to ship compiled Go extensions, you need a [compiled bundle](creating-bundles.md) instead.
 
@@ -157,6 +157,15 @@ The snippet lists whatever exists under those roots, including files you forgot 
 - `smidja pkg install <owner/repo@version> --pin <commit>` fails unless the resolved commit matches the pin.
 
 Tags on GitHub are mutable by default. Protect your tags or treat a moved tag as a broken contract for everyone who pinned or installed it.
+
+## Listing in the public registry
+
+The optional discovery registry lives at [digitalygo/smidja-packages](https://github.com/digitalygo/smidja-packages). Its [`catalog.md`](https://github.com/digitalygo/smidja-packages/blob/main/catalog.md) lists published packages so people can find them, and its [contribution guide](https://github.com/digitalygo/smidja-packages/blob/main/.github/CONTRIBUTING.md) explains how to get a package listed.
+
+- Listing is a publisher action: you submit your package by opening a pull request against the registry repository, following its contribution guide.
+- The catalog is publisher-maintained and does not track releases. There is nothing to update per release, because the tags in your own repository remain the only authority on versions; the catalog is discovery metadata only.
+- Being listed is not an endorsement and not an authenticity or safety certification. The harness marks package authenticity `unverified` regardless of any catalog entry, so review a package before installing it, listed or not.
+- Admission can require evidence of package ownership, and such evidence must live outside the strict package archive: the tarball accepts only the manifest and the declared content files, so nothing else can ship inside it. Provide it in the registry pull request itself.
 
 ## Install and lifecycle
 
