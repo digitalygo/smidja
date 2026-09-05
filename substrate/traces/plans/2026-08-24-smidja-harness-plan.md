@@ -7,22 +7,22 @@ planner: hermes-decision-draft
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-08-25T00:05:00+02:00
-last_updated_at: 2026-09-05T02:11:13+02:00
+last_updated_at: 2026-09-05T15:26:32+02:00
 ---
 
 # Piano Smidja harness
 
 ## Current execution snapshot
 
-- **Status:** In progress. Fasi 0-4 completed and gated; Fase 5 technical implementation completed and gated, with external creator validation pending.
+- **Status:** In progress. Fasi 0-4 completed and gated; all Fase 5 technical ecosystem deliverables completed and gated, with external creator acceptance pending.
 - **Baseline identity:** `2026-08-24-smidja-harness-plan`, baseline version 1, planner handoff date 2026-08-24.
-- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629; Fase 4 review base a08ea0b and closed target 7184165; Fase 5 started from `digitalygo/smidja` a8a32dc and an absent template repository, and delivered `smidja` 42cb024 plus `smidja-bundle-template` 83492b2.
+- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629; Fase 4 review base a08ea0b and closed target 7184165; Fase 5 delivered `smidja-bundle-template` 83492b2, public registry `smidja-packages` 5c8ec5f and harness documentation through 94e4915.
 - **Active phase:** Fase 5, ecosistema (real external creator acceptance).
-- **Last verified checkpoint:** Checkpoint 2026-09-05T02:11:13+02:00, Fase 5 technical delivery completed and gated.
-- **Last successful checks:** Template deterministic, quality, security, remote CI and internal clean-room rehearsal all PASS; documentation human review PASS; template coverage 95.1%.
-- **Open blockers:** The baseline completion criterion still requires a genuinely external creator to publish a derived bundle without Digitalygo assistance. The verified internal rehearsal is not external evidence.
-- **Required approvals and gates:** Approved two-repository implementation and all technical gates are resolved. Closing or deferring the external-creator criterion requires real external evidence or explicit user approval.
-- **Next action:** Have an external creator use the public template and guides to publish and verify a release, or obtain explicit approval to defer that adoption criterion.
+- **Last verified checkpoint:** Checkpoint 2026-09-05T15:26:32+02:00, public package registry completed and gated.
+- **Last successful checks:** Template and registry deterministic, quality, security and remote CI gates PASS; internal clean-room rehearsals and documentation human reviews PASS; both executable repositories have 95.1% statement coverage.
+- **Open blockers:** The baseline completion criterion still requires a genuinely external creator to publish without Digitalygo assistance. Internal rehearsal is not external evidence.
+- **Required approvals and gates:** All technical implementation approvals and gates are resolved. Closing or deferring the external-creator criterion requires real external evidence or explicit user approval.
+- **Next action:** Have an external creator publish from the template or submit a content package to the registry without Digitalygo implementation assistance, then capture the clean-room evidence.
 
 #### Checkpoint 2026-08-25T11:00:00+02:00: runaway guards removed, loop unbounded like Pi
 
@@ -545,6 +545,26 @@ Solo task, nessuna stima di giorni.
 - **Decision and impact:** Planned and actual harness files are `README.md`, `docs/decision-record-draft.md`, `docs/creating-bundles.md` and `docs/creating-content-packages.md`; the new template contains 25 source, test, content, workflow and repository files. `digitalygo/smidja-digitalygo` remained read-only and `digitalygo/smidja-packages` remained deferred. Technical implementation is complete, but Fase 5 and the overall plan remain `in-progress` because an internal agent rehearsal cannot satisfy the external-human criterion.
 - **Next action:** Ask a genuinely external creator to generate a repository from the template, customize it, publish a `v*` release and verify it from a clean environment without Digitalygo intervention.
 
+#### Checkpoint 2026-09-05T13:52:55+02:00: registry deferral reversed by user
+
+- **Event:** The user explicitly requested creation of `digitalygo/smidja-packages`, reversing the demand-driven deferral after reviewing its maintenance trade-offs.
+- **Planner prediction:** Fase 3 introduced a central package index and Fase 5 retained it as a deferred ecosystem deliverable.
+- **Subagent claims:** Codebase and trace locators confirmed that the remote registry has no current CLI consumer and is separate from the compiled-bundle template. The solution architect proposed a public, static, publisher-maintained discovery registry with deterministic local validation and generated outputs.
+- **Orchestrator finding:** A registry can remain low-maintenance if package repositories and GitHub tags remain authoritative, publishers submit metadata through pull requests, versions are not mirrored and required CI performs no network crawling.
+- **Independently verified facts:** `digitalygo/smidja` is clean and synchronized on default branch `alpha` at c83f0ea. GitHub and the local workspace have no `digitalygo/smidja-packages`. The authenticated Digitalygo maintainer is `lucanori`. No DRC, EXP or CONTRIBUTING file governs this repository.
+- **Decision and impact:** Create public `digitalygo/smidja-packages` now and update only the registry references in `digitalygo/smidja`. Do not add registry-aware installation or `smidja pkg search`; direct installation remains independent. This supersedes only the registry-deferral portion of V-018.
+- **Next action:** Implement the empty but useful registry, validate and publish it, then record gates and return to external creator acceptance.
+
+#### Checkpoint 2026-09-05T15:26:32+02:00: public package registry completed and gated
+
+- **Event:** `digitalygo/smidja-packages` was implemented, published and protected as the Fase 5 content-package discovery registry.
+- **Planner prediction:** The ecosystem required a central package index without changing the content-only package runtime contract.
+- **Subagent claims:** Backend implementation supplied strict descriptor parsing, filesystem validation, deterministic JSON and Markdown generation, self-service governance, read-only CI and adversarial tests. Documentation updates linked the registry while preserving direct installation. Quality and security reviewers returned PASS.
+- **Orchestrator finding:** The registry starts empty but is immediately useful as a governed discovery and contribution surface. Package publishers own one stable descriptor and never synchronize release versions, so ongoing work is limited to moderated listing changes rather than central package maintenance.
+- **Independently verified facts:** Public `digitalygo/smidja-packages` is synchronized on default branch `main` at 5c8ec5f. Remote CI run 33968792935 passed. Organization ruleset 13725978 requires pull requests, one approving CODEOWNERS review, stale-review dismissal and blocks deletion and non-fast-forward updates; repository protection additionally requires the current `verify` status, resolved conversations and blocks force-push and branch deletion. Formatting, `go mod tidy`, build, vet, shuffled full tests, race tests, Linux, macOS and Windows static builds, repeated generation, exact output checks, actionlint, YAML and Markdown validation all passed. Aggregate statement coverage is 95.1%. Frozen artifact e81069e16bccea1646a51522fc4b478c7c27144df629fdbd690ebeecbd5b25bb received quality PASS and focused security PASS. The registry is standard-library only, contains no package entries and publishes a valid empty `index.json` and `catalog.md`. Harness documentation at 94e4915 passed human structure, link and wording verification; tests and coverage are N/A for that documentation-only slice.
+- **Decision and impact:** The V-019 registry follow-up is complete. Actual registry scope is 25 files covering tooling, tests, generated outputs, CI, governance and documentation; harness changes are limited to `README.md`, `docs/creating-content-packages.md` and `docs/decision-record-draft.md`. No harness Go behavior, bundle template or reference bundle changed. The phase returns to the external creator acceptance gate.
+- **Next action:** Obtain genuine external publication evidence or explicit approval to defer the adoption criterion, then close Fase 5 and the overall plan.
+
 ## Plan-variation ledger
 
 ### Variation V-001: benchmark series limited to one paired trial per task
@@ -730,6 +750,15 @@ Solo task, nessuna stima di giorni.
 - **Approval:** The user explicitly approved this two-repository boundary on 2026-09-05.
 - **Resolution:** Fase 5 technical delivery checkpoint 2026-09-05T02:11:13+02:00.
 
+### Variation V-019: public package registry created before organic demand
+
+- **Baseline reference:** V-018 deferred `digitalygo/smidja-packages` until package discovery demand emerged.
+- **Discovered evidence:** The user preferred creating the registry now after reviewing the future maintenance trade-offs. A static publisher-maintained directory avoids release synchronization and central package hosting.
+- **Decision:** Create the public registry immediately with self-service descriptor pull requests, deterministic generated index and catalog, and offline validation. Keep installation and version resolution on package repositories.
+- **Scope and downstream impact:** Adds new repository `digitalygo/smidja-packages` and bounded registry-link updates in `digitalygo/smidja`. No harness Go code, package format, bundle template or reference bundle changes.
+- **Approval:** Explicit user request on 2026-09-05.
+- **Resolution:** Registry implementation starts at checkpoint 2026-09-05T13:52:55+02:00.
+
 ## Closure evidence
 
 ### Final outcome
@@ -739,7 +768,7 @@ Solo task, nessuna stima di giorni.
 - **Fase 2, distribuzione: COMPLETED** on 2026-08-26 with public repositories, release v0.1.0 and brew tap verified; unassisted external installation remains deferred adoption evidence.
 - **Fase 3, pacchetti opzionali: COMPLETED** on 2026-08-26 with package format, MCP client, CLI lifecycle and tests gated; team usage and registry-index creation remain demand-driven follow-ups.
 - **Fase 4, gateway remoto: COMPLETED** on 2026-09-04 with Telegram and web gateways, session continuity, content/configuration parity, quality PASS and security PASS. The user approved deferring the phone-workday criterion under V-016.
-- **Fase 5, ecosistema: PENDING EXTERNAL ACCEPTANCE.** Technical implementation, publication and gates completed on 2026-09-05; the baseline external-creator criterion remains open, so the overall plan stays `in-progress`.
+- **Fase 5, ecosistema: PENDING EXTERNAL ACCEPTANCE.** Template, creator guides and public package registry implementation, publication and gates completed on 2026-09-05; the baseline external-creator criterion remains open, so the overall plan stays `in-progress`.
 
 ### Quality and security evidence
 
@@ -752,7 +781,9 @@ Solo task, nessuna stima di giorni.
 - Fase 5 template deterministic and quality gates passed on frozen artifact 18f45fb089f62567ba6ea3b5a2a704f1c54cad5951662cf3919b6a1f6b2d9c8e, including 95.1% statement coverage, race tests, shell and workflow validation, four static cross-builds, checksums and release identity smoke. Focused supply-chain security review passed on the same artifact.
 - Fase 5 clean-room regression patch 691c3f10781143486723f011d8a3530053e4e059eb99017619bbad05678f377c received quality PASS after reproducing and correcting customized-repository test failures. Security review was N/A because this follow-up changed tests only. Remote template CI run 33931839192 passed on final commit 83492b2.
 - Fase 5 creator documentation at `smidja` commit 42cb024 passed human Markdown, link and manifest-example verification. Tests and coverage were N/A because the slice changed documentation only.
+- Fase 5 registry artifact e81069e16bccea1646a51522fc4b478c7c27144df629fdbd690ebeecbd5b25bb received deterministic, quality and focused security PASS with 95.1% statement coverage. Remote CI run 33968792935 passed on registry commit 5c8ec5f; organization and repository branch protections were independently verified. Registry-link documentation at `smidja` commit 94e4915 passed human review with tests and coverage N/A.
 
 ### Operation record
 
-- [Fase 4 gateway implementation operation](../operations/2026-09-04-smidja-fase4-gateway-implementation.md) summarizes the completed work and links back to this evidence ledger.
+- [Fase 4 gateway implementation operation](../operations/2026-09-04-smidja-fase4-gateway-implementation.md) summarizes the completed gateway work and links back to this evidence ledger.
+- [Public package registry operation](../operations/2026-09-05-smidja-packages-registry.md) summarizes the completed registry delivery and links back to this evidence ledger.
