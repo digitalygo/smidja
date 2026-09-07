@@ -1,48 +1,52 @@
 # Brew tap
 
-Smidja distributes a single static binary with no runtime dependencies. On macOS the install path is Homebrew: a tap repository at `github.com/digitalygo/homebrew-smidja` hosts the formula, so `brew install digitalygo/tap/smidja` works like any other tap.
+Smidja distributes a single static binary with no runtime dependencies. On macOS the install path is Homebrew: the public tap at [digitalygo/homebrew-smidja](https://github.com/digitalygo/homebrew-smidja) hosts the authoritative source formula at `Formula/smidja.rb`, so install and upgrade work like any other tap.
 
-## Current status
+## Install and upgrade
 
-The tap repository does not exist yet. What exists in this repository is the formula template at `brew/smidja.rb`: a source-based formula that Homebrew can audit, install, and test as soon as the tap repo is created and the first release is tagged.
-
-## How the formula works
-
-`brew/smidja.rb` is source-based, not bottle-based:
-
-- `url` points at the GitHub release source archive, for example `https://github.com/digitalygo/smidja/archive/refs/tags/v0.1.0.tar.gz`.
-- The build runs `go build` with the same `-ldflags` identity injection as the [release pipeline](https://github.com/digitalygo/smidja/blob/main/scripts/build-release.sh): `main.version` and the buildinfo origin and version, so `smidja -version` and `smidja version --json` report the installed release.
-- The `test` block runs `smidja -version` and asserts the output carries the formula version, so `brew test digitalygo/tap/smidja` verifies the installed binary.
-- The `livecheck` block points at `https://github.com/digitalygo/smidja/releases` with the standard `v`-prefixed version regex, so `brew update` and `brew upgrade` detect new releases automatically.
-
-## Installing from the tap
-
-Once the tap exists, installation works in the usual way:
+Installation needs no manual tap step; brew resolves the `digitalygo/smidja/smidja` formula name automatically:
 
 ```bash
-brew tap digitalygo/homebrew-smidja
-brew install smidja
+brew install digitalygo/smidja/smidja
+```
+
+The explicit tap form is equivalent:
+
+```bash
+brew tap digitalygo/smidja
+brew install digitalygo/smidja/smidja
 ```
 
 Upgrades come through the same channel:
 
 ```bash
-brew update
-brew upgrade smidja
+brew update && brew upgrade smidja
 ```
 
-## Creating the tap
+The formula's `test` block runs `smidja -version` and asserts the output carries the formula version, so `brew test digitalygo/smidja/smidja` verifies the installed binary.
 
-Creating the tap repository is a one-time release-task step, not part of this codebase:
+## What the formula builds
 
-1. Create the repository `github.com/digitalygo/homebrew-smidja`.
-2. Copy `brew/smidja.rb` from this repository into `Formula/smidja.rb` in the tap.
-3. For every tagged release, bump the `url` version and `sha256` in the tap's formula from the release source archive.
+The tap formula is source-based, not bottle-based:
 
-The formula in this repository stays the template: any structural change (new build flags, changed test, different livecheck URL) lands here first and is mirrored into the tap at the next release.
+- `url` points at the tagged GitHub source archive, for example `https://github.com/digitalygo/smidja/archive/refs/tags/v0.3.0.tar.gz`.
+- The build compiles with Go and injects the build identity through the same `-ldflags` flags as [build-release.sh](../scripts/build-release.sh): the buildinfo origin and version, so `smidja -version` and `smidja version --json` report the installed release.
+- GitHub source archives carry no git history, so the JSON build commit is `none`. Release binaries built from a git checkout carry the exact commit.
+- The formula compiles from the source archive. The downloadable release binaries published by the [release workflow](../.github/workflows/release.yml) are prebuilt artifacts for direct installs and are not what brew uses.
 
-## Notes for tap maintainers
+## In-repo formula reference
 
-- Cellar installs must not self-update: the binary installed by Homebrew belongs to the brew lifecycle, so `smidja update` is intentionally not offered on macOS builds installed this way.
-- The `sha256` placeholder in the template is the all-zeros digest; it must be replaced with the real source archive digest before the formula can be audited.
-- The commit part of the build identity is not injected from a source archive, since GitHub archives carry no git history; the binary reports `none` for the commit until a bottle-based path exists.
+The formula at [brew/smidja.rb](../brew/smidja.rb) in this repository is a structural reference only: its `sha256` is the all-zero digest placeholder, so it is not installable and is not the formula users install. The authoritative formula lives at `Formula/smidja.rb` in the tap repository. Any structural change (new build flags, changed test block, different livecheck URL) lands in the in-repo reference first and is mirrored into the tap.
+
+## Releasing a new version
+
+Every release requires two metadata updates in the tap's `Formula/smidja.rb`:
+
+1. Point `url` at the new tagged source archive.
+2. Replace `sha256` with the digest of that archive.
+
+The `livecheck` block points at the [GitHub releases page](https://github.com/digitalygo/smidja/releases) with the standard `v`-prefixed version regex. It detects newer releases and reports the formula as outdated, but it does not change formula metadata automatically; a maintainer still commits the `url` and `sha256` bump.
+
+## Updater boundary
+
+Homebrew owns Cellar upgrades for brew-managed installs. The built-in updater behind `smidja update` is Linux-only and should not be used on a Homebrew-managed macOS install; upgrade with brew instead.

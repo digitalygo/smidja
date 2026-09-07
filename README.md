@@ -37,7 +37,7 @@ Final gate details and the phase-by-phase execution ledger live in the plan unde
 
 - [Auth](docs/auth.md): how provider credentials work, `smidja auth` commands, where tokens live
 - [Settings](docs/settings.md): the settings files, supported fields, and configuration precedence
-- [Brew tap](docs/brew.md): the future `github.com/digitalygo/homebrew-smidja` tap and its formula
+- [Brew tap](docs/brew.md): installing and upgrading through the public [digitalygo/homebrew-smidja](https://github.com/digitalygo/homebrew-smidja) tap
 - [Providers manifest](docs/providers-manifest.md): the frozen API-key provider catalogue
 - [Creating compiled bundles](docs/creating-bundles.md): the bundle template, the `sdk.Bundle` contract, build identity, and release assets
 - [Creating content packages](docs/creating-content-packages.md): the package manifest, validation rules, and the `smidja pkg` lifecycle
