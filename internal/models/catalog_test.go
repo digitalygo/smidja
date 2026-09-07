@@ -149,7 +149,7 @@ func TestCatalogRecordRawRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &rec); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if rec.ID != "m" || rec.Name != "M" || rec.ContextWindow.String() != "123" {
+	if rec.ID != "m" || rec.Name != "M" || string(rec.ContextWindow) != "123" {
 		t.Errorf("rec = %+v", rec)
 	}
 	if _, ok := rec.raw["thinkingLevelMap"]; !ok {
