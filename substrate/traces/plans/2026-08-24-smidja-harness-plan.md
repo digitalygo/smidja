@@ -7,7 +7,7 @@ planner: hermes-decision-draft
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-08-25T00:05:00+02:00
-last_updated_at: 2026-09-05T15:26:32+02:00
+last_updated_at: 2026-09-07T12:39:21+02:00
 ---
 
 # Piano Smidja harness
@@ -16,10 +16,10 @@ last_updated_at: 2026-09-05T15:26:32+02:00
 
 - **Status:** In progress. Fasi 0-4 completed and gated; all Fase 5 technical ecosystem deliverables completed and gated, with external creator acceptance pending.
 - **Baseline identity:** `2026-08-24-smidja-harness-plan`, baseline version 1, planner handoff date 2026-08-24.
-- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629; Fase 4 review base a08ea0b and closed target 7184165; Fase 5 delivered `smidja-bundle-template` 83492b2, public registry `smidja-packages` 5c8ec5f and harness documentation through 94e4915.
+- **Execution baseline:** Started 2026-08-25T00:05:00+02:00, repository baseline commit b5cd629; Fase 4 review base a08ea0b and closed target 7184165; Fase 5 delivered `smidja-bundle-template` 83492b2, public registry `smidja-packages` 5c8ec5f and harness documentation through 94e4915; distribution advanced to Smidja v0.3.0 at 474199f and tap formula 5a0d7d3.
 - **Active phase:** Fase 5, ecosistema (real external creator acceptance).
-- **Last verified checkpoint:** Checkpoint 2026-09-05T15:26:32+02:00, public package registry completed and gated.
-- **Last successful checks:** Template and registry deterministic, quality, security and remote CI gates PASS; internal clean-room rehearsals and documentation human reviews PASS; both executable repositories have 95.1% statement coverage.
+- **Last verified checkpoint:** Checkpoint 2026-09-07T12:39:21+02:00, Smidja v0.3.0 and Homebrew formula published.
+- **Last successful checks:** Template and registry gates remain PASS; Smidja v0.3.0 full Go 1.26.6 build, vet, test, race, release assets and identity checks PASS; Homebrew formula quality and supply-chain security gates PASS.
 - **Open blockers:** The baseline completion criterion still requires a genuinely external creator to publish without Digitalygo assistance. Internal rehearsal is not external evidence.
 - **Required approvals and gates:** All technical implementation approvals and gates are resolved. Closing or deferring the external-creator criterion requires real external evidence or explicit user approval.
 - **Next action:** Have an external creator publish from the template or submit a content package to the registry without Digitalygo implementation assistance, then capture the clean-room evidence.
@@ -459,6 +459,16 @@ Solo task, nessuna stima di giorni.
 - **Decision and impact:** Fase 3 code complete. Completion criterion "il team installa e disinstalla pacchetti con un comando" requires real team usage (post-development). Registry index repo digitalygo/smidja-packages not yet created (needed only when first third-party package is published or when the Digitalygo package itself is distributed via pkg install).
 - **Next action:** Create digitalygo/smidja-packages index when needed; populate bundle with real final content iteratively during daily use; Fase 4 gateway when user says go.
 
+#### Checkpoint 2026-09-07T12:39:21+02:00: Smidja v0.3.0 and Homebrew formula published
+
+- **Event:** The user approved publishing Smidja v0.3.0 and advancing the public Homebrew tap from v0.2.0.
+- **Planner prediction:** Fase 2 requires repeatable GitHub release and Homebrew distribution with deterministic identity and checksums.
+- **Subagent claims:** Documentation updates corrected stale tap instructions. A one-line test compatibility fix restored the declared Go 1.26 baseline. The tap update changed only the source archive URL and SHA-256.
+- **Orchestrator finding:** The first pre-tag gate correctly blocked because `json.RawMessage.String()` compiled only with Go 1.27. Replacing it with the equivalent byte-to-string conversion made the complete Go 1.26.6 gate pass without production changes. The existing release workflow was used with the literal approved tag; workflow hardening remains a separate non-blocking follow-up.
+- **Independently verified facts:** Annotated tag object 8cc64ca7c3808c2806cd8c30a372098cf66aa926 peels to commit 474199ff0b68f074579ea45914e727abc474cebc. Release workflow 34111083497 passed and published the latest non-prerelease v0.3.0 release with exactly four Linux/macOS amd64/arm64 binaries plus `checksums.txt`; downloaded checksums, platform metadata, legacy version and JSON identity passed. Go 1.26.6 module verification, formatting, build, vet, full tests and full race tests passed before tagging. Test patch 9cee5f1084bfed2abb38cecbd2907046388eccaff30996daf9937956b28c2faf received quality PASS. The exact GitHub source archive matched the tagged git tree and hashed to b5f068ec8eb3a915d950a64e0f2e701c366db7757085d9eec8c447465a50a447. Homebrew formula patch 16f663e7fdb1545e3c08b455b430b80da1278923252e03d2f8d45d505c38af7b received quality PASS and focused supply-chain security PASS, then shipped at tap commit 5a0d7d3. Brew resolves v0.3.0 and fetched its source successfully without upgrading the locally installed v0.2.0.
+- **Decision and impact:** v0.3.0 is available through GitHub Releases and `brew upgrade smidja`. Actual Smidja files changed for this release operation were `README.md`, `docs/brew.md` and `internal/models/catalog_test.go`; the tap changed only `Formula/smidja.rb`. Documentation and test-only coverage are N/A. Homebrew audit/style still report two pre-existing formula layout/order findings unchanged by the version bump. Fase 5 external acceptance remains pending.
+- **Next action:** The user may upgrade through Brew; the plan remains focused on genuine external creator acceptance.
+
 ### Fase 3, pacchetti opzionali execution checkpoints
 
 ### Fase 4, gateway remoto execution checkpoints
@@ -782,6 +792,7 @@ Solo task, nessuna stima di giorni.
 - Fase 5 clean-room regression patch 691c3f10781143486723f011d8a3530053e4e059eb99017619bbad05678f377c received quality PASS after reproducing and correcting customized-repository test failures. Security review was N/A because this follow-up changed tests only. Remote template CI run 33931839192 passed on final commit 83492b2.
 - Fase 5 creator documentation at `smidja` commit 42cb024 passed human Markdown, link and manifest-example verification. Tests and coverage were N/A because the slice changed documentation only.
 - Fase 5 registry artifact e81069e16bccea1646a51522fc4b478c7c27144df629fdbd690ebeecbd5b25bb received deterministic, quality and focused security PASS with 95.1% statement coverage. Remote CI run 33968792935 passed on registry commit 5c8ec5f; organization and repository branch protections were independently verified. Registry-link documentation at `smidja` commit 94e4915 passed human review with tests and coverage N/A.
+- Distribution update v0.3.0 passed the Go 1.26.6 full suite and race gate, remote release asset verification and Homebrew formula quality and focused supply-chain security review. Test patch 9cee5f1084bfed2abb38cecbd2907046388eccaff30996daf9937956b28c2faf and formula patch 16f663e7fdb1545e3c08b455b430b80da1278923252e03d2f8d45d505c38af7b both received quality PASS; the formula security verdict was PASS.
 
 ### Operation record
 

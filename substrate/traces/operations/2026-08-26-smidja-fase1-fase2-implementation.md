@@ -1,6 +1,7 @@
 ---
 status: completed
 created_at: 2026-08-26
+updated_at: 2026-09-07
 files_edited:
   - sdk/
   - smidja.go
@@ -27,12 +28,19 @@ files_edited:
   - .github/workflows/release.yml
   - docs/sdk-parity-matrix.md
   - docs/benchmarks/phase-0.md
-rationale: Implement Fase 1 (MVP interno) and Fase 2 (distribuzione) of the Smidja harness plan with Pi-parity decisions recorded in the living plan ledger
+  - README.md
+  - docs/brew.md
+  - internal/models/catalog_test.go
+  - digitalygo/homebrew-smidja/Formula/smidja.rb
+rationale: Implement Fase 1 and Fase 2 of the Smidja harness plan, then publish the verified v0.3.0 distribution and update the public Homebrew tap.
 supporting_docs:
   - substrate/traces/plans/2026-08-24-smidja-harness-plan.md
   - docs/sdk-parity-matrix.md
   - docs/providers-manifest.md
   - docs/auth.md
+  - docs/brew.md
+  - https://github.com/digitalygo/smidja/releases/tag/v0.3.0
+  - https://github.com/digitalygo/homebrew-smidja
 ---
 
 # Operation: Smidja Fase 1 and Fase 2 implementation
@@ -61,3 +69,34 @@ All scope decisions were negotiated with the user and recorded as plan variation
 - Golden fixtures: byte-exact round-trip of a sanitized real Pi session; import of the unmodified private session verified byte-exact locally; installed Pi 0.84.2 reads smidja-written sessions.
 - Quality gate PASS (direct mode after dedicated-review measurement nondeterminism; one real finding fixed: sessionimport check-then-rename race replaced by link(2) atomic commit).
 - Security gate PASS after correction cycles fixing five real findings (argument-patch chain to execution/recording/detection, session id traversal, detector steer provenance, terminal control-char injection, stale batch authorization).
+
+## Update 2026-09-07: Smidja v0.3.0 and Homebrew
+
+### Summary of new work
+
+Published the annotated `v0.3.0` tag and verified GitHub release, then advanced the public `digitalygo/homebrew-smidja` formula from v0.2.0 to v0.3.0. Corrected the public Brew guide before tagging and fixed one Go 1.26-only test compatibility failure found by the release gate.
+
+### Technical reasoning for the update
+
+The release candidate included all completed Fase 4 and Fase 5 technical work after v0.2.0. The repository declares Go 1.26, so the release gate used Go 1.26.6 rather than accepting a test that passed only with Go 1.27. The Homebrew formula stayed source-based and changed only its tag URL and the SHA-256 of that exact GitHub source archive.
+
+The existing release workflow was used with the literal approved tag. Mutable Action references and direct tag-expression interpolation remain documented non-blocking hardening work outside this release delta.
+
+### Impact assessment for the update
+
+`v0.3.0` is the latest public non-prerelease release and Homebrew resolves formula version 0.3.0. Users on v0.2.0 can update with `brew update && brew upgrade smidja`.
+
+The formula still builds from source, reports origin `github.com/digitalygo/smidja`, version `v0.3.0`, and commit `none` because the source archive has no git metadata. No production Go behavior changed during the release task. Fase 5 external creator acceptance remains pending.
+
+### Validation steps for the update
+
+- Verified annotated tag object `8cc64ca7c3808c2806cd8c30a372098cf66aa926` peels to release commit `474199ff0b68f074579ea45914e727abc474cebc`.
+- Ran Go 1.26.6 module verification, formatting, build, vet, the full test suite and the full race suite before tagging.
+- Built all four static release targets locally and verified exact inventory, checksums, platform metadata and embedded build identity.
+- Verified release workflow run 34111083497 succeeded and downloaded all five remote assets from the public release; checksum and identity checks passed.
+- Downloaded the exact Homebrew source URL over HTTPS, verified SHA-256 `b5f068ec8eb3a915d950a64e0f2e701c366db7757085d9eec8c447465a50a447`, and confirmed its extracted tree matched the tagged git tree.
+- Built the formula source in isolation with its exact ldflags and verified `smidja v0.3.0` plus JSON origin, version and `commit: none`.
+- Recorded quality PASS for test patch `9cee5f1084bfed2abb38cecbd2907046388eccaff30996daf9937956b28c2faf`.
+- Recorded quality PASS and focused supply-chain security PASS for formula patch `16f663e7fdb1545e3c08b455b430b80da1278923252e03d2f8d45d505c38af7b`.
+- Verified tap commit `5a0d7d3` is published, Brew resolves v0.3.0, and `brew fetch --build-from-source` succeeds without upgrading the user's installed v0.2.0.
+- Homebrew audit and style still report two pre-existing formula indentation and component-order findings. They are unchanged from v0.2.0 and outside the two-field metadata delta.
