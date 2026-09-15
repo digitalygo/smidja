@@ -17,12 +17,12 @@ last_updated_at: 2026-09-15
 - **Status:** In progress.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
 - **Execution baseline:** Resumed 2026-09-15T10:15:40+02:00 at repository commit `e7ce7f6f8342f89fc01151dbff048d2cced3de8e` on `feat/tui`, matching `origin/feat/tui`.
-- **Active phase:** Phase P1: editor and input.
-- **Last verified checkpoint:** Checkpoint 2026-09-15T11:26:55+02:00, P0 debt closure passed deterministic, quality, and focused security gates.
-- **Last successful checks:** P0 debt validation passed formatting, vet, build, Darwin and Linux arm64 static cross-builds, targeted tests, a successful full-suite rerun, dependency hygiene, and per-file coverage from 92.5% to 99.3% on touched production Go files. Delegated quality and security verdicts were PASS.
+- **Active phase:** Phase P2: chat surface.
+- **Last verified checkpoint:** Checkpoint 2026-09-15T12:10:09+02:00, phase P1 passed deterministic, quality, and focused security gates.
+- **Last successful checks:** P1 validation passed formatting, vet, build, Darwin and Linux arm64 static cross-builds, full tests, dependency hygiene, and per-file coverage from 82.6% to 95.8% across all added production files. Quality and focused security verdicts were PASS after correcting visible selection, empty submit, symlink containment, and terminal-control filename handling.
 - **Open blockers:** None. The solution architect remains unavailable because its provider usage limit is exhausted, so no architect evidence is claimed. A pre-existing intermittent MCP test failure reproduced outside this delta and passed on rerun.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P1 and P2 wiring and again in P6; no merge.
-- **Next action:** Commit and push the P0 debt closure, read back pull request 1, then delegate phase P1 editor and input implementation.
+- **Next action:** Commit and push phase P1, read back pull request 1, then delegate phase P2 chat-surface implementation.
 
 ## Planner baseline
 
@@ -255,9 +255,27 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** Advance the quality cursor from `e7ce7f6` after commit. Compiler directives remain because deleting them would break platform selection and embedded themes; the requirement is satisfied as zero ordinary production comments. The pre-existing MCP flake and test-double race are out-of-scope signals and do not block the behavior-preserving debt slice.
 - **Next action:** Commit and push `refactor(tui): split component core and close P0 gaps`, read back pull request 1, then begin phase P1.
 
+#### Checkpoint 2026-09-15T11:29:18+02:00: P0 debt commit published
+
+- **Event:** The independently gated P0 debt closure was committed, pushed, and read back from the existing pull request.
+- **Planner prediction:** The debt closure would be a separate conventional commit before phase P1 and the existing pull request would update automatically.
+- **Subagent claims:** None.
+- **Orchestrator finding:** The commit contains only the intended P0 debt, tests, workspace-state ignore rule, and living plan. The ignored status record was not committed.
+- **Independently verified facts:** Commit `d6dba305458f238c532a153a8b3837544bc3923a` has subject `refactor(tui): split component core and close P0 gaps`; `git push origin feat/tui` succeeded; ahead and behind counts are zero; `gh pr view 1` returned open pull request `https://github.com/digitalygo/smidja/pull/1`, head `d6dba30`, two commits, and target `alpha`; the working tree is clean.
+- **Decision and impact:** P0 debt is closed and phase P1 may start from the synchronized commit. The quality cursor advances to `d6dba30`.
+- **Next action:** Implement and gate phase P1 editor and input behavior.
+
 ### Phase P1 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-09-15T12:10:09+02:00: phase P1 verified
+
+- **Event:** Phase P1 editor and input implementation is complete and passed deterministic, quality, and focused security gates.
+- **Planner prediction:** P1 would add multiline editing, complete movement and deletion, undo and kill-ring behavior, project history, selection and OSC 52 copy, bracketed and large paste handling, submit and queue semantics, slash and workspace autocomplete, external editor support, bash and thinking borders, and an IME cursor marker.
+- **Subagent claims:** The implementer added focused editor, buffer, editing, input, rendering, mouse, autocomplete, history, and external-editor modules with behavior-mapped tests. The first quality review identified invisible selection, empty submit behavior, and lexical-only symlink containment; corrections were implemented and the quality reviewer returned PASS. The focused security review found terminal-control injection through malicious workspace filenames; the correction rejects C0, DEL, and C1 names from default and injected listers, and the reviewer returned PASS.
+- **Orchestrator finding:** Direct inspection confirmed P1 is isolated to 10 production and 11 test files under `internal/tui/`, uses only the standard library and existing framework helpers, adds no production comments, keeps production files within the repository's contextual length guidance, and does not alter print or non-TTY paths. Tests cover wrapped cursor frames, movement, deletion, undo, kill-ring operations, persisted history, visible selection and OSC 52 copy, paste markers, submit and queue actions, autocomplete and containment, external editor injection, bash and thinking borders, IME markers, and malicious filename rejection.
+- **Independently verified facts:** `gofmt -l .`, `go vet ./...`, `go build ./...`, Darwin arm64 static build, Linux arm64 static build, `go test ./...`, coverage targets, dependency hygiene, no-`go.sum`, zero `go.mod` diff, and `git diff --check` all passed. Package coverage was TUI 88.9%, UI 94.0%, CLI 85.3%. Statement-weighted P1 file coverage was `autocomplete.go` 95.8%, `editor.go` 91.2%, `editor_autocomplete.go` 82.6%, `editor_buffer.go` 95.0%, `editor_edit.go` 90.9%, `editor_input.go` 85.5%, `editor_mouse.go` 84.8%, `editor_render.go` 85.5%, `external_editor.go` 89.8%, and `history.go` 95.3%. Final quality verdict was `# PASS`; final focused security verdict was `PASS`.
+- **Decision and impact:** P1 is accepted. Invalid or control-bearing workspace filenames are omitted from autocomplete rather than sanitized into unusable paths. Selection is rendered with width-neutral inverse-video spans. Empty submissions are no-ops. The quality cursor advances after the phase commit.
+- **Next action:** Commit and push `feat(tui): add editor and input`, read back pull request 1, then begin phase P2.
 
 ### Phase P2 execution checkpoints
 
