@@ -1,5 +1,7 @@
 package tui
 
+import "sync"
+
 type MouseEventType int
 
 const (
@@ -121,40 +123,55 @@ type mouseChild struct {
 }
 
 type Container struct {
+	mu          sync.RWMutex
 	children    []Component
 	mouseWidth  int
 	mouseLayout []mouseChild
 }
 
+func (c *Container) snapshot() []Component {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]Component(nil), c.children...)
+}
+
 func (c *Container) AddChild(component Component) {
+	c.mu.Lock()
 	c.children = append(c.children, component)
+	c.mu.Unlock()
 }
 
 func (c *Container) RemoveChild(component Component) {
+	c.mu.Lock()
 	for index, child := range c.children {
 		if child == component {
 			c.children = append(c.children[:index], c.children[index+1:]...)
-			return
+			break
 		}
 	}
+	c.mu.Unlock()
 }
 
 func (c *Container) Clear() {
+	c.mu.Lock()
 	c.children = nil
 	c.mouseLayout = nil
+	c.mu.Unlock()
 }
 
 func (c *Container) Children() []Component {
-	return c.children
+	return c.snapshot()
 }
 
 func (c *Container) Invalidate() {
-	for _, child := range c.children {
+	for _, child := range c.snapshot() {
 		child.Invalidate()
 	}
 }
 
 func (c *Container) Render(width int) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	lines := make([]string, 0, len(c.children))
 	mouseChildren := make([]mouseChild, 0, len(c.children))
 	for _, child := range c.children {
@@ -179,6 +196,8 @@ func (c *Container) dispatchMouse(event MouseEvent) *mouseDispatchResult {
 	if event.Y < 0 || event.Y >= event.Height {
 		return nil
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	mouseChildren := c.mouseLayout
 	if mouseChildren == nil || c.mouseWidth != event.Width {
 		mouseChildren = make([]mouseChild, 0, len(c.children))
@@ -217,7 +236,7 @@ func containsComponent(root Component, target Component) bool {
 		}
 		return false
 	}
-	return containsComponentChildren(container.children, target)
+	return containsComponentChildren(container.snapshot(), target)
 }
 
 func containsComponentChildren(children []Component, target Component) bool {

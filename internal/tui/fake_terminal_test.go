@@ -48,6 +48,10 @@ func (f *fakeTerminal) Stop() {
 	f.mu.Unlock()
 }
 
+func (f *fakeTerminal) SuspendRaw() error { return nil }
+
+func (f *fakeTerminal) ResumeRaw() error { return nil }
+
 func (f *fakeTerminal) Write(data string) {
 	f.mu.Lock()
 	f.writes = append(f.writes, data)

@@ -86,7 +86,7 @@ func (s *MainScreen) beforeTerminalStop(options StopOptions) {
 }
 
 func (s *MainScreen) doRender() {
-	if s.IsStopped() {
+	if s.IsStopped() || s.IsSuspended() {
 		return
 	}
 	width := s.Terminal().Columns()
@@ -295,7 +295,7 @@ func (s *MainScreen) doRender() {
 	if lineDiff > 0 {
 		output.append(CursorMoveLines(lineDiff))
 	} else if lineDiff < 0 {
-		output.append(CursorMoveLines(-lineDiff))
+		output.append(CursorMoveLines(lineDiff))
 	}
 
 	if appendStart {

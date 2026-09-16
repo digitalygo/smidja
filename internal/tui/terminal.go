@@ -17,6 +17,8 @@ var ErrNotATerminal = errors.New("tui: stdin or stdout is not a terminal")
 type Terminal interface {
 	Start(onInput func(string), onResize func()) error
 	Stop()
+	SuspendRaw() error
+	ResumeRaw() error
 	Write(data string)
 	Columns() int
 	Rows() int
@@ -92,7 +94,83 @@ const (
 	defaultColumns = 80
 	defaultRows    = 24
 	readBufferSize = 4096
+
+	stdinPollInterval = 25 * time.Millisecond
+	fdSetLimit        = 1024
+	readerParkTimeout = time.Second
 )
+
+type readerSession struct {
+	generation int
+	stop       <-chan struct{}
+	done       chan struct{}
+	fd         uintptr
+	gated      bool
+	readable   func(uintptr, time.Duration) (bool, error)
+}
+
+type deliveryBatch struct {
+	sequences  []string
+	eof        bool
+	generation int
+}
+
+type deliveryPump struct {
+	mu      sync.Mutex
+	cond    *sync.Cond
+	queue   []deliveryBatch
+	stopped bool
+	handle  func(deliveryBatch)
+}
+
+func newDeliveryPump(handle func(deliveryBatch)) *deliveryPump {
+	pump := &deliveryPump{handle: handle}
+	pump.cond = sync.NewCond(&pump.mu)
+	return pump
+}
+
+func (p *deliveryPump) enqueue(batch deliveryBatch) {
+	if len(batch.sequences) == 0 && !batch.eof {
+		return
+	}
+	p.mu.Lock()
+	if p.stopped {
+		p.mu.Unlock()
+		return
+	}
+	p.queue = append(p.queue, batch)
+	p.cond.Signal()
+	p.mu.Unlock()
+}
+
+func (p *deliveryPump) stop() {
+	p.mu.Lock()
+	p.stopped = true
+	p.queue = nil
+	p.cond.Broadcast()
+	p.mu.Unlock()
+}
+
+func (p *deliveryPump) run() {
+	for {
+		p.mu.Lock()
+		for len(p.queue) == 0 && !p.stopped {
+			p.cond.Wait()
+		}
+		if len(p.queue) == 0 {
+			p.mu.Unlock()
+			return
+		}
+		batch := p.queue[0]
+		p.queue = p.queue[1:]
+		p.mu.Unlock()
+		p.handle(batch)
+	}
+}
+
+var errReaderParkTimeout = errors.New("tui: input reader did not park in time")
+
+var errReaderNotExited = errors.New("tui: input reader has not exited")
 
 var kittyQuery = "\x1b[>" + itoa(KittyQueryFlags) + "u\x1b[?u" + CursorDeviceAttrs
 
@@ -115,6 +193,7 @@ type ProcessTerminal struct {
 	running      bool
 	stopped      bool
 	wasRaw       *rawState
+	suspended    bool
 	savedSizeOK  bool
 	pasteEnabled bool
 
@@ -131,12 +210,38 @@ type ProcessTerminal struct {
 
 	draining atomic.Bool
 
-	buffer      *stdinBuffer
-	flushTimer  *time.Timer
+	consumeGate atomic.Pointer[func()]
+	publishGate atomic.Pointer[func()]
+
+	bufferMu             sync.Mutex
+	buffer               *stdinBuffer
+	flushMu              sync.Mutex
+	flushTimer           *time.Timer
+	flushArmed           bool
+	flushArmedGeneration int
+	flushArmedEpoch      uint64
+	flushNextEpoch       uint64
+
 	queryWaiter *pendingQuery
 
 	stopReading chan struct{}
 	readerDone  chan struct{}
+
+	readerPaused       bool
+	readerGeneration   int
+	deliveryGeneration int
+	readerParkWait     time.Duration
+
+	pump *deliveryPump
+
+	stdinReadableFn func(uintptr, time.Duration) (bool, error)
+
+	stdinFD    uintptr
+	stdinGated bool
+
+	pasteWasEnabled          bool
+	kittyWasPushed           bool
+	modifyOtherKeysSuspended bool
 
 	winchStop chan struct{}
 	winchDone chan struct{}
@@ -153,13 +258,12 @@ func NewProcessTerminal(stdin io.Reader, stdout io.Writer) *ProcessTerminal {
 		stdout:          stdout,
 		ops:             currentTerminalOps(),
 		escapeTimeoutMs: resolveEscapeTimeoutMs(os.Getenv),
-		stopReading:     make(chan struct{}),
-		readerDone:      make(chan struct{}),
+		readerParkWait:  readerParkTimeout,
+		stdinReadableFn: stdinReadableSelect,
 		columns:         defaultColumns,
 		rows:            defaultRows,
 	}
 	terminal.buffer = newStdinBuffer(terminal.escapeTimeoutMs)
-	terminal.buffer.onSequence = terminal.dispatchSequence
 	if file, ok := stdin.(*os.File); ok {
 		terminal.stdinFile = file
 	}
@@ -183,6 +287,12 @@ func resolveEscapeTimeoutMs(getenv func(string) string) int {
 }
 
 func (t *ProcessTerminal) refreshSize() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.refreshSizeLocked()
+}
+
+func (t *ProcessTerminal) refreshSizeLocked() {
 	cols, rows, err := 0, 0, errors.New("no file")
 	if t.stdoutFile != nil {
 		cols, rows, err = t.ops.windowSize(t.stdoutFile)
@@ -191,10 +301,8 @@ func (t *ProcessTerminal) refreshSize() {
 		cols = envSize(os.Getenv, "COLUMNS", defaultColumns)
 		rows = envSize(os.Getenv, "LINES", defaultRows)
 	}
-	t.mu.Lock()
 	t.columns = cols
 	t.rows = rows
-	t.mu.Unlock()
 }
 
 func envSize(getenv func(string) string, name string, fallback int) int {
@@ -208,12 +316,11 @@ func envSize(getenv func(string) string, name string, fallback int) int {
 
 func (t *ProcessTerminal) Start(onInput func(string), onResize func()) error {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.running {
-		t.mu.Unlock()
 		return errors.New("tui: terminal already started")
 	}
 	if t.stdinFile == nil || t.stdoutFile == nil || !t.ops.isTerminal(t.stdinFile) || !t.ops.isTerminal(t.stdoutFile) {
-		t.mu.Unlock()
 		return ErrNotATerminal
 	}
 	t.inputHandler = onInput
@@ -227,29 +334,186 @@ func (t *ProcessTerminal) Start(onInput func(string), onResize func()) error {
 		t.inputHandler = nil
 		t.resizeHandler = nil
 		t.running = false
-		t.mu.Unlock()
+		t.stopped = true
 		return err
 	}
 	t.wasRaw = state
 
-	t.stopReading = make(chan struct{})
-	t.readerDone = make(chan struct{})
+	t.suspended = false
+	t.readerPaused = false
+	t.readerGeneration = 0
+	t.pasteWasEnabled = false
+	t.kittyWasPushed = false
+	t.modifyOtherKeysSuspended = false
 	t.winchStop = make(chan struct{})
 	t.winchDone = make(chan struct{})
-	t.mu.Unlock()
+	t.stdinFD, t.stdinGated = stdinFileDescriptor(t.stdinFile)
+
+	t.pasteEnabled = true
+	t.stdout.Write([]byte(BracketedPasteOn))
+	t.refreshSizeLocked()
+	t.kittyQueryPushed = true
+	t.stdout.Write([]byte(kittyQuery))
 
 	t.startResizeWatcher()
 
+	pump := newDeliveryPump(t.deliverBatch)
+	t.pump = pump
+	go pump.run()
+
+	t.spawnReaderLocked()
+	return nil
+}
+
+func (t *ProcessTerminal) deliverBatch(batch deliveryBatch) {
+	for _, sequence := range batch.sequences {
+		if !t.deliveryActive(batch.generation) {
+			return
+		}
+		t.dispatchSequenceTagged(sequence, batch.generation)
+	}
+	if batch.eof {
+		if !t.deliveryActive(batch.generation) {
+			return
+		}
+		t.deliverEOF(batch.generation)
+	}
+}
+
+func (t *ProcessTerminal) deliveryActive(generation int) bool {
 	t.mu.Lock()
-	t.pasteEnabled = true
+	defer t.mu.Unlock()
+	return t.deliveryActiveLocked(generation)
+}
+
+func (t *ProcessTerminal) deliveryActiveLocked(generation int) bool {
+	return !t.stopped && !t.suspended && t.deliveryGeneration == generation
+}
+
+func (t *ProcessTerminal) currentDeliveryGeneration() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.deliveryGeneration
+}
+
+func (t *ProcessTerminal) stopDelivery() {
+	t.mu.Lock()
+	t.deliveryGeneration++
+	pump := t.pump
+	t.pump = nil
 	t.mu.Unlock()
-	t.stdout.Write([]byte(BracketedPasteOn))
+	t.flushMu.Lock()
+	t.invalidateFlushLocked()
+	t.flushMu.Unlock()
+	if pump != nil {
+		pump.stop()
+	}
+}
 
-	t.refreshSize()
-	go t.readLoop()
+func stdinFileDescriptor(file *os.File) (uintptr, bool) {
+	if file == nil {
+		return 0, false
+	}
+	conn, err := file.SyscallConn()
+	if err != nil {
+		return 0, false
+	}
+	var descriptor uintptr
+	if err := conn.Control(func(fd uintptr) { descriptor = fd }); err != nil {
+		return 0, false
+	}
+	return descriptor, descriptor < fdSetLimit
+}
 
-	t.kittyQueryPushed = true
-	t.stdout.Write([]byte(kittyQuery))
+func (t *ProcessTerminal) spawnReaderLocked() {
+	t.readerGeneration++
+	t.stopReading = make(chan struct{})
+	t.readerDone = make(chan struct{})
+	session := readerSession{
+		generation: t.readerGeneration,
+		stop:       t.stopReading,
+		done:       t.readerDone,
+		fd:         t.stdinFD,
+		gated:      t.stdinGated,
+		readable:   t.stdinReadableFn,
+	}
+	go t.readLoop(session)
+}
+
+func (t *ProcessTerminal) closeReaderChannelsLocked() {
+	if t.stopReading != nil {
+		close(t.stopReading)
+		t.stopReading = nil
+	}
+}
+
+func (t *ProcessTerminal) parkReaderForSuspend() error {
+	t.mu.Lock()
+	if t.stopped {
+		t.mu.Unlock()
+		return errors.New("tui: terminal is stopped")
+	}
+	if !t.running || t.readerPaused {
+		t.mu.Unlock()
+		return nil
+	}
+	t.readerPaused = true
+	readerDone := t.readerDone
+	generation := t.readerGeneration
+	parkWait := t.readerParkWait
+	t.closeReaderChannelsLocked()
+	t.mu.Unlock()
+	if readerDone == nil {
+		return nil
+	}
+	select {
+	case <-readerDone:
+		return nil
+	case <-time.After(parkWait):
+		t.armReaderRecovery(generation, readerDone)
+		return errReaderParkTimeout
+	}
+}
+
+func (t *ProcessTerminal) armReaderRecovery(generation int, done chan struct{}) {
+	go func() {
+		<-done
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if !t.running || t.stopped || t.suspended || !t.readerPaused {
+			return
+		}
+		if t.readerGeneration != generation || t.readerDone != done {
+			return
+		}
+		t.readerPaused = false
+		t.spawnReaderLocked()
+	}()
+}
+
+func (t *ProcessTerminal) readerExitedLocked() bool {
+	if t.readerDone == nil {
+		return true
+	}
+	select {
+	case <-t.readerDone:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *ProcessTerminal) resumeReaderLocked() error {
+	if !t.readerPaused {
+		return nil
+	}
+	if !t.readerExitedLocked() {
+		return errReaderNotExited
+	}
+	t.readerPaused = false
+	if t.running && !t.stopped {
+		t.spawnReaderLocked()
+	}
 	return nil
 }
 
@@ -261,11 +525,13 @@ func (t *ProcessTerminal) startResizeWatcher() {
 		return
 	}
 	t.stopResizeSignals = stop
+	winchStop := t.winchStop
+	winchDone := t.winchDone
 	go func() {
-		defer close(t.winchDone)
+		defer close(winchDone)
 		for {
 			select {
-			case <-t.winchStop:
+			case <-winchStop:
 				return
 			case <-notify:
 				t.refreshSize()
@@ -281,31 +547,51 @@ func (t *ProcessTerminal) startResizeWatcher() {
 	refreshTerminalDimensions()
 }
 
-func (t *ProcessTerminal) readLoop() {
-	defer close(t.readerDone)
-	defer t.deliverEOF()
+func (t *ProcessTerminal) readLoop(session readerSession) {
+	defer close(session.done)
+	defer t.deliverEOFForSession(session)
 
 	var utf8Hold []byte
 	readBuffer := make([]byte, readBufferSize)
 	for {
 		select {
-		case <-t.stopReading:
+		case <-session.stop:
 			return
 		default:
 		}
+		if session.gated {
+			readable, err := session.readable(session.fd, stdinPollInterval)
+			if err != nil {
+				return
+			}
+			if !readable {
+				continue
+			}
+		}
 		n, err := t.stdin.Read(readBuffer)
 		if n > 0 {
-			lastInputTime.Store(time.Now().UnixNano())
-			chunk := readBuffer[:n]
-			if len(utf8Hold) > 0 {
-				chunk = append(append([]byte(nil), utf8Hold...), chunk...)
-				utf8Hold = utf8Hold[:0]
+			t.mu.Lock()
+			retired := t.readerGeneration != session.generation
+			quiesced := t.readerPaused || t.stopped
+			generation := t.deliveryGeneration
+			pump := t.pump
+			t.mu.Unlock()
+			if retired {
+				return
 			}
-			if trailing := incompleteUTF8Suffix(chunk); trailing > 0 {
-				utf8Hold = append(utf8Hold[:0], chunk[len(chunk)-trailing:]...)
-				chunk = chunk[:len(chunk)-trailing]
+			if !quiesced {
+				lastInputTime.Store(time.Now().UnixNano())
+				chunk := readBuffer[:n]
+				if len(utf8Hold) > 0 {
+					chunk = append(append([]byte(nil), utf8Hold...), chunk...)
+					utf8Hold = utf8Hold[:0]
+				}
+				if trailing := incompleteUTF8Suffix(chunk); trailing > 0 {
+					utf8Hold = append(utf8Hold[:0], chunk[len(chunk)-trailing:]...)
+					chunk = chunk[:len(chunk)-trailing]
+				}
+				t.ingestInputChunk(chunk, generation, pump)
 			}
-			t.buffer.process(chunk)
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) {
@@ -317,7 +603,7 @@ func (t *ProcessTerminal) readLoop() {
 		}
 		if n == 0 && err == nil {
 			select {
-			case <-t.stopReading:
+			case <-session.stop:
 				return
 			case <-time.After(time.Millisecond):
 			}
@@ -358,7 +644,15 @@ func temporaryReadError(err error) bool {
 }
 
 func (t *ProcessTerminal) dispatchSequence(sequence string) {
+	t.dispatchSequenceTagged(sequence, t.currentDeliveryGeneration())
+}
+
+func (t *ProcessTerminal) dispatchSequenceTagged(sequence string, generation int) {
 	t.mu.Lock()
+	if !t.deliveryActiveLocked(generation) {
+		t.mu.Unlock()
+		return
+	}
 	waiter := t.queryWaiter
 	if waiter != nil && waiter.matcher(sequence) {
 		t.queryWaiter = nil
@@ -367,21 +661,19 @@ func (t *ProcessTerminal) dispatchSequence(sequence string) {
 		close(waiter.reply)
 		return
 	}
-	t.mu.Unlock()
-
-	if t.consumeNegotiation(sequence) {
+	if t.consumeNegotiationLocked(sequence) {
+		t.mu.Unlock()
 		return
 	}
-
-	t.mu.Lock()
 	handler := t.inputHandler
 	t.mu.Unlock()
+
 	if handler != nil {
 		handler(sequence)
 	}
 }
 
-func (t *ProcessTerminal) consumeNegotiation(sequence string) bool {
+func (t *ProcessTerminal) consumeNegotiationLocked(sequence string) bool {
 	if flags, ok := parseKittyFlagsResponse(sequence); ok {
 		if flags != 0 {
 			t.disableModifyOtherKeys()
@@ -625,15 +917,187 @@ func (t *ProcessTerminal) OnEOF(callback func()) {
 	t.eofHandler = callback
 }
 
-func (t *ProcessTerminal) deliverEOF() {
-	t.buffer.flush()
+func (t *ProcessTerminal) enterConsumeGate() {
+	if gate := t.consumeGate.Load(); gate != nil {
+		(*gate)()
+	}
+}
+
+func (t *ProcessTerminal) enterPublishGate() {
+	if gate := t.publishGate.Load(); gate != nil {
+		(*gate)()
+	}
+}
+
+func (t *ProcessTerminal) consumePendingForGeneration(generation int, requireRunning bool) ([]string, *deliveryPump, bool) {
+	t.bufferMu.Lock()
 	t.mu.Lock()
+	pump := t.pump
+	active := t.deliveryActiveLocked(generation)
+	if requireRunning && (!t.running || t.readerPaused) {
+		active = false
+	}
+	if !active || pump == nil {
+		t.mu.Unlock()
+		t.bufferMu.Unlock()
+		return nil, nil, false
+	}
+	t.flushMu.Lock()
+	t.invalidateFlushLocked()
+	sequences := t.buffer.flush()
+	t.flushMu.Unlock()
+	t.mu.Unlock()
+	t.bufferMu.Unlock()
+	return sequences, pump, true
+}
+
+func (t *ProcessTerminal) ingestInputChunk(chunk []byte, generation int, pump *deliveryPump) {
+	t.bufferMu.Lock()
+	t.flushMu.Lock()
+	t.invalidateFlushLocked()
+	t.flushMu.Unlock()
+	t.buffer.process(chunk)
+	sequences := t.buffer.takePending()
+	if pump != nil && len(sequences) > 0 {
+		pump.enqueue(deliveryBatch{sequences: sequences, generation: generation})
+	}
+	t.flushMu.Lock()
+	t.armFlushLocked(generation)
+	t.flushMu.Unlock()
+	t.bufferMu.Unlock()
+}
+
+func (t *ProcessTerminal) invalidateFlushLocked() {
+	if t.flushTimer != nil {
+		t.flushTimer.Stop()
+		t.flushTimer = nil
+	}
+	t.flushNextEpoch++
+	t.flushArmed = false
+}
+
+func (t *ProcessTerminal) armFlushLocked(generation int) {
+	delayMs, pending := t.buffer.flushDelay()
+	if !pending || delayMs <= 0 {
+		t.flushArmed = false
+		return
+	}
+	epoch := t.flushNextEpoch
+	t.flushArmed = true
+	t.flushArmedGeneration = generation
+	t.flushArmedEpoch = epoch
+	t.flushTimer = time.AfterFunc(time.Duration(delayMs)*time.Millisecond, func() {
+		t.flushPending(generation, epoch)
+	})
+}
+
+func (t *ProcessTerminal) scheduleFlush() {
+	t.bufferMu.Lock()
+	t.mu.Lock()
+	t.flushMu.Lock()
+	t.invalidateFlushLocked()
+	generation := t.deliveryGeneration
+	t.armFlushLocked(generation)
+	t.flushMu.Unlock()
+	t.mu.Unlock()
+	t.bufferMu.Unlock()
+}
+
+func (t *ProcessTerminal) flushPending(generation int, epoch uint64) {
+	t.enterConsumeGate()
+	t.bufferMu.Lock()
+	t.mu.Lock()
+	t.flushMu.Lock()
+	if !t.flushArmed || t.flushArmedEpoch != epoch || t.flushArmedGeneration != generation {
+		t.flushMu.Unlock()
+		t.mu.Unlock()
+		t.bufferMu.Unlock()
+		return
+	}
+	pump := t.pump
+	active := t.deliveryActiveLocked(generation)
+	if !t.running || t.readerPaused {
+		active = false
+	}
+	if !active || pump == nil {
+		t.flushArmed = false
+		t.flushTimer = nil
+		t.flushMu.Unlock()
+		t.mu.Unlock()
+		t.bufferMu.Unlock()
+		return
+	}
+	sequences := t.buffer.flush()
+	t.flushArmed = false
+	t.flushTimer = nil
+	if len(sequences) == 0 {
+		t.flushMu.Unlock()
+		t.mu.Unlock()
+		t.bufferMu.Unlock()
+		return
+	}
+	t.enterPublishGate()
+	pump.enqueue(deliveryBatch{sequences: sequences, generation: generation})
+	t.flushMu.Unlock()
+	t.mu.Unlock()
+	t.bufferMu.Unlock()
+}
+
+func (t *ProcessTerminal) cancelFlushTimer() {
+	t.flushMu.Lock()
+	t.invalidateFlushLocked()
+	t.flushMu.Unlock()
+}
+
+func (t *ProcessTerminal) deliverEOFForSession(session readerSession) {
+	t.bufferMu.Lock()
+	t.mu.Lock()
+	retired := t.readerGeneration != session.generation
+	quiesced := t.readerPaused || t.stopped || !t.running
+	pump := t.pump
+	generation := t.deliveryGeneration
+	if retired || quiesced || pump == nil {
+		t.mu.Unlock()
+		t.bufferMu.Unlock()
+		return
+	}
+	t.flushMu.Lock()
+	t.invalidateFlushLocked()
+	sequences := t.buffer.flush()
+	t.enterPublishGate()
+	pump.enqueue(deliveryBatch{sequences: sequences, eof: true, generation: generation})
+	t.flushMu.Unlock()
+	t.mu.Unlock()
+	t.bufferMu.Unlock()
+}
+
+func (t *ProcessTerminal) deliverEOFHandler(generation int) {
+	t.mu.Lock()
+	if !t.deliveryActiveLocked(generation) {
+		t.mu.Unlock()
+		return
+	}
 	handler := t.eofHandler
 	handled := t.eofDelivered.Swap(true)
 	t.mu.Unlock()
 	if handler != nil && !handled {
 		handler()
 	}
+}
+
+func (t *ProcessTerminal) deliverEOF(generation int) {
+	t.enterConsumeGate()
+	sequences, _, active := t.consumePendingForGeneration(generation, false)
+	if !active {
+		return
+	}
+	for _, sequence := range sequences {
+		if !t.deliveryActive(generation) {
+			return
+		}
+		t.dispatchSequenceTagged(sequence, generation)
+	}
+	t.deliverEOFHandler(generation)
 }
 
 func (t *ProcessTerminal) DrainInput(maxMs, idleMs int) {
@@ -674,6 +1138,125 @@ func (t *ProcessTerminal) restoreAllLocked() {
 		_ = t.ops.restoreState(t.stdinFile, t.wasRaw)
 		t.wasRaw = nil
 	}
+	t.suspended = false
+	t.readerPaused = false
+	t.pasteWasEnabled = false
+	t.kittyWasPushed = false
+	t.modifyOtherKeysSuspended = false
+}
+
+func (t *ProcessTerminal) disableInteractiveProtocolsLocked() {
+	if t.kittyQueryPushed {
+		t.kittyWasPushed = true
+		t.kittyQueryPushed = false
+		t.stdout.Write([]byte(KittyProtocolPop))
+	}
+	t.kittyActive.Store(false)
+	SetKittyProtocolActive(false)
+	if t.modifyOtherKeys.Swap(false) {
+		t.modifyOtherKeysSuspended = true
+		t.stdout.Write([]byte(ModifyOtherKeysDisable))
+	}
+	if t.pasteEnabled {
+		t.pasteWasEnabled = true
+		t.pasteEnabled = false
+		t.stdout.Write([]byte(BracketedPasteOff))
+	}
+}
+
+func (t *ProcessTerminal) enableInteractiveProtocolsLocked() {
+	if t.pasteWasEnabled {
+		t.pasteWasEnabled = false
+		t.pasteEnabled = true
+		t.stdout.Write([]byte(BracketedPasteOn))
+	}
+	if t.modifyOtherKeysSuspended {
+		t.modifyOtherKeysSuspended = false
+		t.enableModifyOtherKeys()
+	}
+	if t.kittyWasPushed {
+		t.kittyWasPushed = false
+		t.kittyQueryPushed = true
+		t.kittyActive.Store(false)
+		SetKittyProtocolActive(false)
+		t.stdout.Write([]byte(kittyQuery))
+	}
+}
+
+func (t *ProcessTerminal) SuspendRaw() error {
+	t.mu.Lock()
+	stopped, suspended := t.stopped, t.suspended
+	t.mu.Unlock()
+	if stopped {
+		return errors.New("tui: terminal is stopped")
+	}
+	if suspended {
+		return nil
+	}
+	if err := t.parkReaderForSuspend(); err != nil {
+		return err
+	}
+
+	if err := t.quiesceBufferForSuspend(); err != nil {
+		return err
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped {
+		return errors.New("tui: terminal is stopped")
+	}
+	if t.suspended {
+		return nil
+	}
+	t.disableInteractiveProtocolsLocked()
+	if t.wasRaw != nil {
+		if err := t.ops.restoreState(t.stdinFile, t.wasRaw); err != nil {
+			t.enableInteractiveProtocolsLocked()
+			_ = t.resumeReaderLocked()
+			return err
+		}
+	}
+	t.suspended = true
+	return nil
+}
+
+func (t *ProcessTerminal) quiesceBufferForSuspend() error {
+	t.cancelFlushTimer()
+	t.bufferMu.Lock()
+	t.mu.Lock()
+	if t.stopped {
+		t.mu.Unlock()
+		t.bufferMu.Unlock()
+		return errors.New("tui: terminal is stopped")
+	}
+	t.deliveryGeneration++
+	t.buffer.clear()
+	t.mu.Unlock()
+	t.bufferMu.Unlock()
+	return nil
+}
+
+func (t *ProcessTerminal) ResumeRaw() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.suspended {
+		return nil
+	}
+	if t.readerPaused && !t.readerExitedLocked() {
+		return errReaderNotExited
+	}
+	if t.wasRaw != nil {
+		state, err := t.ops.makeRaw(t.stdinFile)
+		if err != nil {
+			return err
+		}
+		t.wasRaw = state
+	}
+	t.deliveryGeneration++
+	t.suspended = false
+	t.enableInteractiveProtocolsLocked()
+	return t.resumeReaderLocked()
 }
 
 func (t *ProcessTerminal) Stop() {
@@ -693,8 +1276,13 @@ func (t *ProcessTerminal) Stop() {
 	t.stopResizeSignals = nil
 	stopReading := t.stopReading
 	readerDone := t.readerDone
-	t.buffer.clear()
 	t.mu.Unlock()
+
+	t.cancelFlushTimer()
+	t.bufferMu.Lock()
+	t.buffer.clear()
+	t.bufferMu.Unlock()
+	t.stopDelivery()
 
 	if winchStop != nil {
 		close(winchStop)

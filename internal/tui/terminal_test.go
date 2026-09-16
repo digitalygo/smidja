@@ -416,7 +416,9 @@ func TestProcessTerminalResizeSignal(t *testing.T) {
 	if err := terminal.Start(func(string) {}, func() { resized <- struct{}{} }); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
+	ops.mu.Lock()
 	ops.size = [2]int{120, 40}
+	ops.mu.Unlock()
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGWINCH); err != nil {
 		t.Fatalf("SIGWINCH failed: %v", err)
 	}

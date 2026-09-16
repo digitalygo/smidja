@@ -471,6 +471,28 @@ func TestSurfaceConcurrentClose(t *testing.T) {
 	}
 }
 
+func TestSurfaceReconcileAssistantContent(t *testing.T) {
+	theme := mustTheme(t)
+	surface, _ := newTestSurface(t, SurfaceOptions{Theme: theme})
+	if surface.ReconcileAssistantContent([]AssistantMessagePart{{Text: "early"}}) {
+		t.Fatal("reconcile without an assistant block should report false")
+	}
+	surface.StartAssistantTurn()
+	surface.AppendAssistantText("streamed")
+	if !surface.ReconcileAssistantContent([]AssistantMessagePart{{Text: "authoritative"}}) {
+		t.Fatal("reconcile with an assistant block should report true")
+	}
+	frame := strings.Join(plainLines(surface.RenderFrame(70, 30).Lines), "\n")
+	if strings.Contains(frame, "streamed") || !strings.Contains(frame, "authoritative") {
+		t.Fatalf("reconcile did not replace the rendered content:\n%s", frame)
+	}
+	surface.ReconcileAssistantContent(nil)
+	frame = strings.Join(plainLines(surface.RenderFrame(70, 30).Lines), "\n")
+	if strings.Contains(frame, "authoritative") {
+		t.Fatalf("reconcile with no parts should clear the block:\n%s", frame)
+	}
+}
+
 func TestSurfaceBlockFactoriesAndEndTurn(t *testing.T) {
 	theme := mustTheme(t)
 	surface, _ := newTestSurface(t, SurfaceOptions{Theme: theme})

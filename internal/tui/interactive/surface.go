@@ -47,6 +47,14 @@ func (o *ownedRoot) Render(width int) []string {
 	return lines
 }
 
+func (o *ownedRoot) RenderDocument(width int) []string {
+	return o.surface.RenderDocument(width)
+}
+
+func (o *ownedRoot) StackLayout() tui.StackLayoutSpec {
+	return o.surface.root.StackLayout()
+}
+
 func (o *ownedRoot) Invalidate() {
 	o.surface.runtime.Run(func() {
 		o.surface.root.Invalidate()
@@ -198,6 +206,19 @@ func (s *Surface) RequestRender() {
 	s.requestRender()
 }
 
+func (s *Surface) RenderDocument(width int) []string {
+	var lines []string
+	s.runtime.Run(func() {
+		lines = append(lines, s.chat.Render(width)...)
+		lines = append(lines, s.editor.Render(width)...)
+		lines = append(lines, s.pending.Render(width)...)
+		lines = append(lines, s.statusRegion.Render(width)...)
+		lines = append(lines, s.widgets.Render(width)...)
+		lines = append(lines, s.footer.Render(width)...)
+	})
+	return lines
+}
+
 func (s *Surface) RenderFrame(width, height int) *tui.LayoutFrame {
 	var frame *tui.LayoutFrame
 	s.runtime.Run(func() {
@@ -310,6 +331,16 @@ func (s *Surface) AppendAssistantThinking(delta string) {
 	}
 	assistant.AppendThinking(delta)
 	s.invalidateChat()
+}
+
+func (s *Surface) ReconcileAssistantContent(parts []AssistantMessagePart) bool {
+	assistant := s.currentAssistant()
+	if assistant == nil {
+		return false
+	}
+	assistant.ReconcileContent(parts)
+	s.invalidateChat()
+	return true
 }
 
 func (s *Surface) EndAssistantTurn(stopReason, errorMessage string) {

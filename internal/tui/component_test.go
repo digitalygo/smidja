@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -374,30 +375,30 @@ func TestRenderThrottling(t *testing.T) {
 	terminal := newFakeTerminal(20, 5)
 	base := NewBase(terminal, false, "regular")
 	base.SetMinRenderInterval(30 * time.Millisecond)
-	renders := 0
-	base.SetHooks(tuiHooks{doRender: func() { renders++ }})
+	var renders atomic.Int64
+	base.SetHooks(tuiHooks{doRender: func() { renders.Add(1) }})
 
 	base.RequestRender(false)
 	time.Sleep(5 * time.Millisecond)
 	base.RequestRender(false)
 	base.RequestRender(false)
 	time.Sleep(60 * time.Millisecond)
-	if renders == 0 {
+	if renders.Load() == 0 {
 		t.Fatal("coalesced render never ran")
 	}
-	if renders > 2 {
-		t.Fatalf("renders = %d, expected coalescing to at most 2", renders)
+	if renders.Load() > 2 {
+		t.Fatalf("renders = %d, expected coalescing to at most 2", renders.Load())
 	}
 
 	base.RenderNow(true)
-	if renders < 2 {
-		t.Fatalf("RenderNow should force a render, renders = %d", renders)
+	if renders.Load() < 2 {
+		t.Fatalf("RenderNow should force a render, renders = %d", renders.Load())
 	}
 	base.Stop(StopOptions{})
 	base.RenderNow(false)
-	stoppedRenders := renders
+	stoppedRenders := renders.Load()
 	time.Sleep(20 * time.Millisecond)
-	if renders != stoppedRenders {
+	if renders.Load() != stoppedRenders {
 		t.Fatal("renders should not run after stop")
 	}
 }

@@ -42,6 +42,7 @@ type LayoutFrame struct {
 	Height            int
 	Lines             []string
 	PrimaryScrollView *ScrollView
+	PrimaryScrollTop  int
 }
 
 type StackEntryOptions struct {
@@ -102,6 +103,7 @@ type layoutContext struct {
 	renderCache       map[Component]map[int][]string
 	requestRender     func()
 	primaryScrollView *ScrollView
+	primaryScrollTop  int
 }
 
 func renderCached(context *layoutContext, component Component, width int) []string {
@@ -252,7 +254,7 @@ func layoutComponent(context *layoutContext, component Component, x, y, width, h
 	if scrollProvider, ok := component.(ScrollLayoutProvider); ok {
 		spec := scrollProvider.ScrollLayout()
 		state := spec.State
-		previousScrollTop := state.scrollTop
+		previousScrollTop := state.ScrollTop()
 		contentWidth := state.ContentWidth(safeWidth)
 		childBox := layoutComponent(context, spec.Child, x, y-previousScrollTop, contentWidth, 0, false, clip)
 		contentHeight := childBox.Rect.Height
@@ -261,9 +263,11 @@ func layoutComponent(context *layoutContext, component Component, x, y, width, h
 			viewportHeight = maxInt(0, height)
 		}
 		state.UpdateLayout(contentHeight, viewportHeight, context.requestRender)
-		translateBox(childBox, previousScrollTop-state.scrollTop)
+		visibleScrollTop := state.ScrollTop()
+		translateBox(childBox, previousScrollTop-visibleScrollTop)
 		if state.primary || context.primaryScrollView == nil {
 			context.primaryScrollView = state
+			context.primaryScrollTop = visibleScrollTop
 		}
 		rect := LayoutRect{X: x, Y: y, Width: safeWidth, Height: viewportHeight}
 		childClip := intersectRects(clip, rect)
@@ -471,7 +475,7 @@ func getScrollbarGeometry(box *LayoutBox, includeHiddenAuto bool) *scrollbarGeom
 		contentHeight = len(box.scrollContentLines)
 	}
 	trackHeight := box.Rect.Height
-	canRevealHiddenAuto := includeHiddenAuto && box.scrollView.scrollbar == ScrollbarAuto && contentHeight > trackHeight
+	canRevealHiddenAuto := includeHiddenAuto && box.scrollView.Scrollbar() == ScrollbarAuto && contentHeight > trackHeight
 	if !box.scrollView.IsScrollbarVisible() && !canRevealHiddenAuto {
 		return nil
 	}
@@ -482,7 +486,7 @@ func getScrollbarGeometry(box *LayoutBox, includeHiddenAuto bool) *scrollbarGeom
 	maxThumbTop := trackHeight - thumbHeight
 	thumbOffset := 0
 	if maxScrollTop > 0 {
-		thumbOffset = box.scrollView.scrollTop * maxThumbTop / maxScrollTop
+		thumbOffset = box.scrollView.ScrollTop() * maxThumbTop / maxScrollTop
 	}
 	column := box.Rect.X + box.Rect.Width - 1
 	if column < box.Clip.X || column >= box.Clip.X+box.Clip.Width {
@@ -511,7 +515,7 @@ func paintScrollbar(box *LayoutBox, screen []string, totalWidth int) {
 		isThumb := row >= geometry.thumbTop && row < geometry.thumbTop+geometry.thumbHeight
 		var replacement string
 		if isThumb {
-			if box.scrollView.isScrollbarActive {
+			if box.scrollView.IsScrollbarActive() {
 				replacement = box.scrollView.scrollbarThumbStyle("█")
 			} else {
 				replacement = box.scrollView.scrollbarThumbStyle("┃")
@@ -519,7 +523,7 @@ func paintScrollbar(box *LayoutBox, screen []string, totalWidth int) {
 		} else {
 			replacement = box.scrollView.scrollbarTrackStyle("│")
 		}
-		screen[row] = replaceScrollbarCell(screen[row], geometry.column, totalWidth, replacement, box.scrollView.scrollbar != ScrollbarAlways)
+		screen[row] = replaceScrollbarCell(screen[row], geometry.column, totalWidth, replacement, box.scrollView.Scrollbar() != ScrollbarAlways)
 	}
 }
 
@@ -588,6 +592,7 @@ func RenderLayoutFrame(root Component, width, height int, requestRender func()) 
 		Height:            safeHeight,
 		Lines:             lines,
 		PrimaryScrollView: context.primaryScrollView,
+		PrimaryScrollTop:  context.primaryScrollTop,
 	}
 }
 

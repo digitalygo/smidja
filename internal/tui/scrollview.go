@@ -1,6 +1,9 @@
 package tui
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type ScrollbarMode int
 
@@ -27,11 +30,12 @@ type ScrollView struct {
 	followEnd           bool
 	primary             bool
 	overscroll          string
-	scrollbar           ScrollbarMode
 	scrollbarTrackStyle func(string) string
 	scrollbarThumbStyle func(string) string
 	scrollbarHideDelay  time.Duration
 
+	mu                sync.Mutex
+	scrollbar         ScrollbarMode
 	scrollTop         int
 	contentHeight     int
 	viewportHeight    int
@@ -71,14 +75,47 @@ func NewScrollView(child Component, options ScrollViewOptions) *ScrollView {
 	return view
 }
 
-func (s *ScrollView) ScrollTop() int           { return s.scrollTop }
-func (s *ScrollView) IsFollowingEnd() bool     { return s.followingEnd }
-func (s *ScrollView) ViewportHeight() int      { return s.viewportHeight }
-func (s *ScrollView) Primary() bool            { return s.primary }
-func (s *ScrollView) Overscroll() string       { return s.overscroll }
-func (s *ScrollView) Scrollbar() ScrollbarMode { return s.scrollbar }
+func (s *ScrollView) ScrollTop() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scrollTop
+}
+
+func (s *ScrollView) IsFollowingEnd() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.followingEnd
+}
+
+func (s *ScrollView) ViewportHeight() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.viewportHeight
+}
+
+func (s *ScrollView) Primary() bool { return s.primary }
+
+func (s *ScrollView) Overscroll() string { return s.overscroll }
+
+func (s *ScrollView) Scrollbar() ScrollbarMode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scrollbar
+}
+
+func (s *ScrollView) IsScrollbarActive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.isScrollbarActive
+}
 
 func (s *ScrollView) IsScrollbarVisible() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.isScrollbarVisibleLocked()
+}
+
+func (s *ScrollView) isScrollbarVisibleLocked() bool {
 	if s.scrollbar == ScrollbarAlways {
 		return s.viewportHeight > 0
 	}
@@ -86,26 +123,31 @@ func (s *ScrollView) IsScrollbarVisible() bool {
 }
 
 func (s *ScrollView) SetScrollbar(mode ScrollbarMode) {
+	s.mu.Lock()
 	if mode == s.scrollbar {
+		s.mu.Unlock()
 		return
 	}
 	s.scrollbar = mode
 	if mode != ScrollbarAuto {
-		s.hideTransientScrollbar()
+		s.hideTransientScrollbarLocked()
 	} else if s.isScrollbarActive {
-		s.markScrollbarActivity()
+		s.markScrollbarActivityLocked()
 	}
+	s.mu.Unlock()
 	s.notifyRender()
 }
 
 func (s *ScrollView) ContentWidth(width int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.scrollbar == ScrollbarAlways && width > 1 {
 		return width - 1
 	}
 	return width
 }
 
-func (s *ScrollView) markScrollbarActivity() {
+func (s *ScrollView) markScrollbarActivityLocked() {
 	if s.scrollbar != ScrollbarAuto || s.contentHeight <= s.viewportHeight {
 		return
 	}
@@ -117,14 +159,18 @@ func (s *ScrollView) markScrollbarActivity() {
 	if s.isScrollbarActive {
 		return
 	}
-	s.hideTimer = time.AfterFunc(s.scrollbarHideDelay, func() {
-		s.transientVisible = false
-		s.hideTimer = nil
-		s.notifyRender()
-	})
+	s.hideTimer = time.AfterFunc(s.scrollbarHideDelay, s.expireScrollbar)
 }
 
-func (s *ScrollView) hideTransientScrollbar() {
+func (s *ScrollView) expireScrollbar() {
+	s.mu.Lock()
+	s.transientVisible = false
+	s.hideTimer = nil
+	s.mu.Unlock()
+	s.notifyRender()
+}
+
+func (s *ScrollView) hideTransientScrollbarLocked() {
 	s.transientVisible = false
 	if s.hideTimer != nil {
 		s.hideTimer.Stop()
@@ -133,11 +179,14 @@ func (s *ScrollView) hideTransientScrollbar() {
 }
 
 func (s *ScrollView) SetScrollbarActive(active bool) {
+	s.mu.Lock()
 	if active == s.isScrollbarActive {
+		s.mu.Unlock()
 		return
 	}
 	s.isScrollbarActive = active
-	s.markScrollbarActivity()
+	s.markScrollbarActivityLocked()
+	s.mu.Unlock()
 	s.notifyRender()
 }
 
@@ -146,11 +195,13 @@ type ScrollToOptions struct {
 }
 
 func (s *ScrollView) ScrollTo(scrollTop int, options ScrollToOptions) {
+	s.mu.Lock()
 	maxScrollTop := maxInt(0, s.contentHeight-s.viewportHeight)
 	next := maxInt(0, minInt(maxScrollTop, scrollTop))
 	suppressed := options.DisableFollow && next == maxScrollTop
 	followingEnd := !suppressed && s.followEnd && next == maxScrollTop
 	if next == s.scrollTop && followingEnd == s.followingEnd && suppressed == s.followSuppressed {
+		s.mu.Unlock()
 		return
 	}
 	moved := next != s.scrollTop
@@ -158,8 +209,9 @@ func (s *ScrollView) ScrollTo(scrollTop int, options ScrollToOptions) {
 	s.followingEnd = followingEnd
 	s.followSuppressed = suppressed
 	if moved {
-		s.markScrollbarActivity()
+		s.markScrollbarActivityLocked()
 	}
+	s.mu.Unlock()
 	s.notifyRender()
 }
 
@@ -167,6 +219,7 @@ func (s *ScrollView) ScrollBy(lines int) int {
 	if lines == 0 {
 		return 0
 	}
+	s.mu.Lock()
 	maxScrollTop := maxInt(0, s.contentHeight-s.viewportHeight)
 	start := s.scrollTop
 	if s.followingEnd {
@@ -179,39 +232,51 @@ func (s *ScrollView) ScrollBy(lines int) int {
 	s.followingEnd = s.followEnd && next == maxScrollTop
 	s.followSuppressed = false
 	if moved != 0 {
-		s.markScrollbarActivity()
+		s.markScrollbarActivityLocked()
 	}
-	if moved != 0 || s.followingEnd != wasFollowingEnd {
+	notify := moved != 0 || s.followingEnd != wasFollowingEnd
+	s.mu.Unlock()
+	if notify {
 		s.notifyRender()
 	}
 	return lines - moved
 }
 
 func (s *ScrollView) ScrollToStart() {
+	s.mu.Lock()
 	changed := s.scrollTop != 0 ||
 		s.followingEnd != (s.followEnd && s.contentHeight <= s.viewportHeight)
 	s.scrollTop = 0
 	s.followingEnd = s.followEnd && s.contentHeight <= s.viewportHeight
 	s.followSuppressed = false
 	if changed {
-		s.markScrollbarActivity()
+		s.markScrollbarActivityLocked()
+	}
+	s.mu.Unlock()
+	if changed {
 		s.notifyRender()
 	}
 }
 
 func (s *ScrollView) ScrollToEnd() {
+	s.mu.Lock()
 	next := maxInt(0, s.contentHeight-s.viewportHeight)
 	changed := s.scrollTop != next || s.followingEnd != s.followEnd
 	s.scrollTop = next
 	s.followingEnd = s.followEnd
 	s.followSuppressed = false
 	if changed {
-		s.markScrollbarActivity()
+		s.markScrollbarActivityLocked()
+	}
+	s.mu.Unlock()
+	if changed {
 		s.notifyRender()
 	}
 }
 
 func (s *ScrollView) UpdateLayout(contentHeight, viewportHeight int, requestRender func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.contentHeight = maxInt(0, contentHeight)
 	s.viewportHeight = maxInt(0, viewportHeight)
 	s.requestRender = requestRender
@@ -228,13 +293,16 @@ func (s *ScrollView) UpdateLayout(contentHeight, viewportHeight int, requestRend
 		s.followingEnd = true
 	}
 	if s.contentHeight <= s.viewportHeight {
-		s.hideTransientScrollbar()
+		s.hideTransientScrollbarLocked()
 	}
 }
 
 func (s *ScrollView) notifyRender() {
-	if s.requestRender != nil {
-		s.requestRender()
+	s.mu.Lock()
+	render := s.requestRender
+	s.mu.Unlock()
+	if render != nil {
+		render()
 	}
 }
 
@@ -256,6 +324,9 @@ func (s *ScrollView) Render(width int) []string {
 }
 
 func (s *ScrollView) dispatchMouse(event MouseEvent) *mouseDispatchResult {
-	childEvent := event.WithPosition(event.X, event.Y+s.scrollTop)
+	s.mu.Lock()
+	scrollTop := s.scrollTop
+	s.mu.Unlock()
+	childEvent := event.WithPosition(event.X, event.Y+scrollTop)
 	return dispatchMouseEvent(s.child, childEvent)
 }

@@ -16,6 +16,7 @@ type stdinBuffer struct {
 	pasteMode   bool
 	pasteBuffer string
 	pendingKP   int
+	pending     []string
 
 	sequenceTimeoutMs int
 	escapeTimeoutMs   int
@@ -262,7 +263,18 @@ func (b *stdinBuffer) emit(sequence string) {
 	}
 	if b.onSequence != nil {
 		b.onSequence(sequence)
+		return
 	}
+	b.pending = append(b.pending, sequence)
+}
+
+func (b *stdinBuffer) takePending() []string {
+	if len(b.pending) == 0 {
+		return nil
+	}
+	pending := b.pending
+	b.pending = nil
+	return pending
 }
 
 func (b *stdinBuffer) flushDelay() (int, bool) {
@@ -290,6 +302,7 @@ func (b *stdinBuffer) clear() {
 	b.pasteMode = false
 	b.pasteBuffer = ""
 	b.pendingKP = -1
+	b.pending = nil
 }
 
 func decodeInputBytes(data []byte) string {

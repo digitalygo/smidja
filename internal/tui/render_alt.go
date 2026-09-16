@@ -3,6 +3,8 @@ package tui
 import (
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,8 +19,15 @@ type AltScreenOptions struct {
 	MouseDisabled    bool
 }
 
+type documentRenderer interface {
+	RenderDocument(width int) []string
+}
+
 type AltScreen struct {
 	*Base
+
+	frameMu           sync.RWMutex
+	layoutPublishGate atomic.Pointer[func()]
 
 	previousScreen       []string
 	lastDocument         []string
@@ -27,10 +36,13 @@ type AltScreen struct {
 
 	layoutRoot         Component
 	currentLayout      *LayoutFrame
+	navFrame           *LayoutFrame
+	navCursor          int
+	navRevision        uint64
 	implicitDocument   *Container
 	implicitScrollView *ScrollView
 
-	altScreenActive  bool
+	altScreenActive  atomic.Bool
 	wheelScrollLines int
 	mouseEnabled     bool
 
@@ -72,12 +84,9 @@ func NewAltScreen(terminal Terminal, showHardwareCursor bool, options AltScreenO
 		beforeStart:      screen.beforeTerminalStart,
 		beforeStop:       screen.beforeTerminalStop,
 		afterStop:        screen.afterTerminalStop,
-		mountedRoots: func() []Component {
-			if screen.layoutRoot != nil {
-				return []Component{screen.layoutRoot}
-			}
-			return screen.Container.children
-		},
+		suspendProtocols: screen.suspendTerminalProtocols,
+		resumeProtocols:  screen.resumeTerminalProtocols,
+		mountedRoots:     screen.mountedRoots,
 	})
 	return screen
 }
@@ -87,44 +96,145 @@ func (s *AltScreen) SetKeybindings(manager *KeybindingsManager) {
 }
 
 func (s *AltScreen) SetLayoutRoot(component Component) {
+	s.frameMu.Lock()
 	if s.layoutRoot == component {
+		s.frameMu.Unlock()
 		return
 	}
 	s.layoutRoot = component
 	s.currentLayout = nil
-	s.RequestRender(false)
+	s.navFrame = nil
+	s.navCursor = 0
+	s.navRevision++
+	s.frameMu.Unlock()
+	if s.altScreenActive.Load() {
+		s.RequestRender(false)
+	}
+}
+
+func (s *AltScreen) mountedRoots() []Component {
+	s.frameMu.RLock()
+	root := s.layoutRoot
+	s.frameMu.RUnlock()
+	if root != nil {
+		return []Component{root}
+	}
+	return s.Container.snapshot()
 }
 
 func (s *AltScreen) Render(width int) []string {
-	if s.layoutRoot != nil {
-		return s.layoutRoot.Render(width)
+	s.frameMu.RLock()
+	root := s.layoutRoot
+	s.frameMu.RUnlock()
+	if root != nil {
+		return root.Render(width)
 	}
 	return s.Container.Render(width)
 }
 
+func (s *AltScreen) finalDocument(width int) []string {
+	s.frameMu.RLock()
+	root := s.layoutRoot
+	s.frameMu.RUnlock()
+	if renderer, ok := root.(documentRenderer); ok {
+		return renderer.RenderDocument(width)
+	}
+	return s.Render(width)
+}
+
 func (s *AltScreen) primaryScrollView() *ScrollView {
-	if s.currentLayout != nil && s.currentLayout.PrimaryScrollView != nil {
-		return s.currentLayout.PrimaryScrollView
+	s.frameMu.RLock()
+	layout := s.currentLayout
+	s.frameMu.RUnlock()
+	if layout != nil && layout.PrimaryScrollView != nil {
+		return layout.PrimaryScrollView
 	}
 	return s.implicitScrollView
 }
 
 func (s *AltScreen) resetRenderState() {
+	s.frameMu.Lock()
 	s.previousScreen = nil
 	s.previousScreenWidth = 0
 	s.previousScreenHeight = 0
 	s.currentLayout = nil
+	s.navFrame = nil
+	s.navCursor = 0
+	s.navRevision++
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) mouseTarget() *mouseDispatchTarget {
+	s.frameMu.RLock()
+	defer s.frameMu.RUnlock()
+	if s.mouseCapture != nil {
+		return s.mouseCapture
+	}
+	return s.mousePressTarget
+}
+
+func (s *AltScreen) noteMouseMovement(x, y int) {
+	s.frameMu.Lock()
+	if s.mousePressPoint != nil && (x != s.mousePressPoint.x || y != s.mousePressPoint.y) {
+		s.mousePressMoved = true
+		s.lastClick = nil
+	}
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) mouseClickReady(x, y int) bool {
+	s.frameMu.RLock()
+	defer s.frameMu.RUnlock()
+	return !s.mousePressMoved && s.mousePressPoint != nil && s.mousePressPoint.x == x && s.mousePressPoint.y == y
+}
+
+func (s *AltScreen) clearMousePress() {
+	s.frameMu.Lock()
+	s.mouseCapture = nil
+	s.mousePressTarget = nil
+	s.mousePressPoint = nil
+	s.mousePressMoved = false
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) setMousePress(target *mouseDispatchTarget, x, y int) {
+	point := struct{ x, y int }{x, y}
+	s.frameMu.Lock()
+	s.mousePressTarget = target
+	s.mousePressPoint = &point
+	s.mousePressMoved = false
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) setMouseCapture(target *mouseDispatchTarget) {
+	s.frameMu.Lock()
+	s.mouseCapture = target
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) hasMousePressTarget() bool {
+	s.frameMu.RLock()
+	defer s.frameMu.RUnlock()
+	return s.mousePressTarget != nil
 }
 
 func (s *AltScreen) beforeTerminalStart() {
-	s.altScreenActive = true
+	s.altScreenActive.Store(true)
+	s.frameMu.Lock()
 	s.lastDocument = nil
 	s.mouseCapture = nil
 	s.mousePressTarget = nil
 	s.mousePressPoint = nil
 	s.mousePressMoved = false
 	s.lastClick = nil
-	s.resetRenderState()
+	s.previousScreen = nil
+	s.previousScreenWidth = 0
+	s.previousScreenHeight = 0
+	s.currentLayout = nil
+	s.navFrame = nil
+	s.navCursor = 0
+	s.navRevision++
+	s.frameMu.Unlock()
 	term := strings.ToLower(envLookup("TERM"))
 	multiplexed := envLookup("TMUX") != "" || envLookup("ZELLIJ") != "" || envLookup("STY") != "" ||
 		strings.HasPrefix(term, "tmux") || strings.HasPrefix(term, "screen")
@@ -136,25 +246,39 @@ func (s *AltScreen) beforeTerminalStart() {
 		CursorEraseScreen + CursorHome + CursorHide)
 }
 
+func (s *AltScreen) suspendTerminalProtocols() {
+	if !s.altScreenActive.Load() {
+		return
+	}
+	s.Terminal().Write(SyncOutputBegin + MouseDisable() + AutowrapEnable + AltScreenExit + CursorShow + SyncOutputEnd)
+}
+
+func (s *AltScreen) resumeTerminalProtocols() {
+	if !s.altScreenActive.Load() {
+		return
+	}
+	s.beforeTerminalStart()
+}
+
 func (s *AltScreen) beforeTerminalStop(StopOptions) {
-	if !s.altScreenActive {
+	if !s.altScreenActive.Load() {
 		return
 	}
 	s.Terminal().Write(SyncOutputBegin + MouseDisable() + AutowrapEnable + SyncOutputEnd)
 }
 
 func (s *AltScreen) afterTerminalStop(options StopOptions) {
-	if !s.altScreenActive {
+	if !s.altScreenActive.Load() {
 		return
 	}
-	s.altScreenActive = false
+	s.altScreenActive.Store(false)
 	terminal := s.Terminal()
 	if options.PreserveScreen {
 		terminal.Write(SyncOutputBegin + AltScreenExit + CursorShow + SyncOutputEnd)
 		return
 	}
 	width := maxInt(1, terminal.Columns())
-	document := s.Render(width)
+	document := s.finalDocument(width)
 	for i, line := range document {
 		document[i] = stripCursorMarker(trimOSC133Zone(line))
 	}
@@ -164,7 +288,9 @@ func (s *AltScreen) afterTerminalStop(options StopOptions) {
 			document[i] = SliceByColumn(line, 0, width, true)
 		}
 	}
+	s.frameMu.Lock()
 	s.lastDocument = document
+	s.frameMu.Unlock()
 
 	var buffer strings.Builder
 	buffer.WriteString(SyncOutputBegin)
@@ -191,13 +317,19 @@ func stripCursorMarker(line string) string {
 }
 
 func (s *AltScreen) doRender() {
-	if s.IsStopped() || !s.altScreenActive {
+	if s.IsStopped() || s.IsSuspended() || !s.altScreenActive.Load() {
 		return
 	}
 	width := maxInt(1, s.Terminal().Columns())
 	height := maxInt(1, s.Terminal().Rows())
 
+	s.frameMu.RLock()
 	root := s.layoutRoot
+	previousScreen := s.previousScreen
+	previousScreenWidth := s.previousScreenWidth
+	previousScreenHeight := s.previousScreenHeight
+	startRevision := s.navRevision
+	s.frameMu.RUnlock()
 	if root == nil {
 		root = s.implicitScrollView
 	}
@@ -222,8 +354,8 @@ func (s *AltScreen) doRender() {
 		}
 	}
 
-	fullRedraw := len(s.previousScreen) == 0 ||
-		s.previousScreenWidth != width || s.previousScreenHeight != height
+	fullRedraw := len(previousScreen) == 0 ||
+		previousScreenWidth != width || previousScreenHeight != height
 
 	var buffer strings.Builder
 	buffer.WriteString(SyncOutputBegin)
@@ -234,7 +366,7 @@ func (s *AltScreen) doRender() {
 		buffer.WriteString(CursorEraseScreen)
 	}
 	for row := 0; row < height; row++ {
-		if !fullRedraw && screen[row] == s.previousScreen[row] {
+		if !fullRedraw && screen[row] == previousScreen[row] {
 			continue
 		}
 		buffer.WriteString(CursorTo(row, 0))
@@ -254,10 +386,25 @@ func (s *AltScreen) doRender() {
 	buffer.WriteString(SyncOutputEnd)
 	s.Terminal().Write(buffer.String())
 
+	s.enterLayoutPublishGate()
+	s.frameMu.Lock()
 	s.previousScreen = screen
 	s.previousScreenWidth = width
 	s.previousScreenHeight = height
 	s.currentLayout = layout
+	s.navFrame = layout
+	if s.navRevision == startRevision {
+		s.navCursor = layout.PrimaryScrollTop
+	} else {
+		s.navCursor = bindCursorToFrame(layout, s.navCursor)
+	}
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) enterLayoutPublishGate() {
+	if gate := s.layoutPublishGate.Load(); gate != nil {
+		(*gate)()
+	}
 }
 
 func (s *AltScreen) handleViewportInput(data string) InputListenerResult {
@@ -265,10 +412,7 @@ func (s *AltScreen) handleViewportInput(data string) InputListenerResult {
 		return InputListenerResult{Consume: true}
 	}
 	if data == FocusOut {
-		s.mouseCapture = nil
-		s.mousePressTarget = nil
-		s.mousePressPoint = nil
-		s.mousePressMoved = false
+		s.clearMousePress()
 		return InputListenerResult{Consume: true}
 	}
 
@@ -290,40 +434,39 @@ func (s *AltScreen) handleViewportInput(data string) InputListenerResult {
 	}
 	isRelease := IsKeyRelease(data)
 
-	scrollView := s.primaryScrollView()
 	if keybindings.Matches(data, "tui.altScreen.pageUp") {
 		if !isRelease {
-			s.scrollBy(scrollView, -maxInt(1, scrollView.ViewportHeight()-pageScrollOverlap))
+			s.scrollNav(func(viewport int) int { return -maxInt(1, viewport-pageScrollOverlap) })
 		}
 		return InputListenerResult{Consume: true}
 	}
 	if keybindings.Matches(data, "tui.altScreen.pageDown") {
 		if !isRelease {
-			s.scrollBy(scrollView, maxInt(1, scrollView.ViewportHeight()-pageScrollOverlap))
+			s.scrollNav(func(viewport int) int { return maxInt(1, viewport-pageScrollOverlap) })
 		}
 		return InputListenerResult{Consume: true}
 	}
 	if keybindings.Matches(data, "tui.altScreen.halfPageUp") {
 		if !isRelease {
-			s.scrollBy(scrollView, -maxInt(1, scrollView.ViewportHeight()/2))
+			s.scrollNav(func(viewport int) int { return -maxInt(1, viewport/2) })
 		}
 		return InputListenerResult{Consume: true}
 	}
 	if keybindings.Matches(data, "tui.altScreen.halfPageDown") {
 		if !isRelease {
-			s.scrollBy(scrollView, maxInt(1, scrollView.ViewportHeight()/2))
+			s.scrollNav(func(viewport int) int { return maxInt(1, viewport/2) })
 		}
 		return InputListenerResult{Consume: true}
 	}
 	if keybindings.Matches(data, "tui.altScreen.lineUp") {
 		if !isRelease {
-			s.scrollBy(scrollView, -1)
+			s.scrollNav(func(int) int { return -1 })
 		}
 		return InputListenerResult{Consume: true}
 	}
 	if keybindings.Matches(data, "tui.altScreen.lineDown") {
 		if !isRelease {
-			s.scrollBy(scrollView, 1)
+			s.scrollNav(func(int) int { return 1 })
 		}
 		return InputListenerResult{Consume: true}
 	}
@@ -341,53 +484,166 @@ func (s *AltScreen) handleViewportInput(data string) InputListenerResult {
 	}
 	if keybindings.Matches(data, "tui.altScreen.top") {
 		if !isRelease {
-			s.scrollBy(scrollView, -scrollView.scrollTop-maxInt(1, scrollView.scrollTop))
+			s.scrollToStartNav()
 		}
 		return InputListenerResult{Consume: true}
 	}
 	if keybindings.Matches(data, "tui.altScreen.bottom") {
 		if !isRelease {
-			scrollView.ScrollToEnd()
-			s.RequestRender(false)
+			s.scrollToEndNav()
 		}
 		return InputListenerResult{Consume: true}
 	}
 	return InputListenerResult{}
 }
 
-func (s *AltScreen) scrollBy(scrollView *ScrollView, lines int) {
-	scrollView.ScrollBy(lines)
+type navPosition struct {
+	layout       *LayoutFrame
+	scrollView   *ScrollView
+	box          *LayoutBox
+	cursor       int
+	maxScrollTop int
+	viewport     int
+	hasBounds    bool
+}
+
+func (s *AltScreen) navPositionLocked() navPosition {
+	position := navPosition{layout: s.currentLayout}
+	if position.layout == nil {
+		position.scrollView = s.implicitScrollView
+		return position
+	}
+	position.scrollView = position.layout.PrimaryScrollView
+	if position.scrollView == nil {
+		position.scrollView = s.implicitScrollView
+	}
+	if s.navFrame == position.layout {
+		position.cursor = s.navCursor
+	} else {
+		position.cursor = position.layout.PrimaryScrollTop
+	}
+	position.box = GetScrollViewBox(position.layout, position.scrollView)
+	if position.box != nil {
+		position.hasBounds = true
+		position.maxScrollTop = capturedMaxScrollTop(position.box)
+		position.viewport = position.box.Rect.Height
+		position.cursor = maxInt(0, minInt(position.maxScrollTop, position.cursor))
+	}
+	return position
+}
+
+func bindCursorToFrame(layout *LayoutFrame, cursor int) int {
+	cursor = maxInt(0, cursor)
+	if layout == nil || layout.PrimaryScrollView == nil {
+		return cursor
+	}
+	box := GetScrollViewBox(layout, layout.PrimaryScrollView)
+	if box == nil {
+		return cursor
+	}
+	return maxInt(0, minInt(capturedMaxScrollTop(box), cursor))
+}
+
+func (s *AltScreen) publishNavCursor(layout *LayoutFrame, cursor int) {
+	s.frameMu.Lock()
+	s.navRevision++
+	if s.currentLayout != nil {
+		s.navFrame = s.currentLayout
+	} else {
+		s.navFrame = layout
+	}
+	s.navCursor = maxInt(0, cursor)
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) scrollNav(step func(viewport int) int) {
+	s.frameMu.Lock()
+	position := s.navPositionLocked()
+	s.frameMu.Unlock()
+	if position.scrollView == nil {
+		return
+	}
+	if position.hasBounds {
+		delta := step(position.viewport)
+		next := maxInt(0, minInt(position.maxScrollTop, position.cursor+delta))
+		s.publishNavCursor(position.layout, next)
+		position.scrollView.ScrollTo(next, ScrollToOptions{})
+		s.RequestRender(false)
+		return
+	}
+	position.scrollView.ScrollBy(step(maxInt(1, position.scrollView.ViewportHeight())))
+	s.RequestRender(false)
+}
+
+func (s *AltScreen) scrollToStartNav() {
+	s.frameMu.Lock()
+	position := s.navPositionLocked()
+	s.frameMu.Unlock()
+	if position.scrollView == nil {
+		return
+	}
+	if position.hasBounds {
+		s.publishNavCursor(position.layout, 0)
+	}
+	position.scrollView.ScrollToStart()
+	s.RequestRender(false)
+}
+
+func (s *AltScreen) scrollToEndNav() {
+	s.frameMu.Lock()
+	position := s.navPositionLocked()
+	s.frameMu.Unlock()
+	if position.scrollView == nil {
+		return
+	}
+	if position.hasBounds {
+		s.publishNavCursor(position.layout, position.maxScrollTop)
+	}
+	position.scrollView.ScrollToEnd()
 	s.RequestRender(false)
 }
 
 func (s *AltScreen) scrollToPrompt(direction int) {
-	layout := s.currentLayout
-	if layout == nil {
+	s.frameMu.Lock()
+	position := s.navPositionLocked()
+	s.frameMu.Unlock()
+	if position.layout == nil || position.scrollView == nil || position.box == nil {
 		return
 	}
-	scrollView := s.primaryScrollView()
-	box := GetScrollViewBox(layout, scrollView)
-	if box == nil || box.scrollContentLines == nil {
+	lines := position.box.scrollContentLines
+	if len(lines) == 0 {
 		return
 	}
-	lines := box.scrollContentLines
+	start := maxInt(0, minInt(position.cursor, len(lines)-1))
+	target := -1
 	if direction < 0 {
-		for row := scrollView.scrollTop - 1; row >= 0; row-- {
+		for row := start - 1; row >= 0; row-- {
 			if strings.HasPrefix(lines[row], OSC133PromptStart) {
-				scrollView.ScrollTo(row, ScrollToOptions{DisableFollow: true})
-				s.RequestRender(false)
-				return
+				target = row
+				break
 			}
 		}
-		return
-	}
-	for row := scrollView.scrollTop + 1; row < len(lines); row++ {
-		if strings.HasPrefix(lines[row], OSC133PromptStart) {
-			scrollView.ScrollTo(row, ScrollToOptions{DisableFollow: true})
-			s.RequestRender(false)
-			return
+	} else {
+		for row := start + 1; row < len(lines); row++ {
+			if strings.HasPrefix(lines[row], OSC133PromptStart) {
+				target = row
+				break
+			}
 		}
 	}
+	if target < 0 {
+		return
+	}
+	s.publishNavCursor(position.layout, target)
+	position.scrollView.ScrollTo(target, ScrollToOptions{DisableFollow: true})
+	s.RequestRender(false)
+}
+
+func capturedMaxScrollTop(box *LayoutBox) int {
+	if len(box.Children) == 0 {
+		return maxInt(0, len(box.scrollContentLines)-1)
+	}
+	return maxInt(0, box.Children[0].Rect.Height-box.Rect.Height)
 }
 
 func (s *AltScreen) handleWheelEvent(event parsedWheelEvent) {
@@ -428,32 +684,60 @@ func (s *AltScreen) wheelLinesFor(button int) int {
 }
 
 func (s *AltScreen) routeWheel(event parsedWheelEvent, delta int) {
+	s.frameMu.Lock()
+	position := s.navPositionLocked()
+	s.frameMu.Unlock()
+	primary := position.scrollView
 	remaining := delta
-	var layout *LayoutFrame
-	s.mu.Lock()
-	layout = s.currentLayout
-	s.mu.Unlock()
+	cursor := position.cursor
+	primaryConsumed := 0
 	seen := make(map[*ScrollView]struct{})
-	if layout != nil {
-		for _, scrollView := range getScrollViewsAt(layout, event.x, event.y) {
+	if position.layout != nil {
+		for _, scrollView := range getScrollViewsAt(position.layout, event.x, event.y) {
 			seen[scrollView] = struct{}{}
-			remaining = scrollView.ScrollBy(remaining)
+			if scrollView == primary && position.hasBounds {
+				target := maxInt(0, minInt(position.maxScrollTop, cursor+remaining))
+				consumed := target - cursor
+				scrollView.ScrollTo(target, ScrollToOptions{})
+				remaining -= consumed
+				primaryConsumed += consumed
+				cursor = target
+			} else {
+				before := scrollView.ScrollTop()
+				scrollView.ScrollTo(before+remaining, ScrollToOptions{})
+				remaining -= scrollView.ScrollTop() - before
+			}
 			if remaining == 0 || scrollView.overscroll == "contain" {
 				break
 			}
 		}
 	}
-	primary := s.primaryScrollView()
-	if _, wasSeen := seen[primary]; remaining != 0 && !wasSeen {
-		primary.ScrollBy(remaining)
+	if primary != nil {
+		if _, wasSeen := seen[primary]; remaining != 0 && !wasSeen {
+			if position.hasBounds {
+				target := maxInt(0, minInt(position.maxScrollTop, cursor+remaining))
+				consumed := target - cursor
+				primary.ScrollTo(target, ScrollToOptions{})
+				remaining -= consumed
+				primaryConsumed += consumed
+				cursor = target
+			} else {
+				before := primary.ScrollTop()
+				primary.ScrollTo(before+remaining, ScrollToOptions{})
+				primaryConsumed += primary.ScrollTop() - before
+			}
+		}
+	}
+	if primaryConsumed != 0 && position.hasBounds {
+		s.publishNavCursor(position.layout, cursor)
 	}
 	s.RequestRender(false)
 }
 
 func (s *AltScreen) dispatchMouseToLayout(event MouseEvent) *mouseDispatchResult {
-	s.mu.Lock()
+	s.frameMu.RLock()
 	layout := s.currentLayout
-	s.mu.Unlock()
+	s.frameMu.RUnlock()
 	if layout == nil {
 		return nil
 	}
@@ -607,23 +891,16 @@ func (s *AltScreen) handleMouseEvent(raw parsedMouseEvent) {
 		Ctrl:    raw.button&16 != 0,
 	}
 
-	if s.mouseCapture != nil || s.mousePressTarget != nil {
-		target := s.mouseCapture
-		if target == nil {
-			target = s.mousePressTarget
-		}
-		if s.mousePressPoint != nil && (raw.x != s.mousePressPoint.x || raw.y != s.mousePressPoint.y) {
-			s.mousePressMoved = true
-			s.lastClick = nil
-		}
+	target := s.mouseTarget()
+	if target != nil {
+		s.noteMouseMovement(raw.x, raw.y)
 		render := false
 		targetResult := dispatchMouseEvent(target.component, retargetMouseEvent(event, *target))
 		if targetResult != nil {
 			render = s.applyMouseDispatchResult(event, targetResult)
 		}
 		if raw.release {
-			if !s.mousePressMoved && s.mousePressPoint != nil &&
-				s.mousePressPoint.x == raw.x && s.mousePressPoint.y == raw.y {
+			if s.mouseClickReady(raw.x, raw.y) {
 				clickEvent := event
 				clickEvent.Type = MouseClick
 				clickEvent.ClickCount = s.componentClickCount(target.component, raw.x, raw.y)
@@ -632,10 +909,7 @@ func (s *AltScreen) handleMouseEvent(raw parsedMouseEvent) {
 					render = s.applyMouseDispatchResult(clickEvent, clickResult) || render
 				}
 			}
-			s.mouseCapture = nil
-			s.mousePressTarget = nil
-			s.mousePressPoint = nil
-			s.mousePressMoved = false
+			s.clearMousePress()
 		}
 		if render {
 			s.RequestRender(false)
@@ -653,26 +927,25 @@ func (s *AltScreen) handleMouseEvent(raw parsedMouseEvent) {
 	if result != nil {
 		render := s.applyMouseDispatchResult(event, result)
 		if eventType == MousePress {
-			s.mousePressTarget = &result.target
-			point := struct{ x, y int }{raw.x, raw.y}
-			s.mousePressPoint = &point
-			s.mousePressMoved = false
+			s.setMousePress(&result.target, raw.x, raw.y)
 		}
 		if result.result.Capture {
-			s.mouseCapture = &result.target
+			s.setMouseCapture(&result.target)
 		}
 		if render {
 			s.RequestRender(false)
 		}
 		return
 	}
-	if raw.release && s.mousePressTarget == nil {
+	if raw.release && !s.hasMousePressTarget() {
 		s.RequestRender(false)
 	}
 }
 
 func (s *AltScreen) componentClickCount(component Component, x, y int) int {
 	now := time.Now()
+	s.frameMu.Lock()
+	defer s.frameMu.Unlock()
 	count := 1
 	if s.lastClick != nil &&
 		now.Sub(s.lastClick.timestamp) <= doubleClickInterval &&

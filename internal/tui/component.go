@@ -37,6 +37,8 @@ type tuiHooks struct {
 	afterStop        func(options StopOptions)
 	resetRenderState func()
 	doRender         func()
+	suspendProtocols func()
+	resumeProtocols  func()
 	mountedRoots     func() []Component
 }
 
@@ -50,6 +52,7 @@ type Base struct {
 
 	focused     Component
 	stopped     bool
+	suspended   bool
 	fullRedraws int
 
 	renderMu sync.Mutex
@@ -98,6 +101,12 @@ func (b *Base) IsStopped() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.stopped
+}
+
+func (b *Base) IsSuspended() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.suspended
 }
 
 func (b *Base) ShowHardwareCursor() bool { return b.showHardwareCursor }
@@ -164,7 +173,7 @@ func (b *Base) MountedRoots() []Component {
 	if b.hooks.mountedRoots != nil {
 		return b.hooks.mountedRoots()
 	}
-	return b.children
+	return b.Container.snapshot()
 }
 
 func (b *Base) Invalidate() {
@@ -180,26 +189,35 @@ func (b *Base) Invalidate() {
 	}
 }
 
-func (b *Base) Start() {
+func (b *Base) Start() error {
 	b.mu.Lock()
 	b.stopped = false
 	b.mu.Unlock()
 	if b.hooks.beforeStart != nil {
 		b.hooks.beforeStart()
 	}
-	b.terminal.Start(b.handleTerminalInput, func() { b.RequestRender(false) })
+	if err := b.terminal.Start(b.handleTerminalInput, func() { b.RequestRender(false) }); err != nil {
+		return err
+	}
 	if b.hooks.afterStart != nil {
 		b.hooks.afterStart()
 	}
 	b.terminal.Write(CursorHide)
 	b.RequestRender(false)
+	return nil
 }
 
 func (b *Base) Stop(options StopOptions) {
 	b.mu.Lock()
+	if b.stopped {
+		b.mu.Unlock()
+		return
+	}
 	b.stopped = true
 	b.cancelRenderTimerLocked()
 	b.mu.Unlock()
+	b.renderMu.Lock()
+	b.renderMu.Unlock()
 	if b.hooks.beforeStop != nil {
 		b.hooks.beforeStop(options)
 	}
@@ -210,34 +228,113 @@ func (b *Base) Stop(options StopOptions) {
 	}
 }
 
-func (b *Base) RenderNow(force bool) {
-	if force && b.hooks.resetRenderState != nil {
-		b.hooks.resetRenderState()
+func (b *Base) SuspendScreen() {
+	b.mu.Lock()
+	if b.suspended || b.stopped {
+		b.mu.Unlock()
+		return
 	}
+	b.suspended = true
+	b.renderRequested = false
+	b.cancelRenderTimerLocked()
+	suspend := b.hooks.suspendProtocols
+	b.mu.Unlock()
+	b.renderMu.Lock()
+	b.renderMu.Unlock()
+	if suspend != nil {
+		suspend()
+	}
+}
+
+func (b *Base) ResumeScreen() {
+	b.mu.Lock()
+	if !b.suspended || b.stopped {
+		b.mu.Unlock()
+		return
+	}
+	resume := b.hooks.resumeProtocols
+	reset := b.hooks.resetRenderState
+	b.mu.Unlock()
+	b.renderMu.Lock()
+	b.mu.Lock()
+	if !b.suspended || b.stopped {
+		b.mu.Unlock()
+		b.renderMu.Unlock()
+		return
+	}
+	b.mu.Unlock()
+	if resume != nil {
+		resume()
+	}
+	if reset != nil {
+		reset()
+	}
+	b.mu.Lock()
+	if b.stopped {
+		b.mu.Unlock()
+		b.renderMu.Unlock()
+		return
+	}
+	b.suspended = false
+	b.mu.Unlock()
+	b.renderMu.Unlock()
+	b.RequestRender(true)
+}
+
+func (b *Base) RenderNow(force bool) {
 	b.mu.Lock()
 	b.renderRequested = false
 	b.cancelRenderTimerLocked()
 	b.lastRender = time.Now()
-	doRender := b.hooks.doRender
-	stopped := b.stopped
 	b.mu.Unlock()
-	if !stopped && doRender != nil {
-		b.renderMu.Lock()
-		doRender()
-		b.renderMu.Unlock()
+	b.renderWithBarrier(force)
+}
+
+func (b *Base) renderWithBarrier(force bool) bool {
+	b.renderMu.Lock()
+	defer b.renderMu.Unlock()
+	b.mu.Lock()
+	stopped := b.stopped
+	suspended := b.suspended
+	reset := b.hooks.resetRenderState
+	doRender := b.hooks.doRender
+	b.mu.Unlock()
+	if stopped || suspended || doRender == nil {
+		return false
 	}
+	if force && reset != nil {
+		reset()
+	}
+	doRender()
+	return true
+}
+
+func (b *Base) resetUnderBarrier() bool {
+	b.renderMu.Lock()
+	defer b.renderMu.Unlock()
+	b.mu.Lock()
+	active := !b.stopped && !b.suspended
+	reset := b.hooks.resetRenderState
+	b.mu.Unlock()
+	if !active {
+		return false
+	}
+	if reset != nil {
+		reset()
+	}
+	return true
 }
 
 func (b *Base) RequestRender(force bool) {
 	if force {
-		if b.hooks.resetRenderState != nil {
-			b.hooks.resetRenderState()
+		if !b.resetUnderBarrier() {
+			return
 		}
 		b.requestImmediateRender()
 		return
 	}
 	b.mu.Lock()
-	if b.renderRequested {
+	if b.renderRequested || b.suspended {
 		b.mu.Unlock()
 		return
 	}
@@ -259,21 +356,15 @@ func (b *Base) requestImmediateRender() {
 	time.AfterFunc(0, func() {
 		b.mu.Lock()
 		b.immediateScheduled = false
-		if b.stopped || !b.renderRequested {
+		if b.stopped || b.suspended || !b.renderRequested {
 			b.mu.Unlock()
 			return
 		}
 		b.cancelRenderTimerLocked()
 		b.renderRequested = false
 		b.lastRender = time.Now()
-		doRender := b.hooks.doRender
-		stopped := b.stopped
 		b.mu.Unlock()
-		if !stopped && doRender != nil {
-			b.renderMu.Lock()
-			doRender()
-			b.renderMu.Unlock()
-		}
+		b.renderWithBarrier(false)
 	})
 }
 
@@ -290,20 +381,14 @@ func (b *Base) scheduleRender() {
 	timer := time.AfterFunc(delay, func() {
 		b.mu.Lock()
 		b.renderTimer = nil
-		if b.stopped || !b.renderRequested {
+		if b.stopped || b.suspended || !b.renderRequested {
 			b.mu.Unlock()
 			return
 		}
 		b.renderRequested = false
 		b.lastRender = time.Now()
-		doRender := b.hooks.doRender
-		stopped := b.stopped
 		b.mu.Unlock()
-		if !stopped && doRender != nil {
-			b.renderMu.Lock()
-			doRender()
-			b.renderMu.Unlock()
-		}
+		b.renderWithBarrier(false)
 		b.scheduleRender()
 	})
 	b.renderTimer = timer

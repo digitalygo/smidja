@@ -362,6 +362,34 @@ func TestMouseButtonDecoding(t *testing.T) {
 	}
 }
 
+func TestAltScreenSetLayoutRootBeforeStartDoesNotRender(t *testing.T) {
+	screen, _ := newTestAltScreen(t, 20, 4)
+	screen.SetLayoutRoot(&plainComponent{lines: []string{"root one"}})
+	select {
+	case <-renderSignalsAlt[screen]:
+		t.Fatal("SetLayoutRoot before Start must not schedule a render")
+	case <-time.After(50 * time.Millisecond):
+	}
+	screen.Start()
+	waitForAltRender(t, screen)
+	if !strings.Contains(strings.Join(screen.previousScreen, "\n"), "root one") {
+		t.Fatalf("layout root not rendered by Start: %q", screen.previousScreen)
+	}
+	screen.Stop(StopOptions{})
+}
+
+func TestAltScreenSetLayoutRootAfterStartRenders(t *testing.T) {
+	screen, _ := newTestAltScreen(t, 20, 4)
+	screen.Start()
+	waitForAltRender(t, screen)
+	screen.SetLayoutRoot(&plainComponent{lines: []string{"switched root"}})
+	waitForAltRender(t, screen)
+	if !strings.Contains(strings.Join(screen.previousScreen, "\n"), "switched root") {
+		t.Fatalf("layout root switch after Start not rendered: %q", screen.previousScreen)
+	}
+	screen.Stop(StopOptions{})
+}
+
 func TestAltScreenLayoutRootSwitch(t *testing.T) {
 	screen, _ := newTestAltScreen(t, 20, 4)
 	screen.AddChild(&plainComponent{lines: []string{"implicit"}})

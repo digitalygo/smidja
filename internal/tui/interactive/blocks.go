@@ -99,6 +99,11 @@ type assistantSegment struct {
 	text     string
 }
 
+type AssistantMessagePart struct {
+	Thinking bool
+	Text     string
+}
+
 type AssistantMessage struct {
 	mu               sync.Mutex
 	theme            *tui.Theme
@@ -174,6 +179,25 @@ func (a *AssistantMessage) SetThinkingExpanded(expanded bool) {
 func (a *AssistantMessage) SetThinkingKeyDisplay(key string) {
 	a.mu.Lock()
 	a.thinkingKey = key
+	a.version++
+	a.cacheValid = false
+	a.mu.Unlock()
+}
+
+func (a *AssistantMessage) ReconcileContent(parts []AssistantMessagePart) {
+	a.mu.Lock()
+	segments := make([]assistantSegment, 0, len(parts))
+	for _, part := range parts {
+		if part.Text == "" {
+			continue
+		}
+		if len(segments) > 0 && segments[len(segments)-1].thinking == part.Thinking {
+			segments[len(segments)-1].text += part.Text
+			continue
+		}
+		segments = append(segments, assistantSegment{thinking: part.Thinking, text: part.Text})
+	}
+	a.segments = segments
 	a.version++
 	a.cacheValid = false
 	a.mu.Unlock()

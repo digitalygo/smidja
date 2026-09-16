@@ -71,7 +71,7 @@ type runDeps struct {
 	handlerContext func(context.Context) sdk.HandlerContext
 }
 
-func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string) error {
+func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string, tuiMode ui.TUIMode) error {
 	ctx := d.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -157,7 +157,8 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if err != nil {
 		return fail(d, err)
 	}
-	registerSkillCommand(commands, skillCat, d.Stdout)
+	skillOut := &switchWriter{target: d.Stdout}
+	registerSkillCommand(commands, skillCat, skillOut)
 
 	resolveEnv := func(key string) (string, bool) {
 		value := cfg.Default(key)
@@ -263,6 +264,12 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 
 	if prompt != "" {
 		if err := runOnce(ctx, rd, prompt); err != nil {
+			return fail(d, err)
+		}
+		return nil
+	}
+	if ui.ShouldUseTUI(d.Stdin, d.Stdout, prompt) {
+		if err := runTUI(ctx, d, rd, lineUI, tuiMode, cfg.WorkspaceRoot, cwd, skillOut, nil); err != nil {
 			return fail(d, err)
 		}
 		return nil
@@ -486,7 +493,7 @@ func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*a
 		}
 	}
 	if perr := d.persistCompactions(); perr != nil {
-		return h, perr
+		return h, &persistError{err: perr}
 	}
 	return h, err
 }
@@ -687,6 +694,14 @@ func (a *contextPreparerAdapter) drain() []*agent.CompactionEntry {
 type compactionSink interface {
 	appendCompaction(*agent.CompactionEntry) error
 }
+
+type persistError struct {
+	err error
+}
+
+func (e *persistError) Error() string { return e.err.Error() }
+
+func (e *persistError) Unwrap() error { return e.err }
 
 type sessionRecorder struct {
 	sess *session.Session

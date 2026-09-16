@@ -64,6 +64,56 @@ func TestAssistantMessageStreamingSegments(t *testing.T) {
 	}
 }
 
+func TestAssistantMessageReconcileContent(t *testing.T) {
+	theme := mustTheme(t)
+	assistant := NewAssistantMessage(theme, false)
+	assistant.AppendText("streamed original")
+	assistant.ReconcileContent([]AssistantMessagePart{{Text: "authoritative"}})
+	joined := strings.Join(plainLines(assistant.Render(40)), "\n")
+	if strings.Contains(joined, "streamed original") {
+		t.Fatalf("reconcile kept the stale streamed text:\n%s", joined)
+	}
+	if !strings.Contains(joined, "authoritative") {
+		t.Fatalf("reconcile dropped the replacement text:\n%s", joined)
+	}
+	if assistant.Text() != "authoritative" {
+		t.Fatalf("Text() = %q, want the replacement", assistant.Text())
+	}
+	assistant.ReconcileContent([]AssistantMessagePart{{Text: "authoritative"}})
+	if got := strings.Count(strings.Join(plainLines(assistant.Render(40)), "\n"), "authoritative"); got != 1 {
+		t.Fatalf("idempotent reconcile rendered the text %d times, want 1", got)
+	}
+	assistant.AppendThinking("stale thought")
+	assistant.SetThinkingExpanded(true)
+	assistant.ReconcileContent([]AssistantMessagePart{
+		{Thinking: true, Text: "fresh thought"},
+		{Text: "fresh answer"},
+	})
+	joined = strings.Join(plainLines(assistant.Render(40)), "\n")
+	if strings.Contains(joined, "authoritative") || strings.Contains(joined, "stale thought") {
+		t.Fatalf("reconcile kept stale segments:\n%s", joined)
+	}
+	if !strings.Contains(joined, "fresh thought") || !strings.Contains(joined, "fresh answer") {
+		t.Fatalf("reconcile dropped replacement segments:\n%s", joined)
+	}
+	assistant.ReconcileContent(nil)
+	if lines := assistant.Render(40); len(lines) != 0 {
+		t.Fatalf("empty reconcile should render nothing, got %#v", plainLines(lines))
+	}
+	assistant.ReconcileContent([]AssistantMessagePart{{Text: ""}, {Text: "joined"}, {Text: " text"}})
+	if assistant.Text() != "joined text" {
+		t.Fatalf("adjacent text parts should merge, got %q", assistant.Text())
+	}
+	assistant.ReconcileContent([]AssistantMessagePart{
+		{Thinking: true, Text: "one"},
+		{Thinking: true, Text: " two"},
+		{Text: "answer"},
+	})
+	if assistant.Text() != "answer" {
+		t.Fatalf("thinking parts must stay out of Text(), got %q", assistant.Text())
+	}
+}
+
 func TestAssistantMessageThinkingExpanded(t *testing.T) {
 	theme := mustTheme(t)
 	assistant := NewAssistantMessage(theme, false)
