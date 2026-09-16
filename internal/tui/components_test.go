@@ -707,3 +707,18 @@ func TestLoaderIndicatorInterval(t *testing.T) {
 		t.Fatalf("default interval = %v", defaultLoaderInterval)
 	}
 }
+
+func TestLoaderSanitizesCustomFrames(t *testing.T) {
+	terminal := newFakeTerminal(20, 3)
+	screen := NewMainScreen(terminal, false)
+	loader := NewLoader(screen, nil, nil, "m", &LoaderIndicator{Frames: []string{"a\x1b[31m", "b"}, IntervalMs: 5})
+	loader.Start()
+	defer loader.Stop()
+	rendered := loader.Render(20)[1]
+	if strings.Contains(rendered, "\x1b[31m") {
+		t.Fatalf("custom loader frame escape leaked: %q", rendered)
+	}
+	if got := StripTerminalSequences(rendered); !strings.Contains(got, "a") {
+		t.Fatalf("sanitized custom loader frame missing: %q", got)
+	}
+}

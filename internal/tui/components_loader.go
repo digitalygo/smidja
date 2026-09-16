@@ -87,7 +87,10 @@ func (l *Loader) SetIndicator(indicator *LoaderIndicator) {
 	l.mu.Lock()
 	l.verbatimIndicator = indicator != nil
 	if indicator != nil && indicator.Frames != nil {
-		l.frames = append([]string(nil), indicator.Frames...)
+		l.frames = make([]string, len(indicator.Frames))
+		for i, frame := range indicator.Frames {
+			l.frames[i] = StripTerminalSequences(frame)
+		}
 	} else {
 		l.frames = append([]string(nil), defaultLoaderFrames...)
 	}

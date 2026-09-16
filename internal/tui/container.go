@@ -270,10 +270,12 @@ func (b *Base) handleTerminalInput(data string) {
 		b.mu.Unlock()
 		return
 	}
-	for _, registered := range append([]registeredListener(nil), b.inputListeners...) {
+	listeners := append([]registeredListener(nil), b.inputListeners...)
+	b.mu.Unlock()
+
+	for _, registered := range listeners {
 		result := registered.listener(data)
 		if result.Consume {
-			b.mu.Unlock()
 			return
 		}
 		if result.HasData {
@@ -281,14 +283,14 @@ func (b *Base) handleTerminalInput(data string) {
 		}
 	}
 	if data == "" {
-		b.mu.Unlock()
 		return
 	}
 
-	if b.onDebug != nil && MatchesKey(data, "shift+ctrl+d") {
-		callback := b.onDebug
+	b.mu.Lock()
+	onDebug := b.onDebug
+	if onDebug != nil && MatchesKey(data, "shift+ctrl+d") {
 		b.mu.Unlock()
-		callback()
+		onDebug()
 		return
 	}
 

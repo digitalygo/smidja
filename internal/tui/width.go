@@ -590,9 +590,14 @@ func TruncateToWidth(text string, maxWidth int, ellipsis string, pad bool) strin
 			i += code.length
 			continue
 		}
-		g := splitGraphemes(text[i:])
-		consumed := 0
-		for _, gr := range g {
+		end := i
+		for end < len(text) {
+			if _, isANSI := extractANSI(text, end); isANSI {
+				break
+			}
+			end++
+		}
+		for _, gr := range splitGraphemes(text[i:end]) {
 			w := graphemeWidth(gr)
 			if keepPrefix && keptWidth+w <= targetWidth {
 				if pendingANSI.Len() > 0 {
@@ -606,13 +611,12 @@ func TruncateToWidth(text string, maxWidth int, ellipsis string, pad bool) strin
 				pendingANSI.Reset()
 			}
 			visibleSoFar += w
-			consumed += len(gr.text)
 			if visibleSoFar > maxWidth {
 				overflowed = true
 				break
 			}
 		}
-		i += consumed
+		i = end
 		if overflowed {
 			break
 		}

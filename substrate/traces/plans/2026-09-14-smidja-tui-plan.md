@@ -7,7 +7,7 @@ planner: planner
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-09-15T00:31:24+02:00
-last_updated_at: 2026-09-15
+last_updated_at: 2026-09-16
 ---
 
 # Smidja TUI implementation plan
@@ -16,13 +16,13 @@ last_updated_at: 2026-09-15
 
 - **Status:** In progress.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
-- **Execution baseline:** Resumed 2026-09-15T10:15:40+02:00 at repository commit `e7ce7f6f8342f89fc01151dbff048d2cced3de8e` on `feat/tui`, matching `origin/feat/tui`.
-- **Active phase:** Phase P2: chat surface.
-- **Last verified checkpoint:** Checkpoint 2026-09-15T12:10:09+02:00, phase P1 passed deterministic, quality, and focused security gates.
-- **Last successful checks:** P1 validation passed formatting, vet, build, Darwin and Linux arm64 static cross-builds, full tests, dependency hygiene, and per-file coverage from 82.6% to 95.8% across all added production files. Quality and focused security verdicts were PASS after correcting visible selection, empty submit, symlink containment, and terminal-control filename handling.
-- **Open blockers:** None. The solution architect remains unavailable because its provider usage limit is exhausted, so no architect evidence is claimed. A pre-existing intermittent MCP test failure reproduced outside this delta and passed on rerun.
-- **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P1 and P2 wiring and again in P6; no merge.
-- **Next action:** Commit and push phase P1, read back pull request 1, then delegate phase P2 chat-surface implementation.
+- **Execution baseline:** Resumed 2026-09-16T08:25:38+02:00 at repository commit `19be845a27d963b320e73334a30008eae7eb623c` on `feat/tui`, matching `origin/feat/tui`, with the preserved unfinished P2 work and living-plan update recorded in the ignored workspace-state snapshot.
+- **Active phase:** Phase P2 publication, followed by the authorized minimal wiring slice.
+- **Last verified checkpoint:** Checkpoint 2026-09-16T09:31:49+02:00, P2 independently verified with quality and focused security verdicts PASS.
+- **Last successful checks:** P2 passed formatting, vet, build, all tests, four Darwin and Linux amd64 and arm64 static cross-builds, dependency hygiene, targeted race checks, explicit headless frames, and coverage. Interactive package coverage is 96.3% and TUI framework coverage is 88.9%; changed production-file coverage is 80.9% to 100.0%, with the changed `TruncateToWidth` function at 90.8%. Quality and focused security verdicts are PASS after correcting hyperlink closure, status animation overlap, loader-frame sanitization, and key-clearing symmetry.
+- **Open blockers:** None.
+- **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
+- **Next action:** Commit and push the complete P2 phase, read back pull request 1 and the remote SHA, then start the minimal wiring slice.
 
 ## Planner baseline
 
@@ -277,9 +277,67 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** P1 is accepted. Invalid or control-bearing workspace filenames are omitted from autocomplete rather than sanitized into unusable paths. Selection is rendered with width-neutral inverse-video spans. Empty submissions are no-ops. The quality cursor advances after the phase commit.
 - **Next action:** Commit and push `feat(tui): add editor and input`, read back pull request 1, then begin phase P2.
 
+#### Checkpoint 2026-09-15T12:11:52+02:00: phase P1 commit published
+
+- **Event:** The independently gated P1 implementation was committed, pushed, and read back from pull request 1.
+- **Planner prediction:** P1 would land as one conventional commit and the existing pull request would update before P2 began.
+- **Subagent claims:** None.
+- **Orchestrator finding:** The commit contains exactly the P1 production files, behavior-mapped tests, and living-plan update. The working tree was clean after commit.
+- **Independently verified facts:** Commit `19be845a27d963b320e73334a30008eae7eb623c` has subject `feat(tui): add editor and input`; push succeeded; branch ahead and behind counts are zero; pull request 1 is open against `alpha`, has head `19be845`, and contains three commits.
+- **Decision and impact:** The quality cursor advances to `19be845`; phase P2 may begin.
+- **Next action:** Implement and gate phase P2 chat surface.
+
 ### Phase P2 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-09-15T17:56:31+02:00: interrupted P2 implementation resumed
+
+- **Event:** Execution resumed on the preserved unfinished P2 worktree without switching, stashing, resetting, or discarding files.
+- **Planner prediction:** P2 would add the interactive chat surface, behavior-mapped frame tests, and a per-file coverage report before one conventional commit and push.
+- **Subagent claims:** Locator, analyzer, and pattern-finder delegations found that P0, the P0 debt correction, and P1 are published through `19be845`; P2 consists of 11 untracked production files and one scratch-only test file under `internal/tui/interactive/`; no DRC or EXP files exist; the surface is not wired into production; and the current tests log frames without assertions.
+- **Orchestrator finding:** Direct inspection confirmed the full P2 source set, its unasserted scratch tests, the modified living plan, the absent directives and expectations directories, and the preserved zero-dependency boundaries. The P2 implementation covers most specified components but needs correctness fixes, behavior-mapped assertions, coverage work, and independent validation before it can be accepted.
+- **Independently verified facts:** `feat/tui` and `origin/feat/tui` both resolve to `19be845a27d963b320e73334a30008eae7eb623c`; the branch is based on `origin/alpha` at `81740f5`; pull request 1 is OPEN against `alpha` with head `19be845` and three commits; `/tmp/pi-reference` exists outside the worktree; `go.mod` and `go.sum` have no working-tree delta.
+- **Decision and impact:** Preserve and complete the existing P2 implementation with one delegated implementer. Keep minimal production wiring as the immediate post-P2 slice required by variation V-001, then return to P3 in strict order.
+- **Next action:** Complete P2 correctness and tests, run deterministic gates, obtain the quality verdict, commit, push, and read back pull request 1.
+
+#### Checkpoint 2026-09-16T08:13:29+02:00: recovery blocked by unavailable subagents
+
+- **Event:** The recovery run rechecked the interrupted P2 work and stopped before code changes because no compliant implementation path is available.
+- **Planner prediction:** P2 would be completed by a delegated backend implementer, independently inspected, deterministically validated, and submitted to a delegated quality judgment before commit and push.
+- **Subagent claims:** None. The user reports that the prior Codex process was OOM-killed at 22.4 GB immediately after dispatching `backend-dev-a` and explicitly states that the subagent tool is disabled for this recovery run.
+- **Orchestrator finding:** The available tool surface contains no subagent delegation capability. The active orchestrator role prohibits implementing or correcting code directly and requires delegated quality judgment, so the user's requested direct-implementation deviation cannot be performed without violating the binding role boundary.
+- **Independently verified facts:** `feat/tui`, `HEAD`, and `origin/feat/tui` resolve to `19be845a27d963b320e73334a30008eae7eb623c`; pull request 1 remains OPEN against `alpha` at `https://github.com/digitalygo/smidja/pull/1` with three commits; the untracked P2 directory still contains 12 files; only the living plan is a tracked modification; `go.mod` and `go.sum` have no working-tree delta. The reported OOM event and memory value could not be independently verified in this session.
+- **Decision and impact:** Preserve all unfinished P2 work and record variation V-003. Do not edit code, commit an incomplete phase, push, install a binary that still lacks real TUI wiring, or claim quality evidence that could not run. P2 through P7 remain open.
+- **Next action:** Restore subagent availability, then delegate completion of the preserved P2 implementation and run the full P2 gates before any phase commit.
+
+#### Checkpoint 2026-09-16T08:25:38+02:00: recovery baseline validated and delegation restored
+
+- **Event:** Execution resumed from the preserved P2 worktree after delegation capability became available again.
+- **Planner prediction:** Resume must preserve the 12 untracked P2 files and tracked plan update, reconstruct branch and pull request state, and restore delegated implementation and quality review before changing executable files.
+- **Subagent claims:** Four locator delegations found no DRC or EXP files, identified the living plan and workspace-state records, and mapped the P2 through P7 code and test seams. The codebase locator confirmed that P2 remains unwired and its three scratch tests only log frames.
+- **Orchestrator finding:** Direct inspection confirmed every uncommitted P2 file, the full living-plan diff, the synchronized `feat/tui` branch, open pull request 1, zero dependency changes, and the required no-edit boundaries. The subagent tool is available in this session, so the earlier process blocker no longer applies.
+- **Independently verified facts:** `HEAD` and `origin/feat/tui` both resolve to `19be845a27d963b320e73334a30008eae7eb623c`; ahead and behind counts are zero; pull request 1 is open against `alpha` with the same remote SHA and three commits; `git status` shows only the tracked plan update and untracked `internal/tui/interactive/`; the ignored status record `substrate/traces/status/2026-09-16-smidja-tui-p2-recovery-workspace-state.md` captures this baseline.
+- **Decision and impact:** Resume P2 with the existing files as the implementation base. Run analyzer and architecture passes before delegating one implementer, then verify and gate the phase before commit and push. No source is discarded or replaced wholesale.
+- **Next action:** Complete analysis and architecture review, then delegate P2 correctness, behavior tests, and coverage.
+
+#### Checkpoint 2026-09-16T08:43:10+02:00: P2 architecture and defect scope validated
+
+- **Event:** Read-only analysis and the required solution architecture pass completed before implementation resumed.
+- **Planner prediction:** P2 would remain a reusable headless chat surface, with integration deferred to the authorized immediate wiring slice.
+- **Subagent claims:** The analyzer identified parser non-termination on headings, unsynchronized tree and cache mutation, one-shot animation timers, missing bash render and cancel behavior, diff and width defects, incomplete sanitization, Markdown defects, absent usage and submit seams, and unasserted tests. The solution architect proposed one serialized UI owner, runtime-owned deterministic animation and cleanup, incremental repair of the preserved P2 source, and a distinct post-P2 wiring commit using existing internal agent streams and hook decorators without changing `sdk/`.
+- **Orchestrator finding:** The reported heading bug is directly visible because `parseHeading` returns without advancing `p.pos`. The recovered scratch streaming test includes a heading, so this defect can prevent the test from completing. The architecture preserves the P2 headless boundary while addressing the concurrency hazards that would become active immediately after wiring.
+- **Independently verified facts:** All analyzed P2 files remain unmodified from the recorded recovery baseline; no production importer of `internal/tui/interactive` exists; `sdk/`, protected packages, `go.mod`, and `go.sum` remain unchanged.
+- **Decision and impact:** Adopt the architecture proposal. Complete P2 incrementally rather than replacing it. Add the smallest framework scheduling and callback changes needed for one serialized UI owner, deterministic animation, and safe shutdown. Keep real CLI, agent, and terminal integration in the separate wiring slice already authorized by V-001. A single implementer will work in the canonical dirty worktree because the unfinished files are not committed and must remain the preserved base.
+- **Next action:** Delegate P2 completion, then inspect every changed file and run the P2 deterministic and review gates.
+
+#### Checkpoint 2026-09-16T09:31:49+02:00: P2 chat surface completed and gated
+
+- **Event:** P2 implementation, correction loop, deterministic verification, quality judgment, and focused security review completed successfully.
+- **Planner prediction:** The phase would add the chat surface under `internal/tui/interactive/`, asserted streaming and diff frames, zero dependencies, and no CLI wiring or public SDK changes.
+- **Subagent claims:** The implementer repaired the preserved source incrementally, added a serialized runtime, deterministic animation and close handling, corrected Markdown, diff, width, sanitization, footer, status, widget, tool, bash, subagent, skill, compaction, submit, usage, cancel, and expansion behavior, and replaced log-only scratch checks with behavior assertions. The first quality and security passes returned PASS with hyperlink and status advisories; the focused correction closed hyperlinks, fixed overlapping status animation, sanitized custom frames, and made key clearing symmetric. The repeated quality and focused security reviews returned PASS.
+- **Orchestrator finding:** Direct source and diff inspection confirmed the promised implementation, tests, protected-path compliance, explicit OSC 8 closure, visible labelled-link URLs, parser progress, bounded frames, runtime-owned animation, and no production import of the interactive package. The original scratch scenarios remain as asserted surface tests rather than log-only checks.
+- **Independently verified facts:** Review artifact `P2-cb0c0bcf0391` is the sorted file-content manifest with SHA-256 `cb0c0bcf0391bfe616f3b3d21a729845badf1dbe63d5524d0753dbfc28ecb8bb`. `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test ./...`, four static builds for Darwin and Linux on amd64 and arm64, `go test -race ./internal/tui/interactive`, focused framework race tests, dependency checks, `git diff --check`, and the protected-path checks passed. Package coverage is 96.3% for `internal/tui/interactive` and 88.9% for `internal/tui`; changed production-file coverage ranges from 80.9% to 100.0%, and changed `TruncateToWidth` is 90.8%. The first targeted TUI run hit the known asynchronous `TestAltScreenMouseEventDispatch` signal-order failure; the test then passed 20 of 20 isolated runs and the full targeted suite passed on rerun. Full framework race testing still exposes pre-existing P0 test-local races outside this delta.
+- **Decision and impact:** Mark P2 complete and advance the quality cursor after publication. Accept the delegated quality verdict `PASS` and focused security verdict `PASS` on the same artifact. Keep CLI and agent integration in the separately gated wiring slice. Residual non-blocking risks are unbounded long-session transcript storage and weaker control-rune filtering in the framework loader, neither of which has a current untrusted P2 production caller.
+- **Next action:** Create the conventional P2 commit, push `feat/tui`, verify pull request 1, then begin minimal end-to-end wiring and the first local install.
 
 ### Phase P3 execution checkpoints
 
@@ -311,6 +369,33 @@ No checkpoints yet.
 - **Scope and downstream impact:** P0 debt is completed first, then P1 through P7 remain in strict order. Minimal end-to-end wiring and a truthful local install move immediately after P2 for testability; complete wiring, documentation, and final installation remain in P6. The missing architect review is a recorded process limitation, not review evidence.
 - **Approval:** Explicit user approval in `/home/luca/artifacts/smidja-tui-continue.md` and the continuation request received 2026-09-15.
 - **Resolution:** Checkpoint 2026-09-15T10:15:40+02:00 resumed execution with P0 debt closure active.
+
+### Variation V-002: mandatory harness sync despite task-local machine-state constraint
+
+- **Baseline reference:** The task specification prohibited running chezmoi or changing dotfile state during this implementation.
+- **Discovered evidence:** The active orchestrator role requires `chezmoi update --force` before repository work and treats that workflow requirement as non-overridable. The command completed successfully before code delegation and reported the source repository already up to date, followed by local package installation output.
+- **Decision:** Record the conflict and the command outcome rather than conceal it. Make no further dotfile, Homebrew, PATH, or live configuration changes; retain the task-authorized local binary installation as the only later machine-state write.
+- **Scope and downstream impact:** Repository implementation scope is unchanged. The sync touched harness-managed machine state outside the repository before the implementation resumed.
+- **Approval:** No user approval was obtained for this conflict; execution was required by the higher-priority active role workflow.
+- **Resolution:** The command exited zero at session start. No repair or follow-up state mutation was needed.
+
+### Variation V-003: recovery run without subagent capability
+
+- **Baseline reference:** Variation V-001 and the latest P2 checkpoint require one delegated implementer per phase, deterministic verification, and delegated quality judgment before a phase can be accepted.
+- **Discovered evidence:** The user reports that the preceding Codex run was OOM-killed at 22.4 GB immediately after dispatching `backend-dev-a` and disabled subagents for this recovery. Independent inspection confirms that this session exposes no subagent delegation tool.
+- **Decision:** Reject direct code implementation because the active orchestrator role makes delegation a binding boundary even when a user requests otherwise. Record the process deviation and block rather than modify P2 without a compliant implementer or claim an unavailable review.
+- **Scope and downstream impact:** No executable file is changed by this recovery run. P2 remains unfinished, minimal end-to-end wiring and local installation do not occur, and P3 through P7 remain deferred until P2 is complete and green.
+- **Approval:** The user explicitly approved a no-subagent recovery method, but that approval cannot override the active orchestrator role boundary.
+- **Resolution:** Checkpoint 2026-09-16T08:13:29+02:00 records the preserved state and exact restart action.
+
+### Variation V-004: P2 serialized ownership and separate wiring slice
+
+- **Baseline reference:** The P2 baseline predicted changes under `internal/tui/interactive/` only, followed by P3. Variation V-001 authorized minimal end-to-end wiring and a local install immediately after P2.
+- **Discovered evidence:** Read-only analysis found that the existing render scheduler can read component trees while P2 producers mutate them, P2 cache invalidation is not consistently synchronized, animation timers fire once without teardown, and the heading parser does not advance. The solution architect confirmed that these faults must be fixed before wiring and proposed one serialized UI owner plus a distinct P2 wiring slice.
+- **Decision:** Permit the smallest necessary P2 framework scheduling and callback edits under `internal/tui/` so component mutation, invalidation, input callbacks, animation, rendering, and shutdown have one owner. Keep CLI, agent-hook, and process-terminal integration in a separate complete wiring commit after P2 and before P3.
+- **Scope and downstream impact:** P2 may touch `internal/tui/` in addition to the preserved interactive package and tests. The wiring slice may touch `internal/cli/` and `internal/ui/`, must preserve `LineUI` and every non-TTY path, and must produce the first testable local binary. No protected path or public SDK surface changes before P7.
+- **Approval:** No new product behavior or requirement is introduced. The framework correction is necessary to meet P2 safety and the separate wiring slice was explicitly approved in V-001.
+- **Resolution:** Checkpoint 2026-09-16T08:43:10+02:00 adopts the architecture before implementation.
 
 ## Closure evidence
 
