@@ -17,6 +17,8 @@ import (
 
 	"github.com/digitalygo/smidja/internal/agent"
 	"github.com/digitalygo/smidja/internal/extensions"
+	"github.com/digitalygo/smidja/internal/models"
+	"github.com/digitalygo/smidja/internal/session"
 	"github.com/digitalygo/smidja/internal/tui"
 	"github.com/digitalygo/smidja/internal/ui"
 	"github.com/digitalygo/smidja/sdk"
@@ -532,5 +534,140 @@ func TestTUIRealPTYDialogAcceptCancelExit(t *testing.T) {
 	}
 	if smokePTYIndex(full, tui.AltScreenExit) < 0 {
 		t.Fatalf("output missing alt-screen exit:\n%q", full)
+	}
+}
+
+type resumePTYClient struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *resumePTYClient) StreamTurn(ctx context.Context, req *agent.TurnRequest, onText func(string), onThinking func(string)) (*agent.AssistantMessage, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	if onText != nil {
+		onText("pty resumed answer 4b81")
+	}
+	return textStop("pty resumed answer 4b81"), nil
+}
+
+func (c *resumePTYClient) snapshot() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
+}
+
+func TestTUIRealPTYResumeSmoke(t *testing.T) {
+	master, slave := smokePTYOpen(t)
+	capture := &smokePTYCapture{master: master}
+	workspace := t.TempDir()
+	home := t.TempDir()
+	store := wiringStore(t)
+	sess, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.AppendUser(&agent.UserMessage{Role: "user", Content: []byte(`"pty prior question"`), Timestamp: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.AppendAssistant(&agent.AssistantMessage{Role: "assistant", Content: []agent.ContentBlock{{Type: agent.BlockTypeText, Text: "pty prior answer"}}, StopReason: "stop", Timestamp: 2}); err != nil {
+		t.Fatal(err)
+	}
+	sessionPath := sess.Path()
+	if err := sess.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := store.Open(sessionPath, session.OpenOptions{Strict: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+
+	client := &resumePTYClient{}
+	hookRuntime := extensions.NewRuntime(extensions.NewRegistry())
+	var depsStdout, depsStderr, rdStdout, rdStderr bytes.Buffer
+	deps := &Deps{
+		Env:    envFrom(nil),
+		Getwd:  func() (string, error) { return workspace, nil },
+		Home:   func() string { return home },
+		Stdin:  slave,
+		Stdout: slave,
+		Stderr: &depsStderr,
+	}
+	_ = depsStdout
+	cfg := testConfig(t, workspace)
+	env := &sessionBuildEnv{
+		cfg:         cfg,
+		providerID:  "openrouter",
+		system:      "be terse",
+		catalog:     extensions.NewToolCatalog(),
+		modelReg:    models.NewRegistry(),
+		fingerprint: func() string { return "fp" },
+	}
+	controller := newSessionController(store, workspace)
+	defer controller.Close()
+	rd := &runDeps{
+		model:          "test/model",
+		wireModel:      "test/model",
+		system:         "be terse",
+		sessionPath:    sessionPath,
+		client:         client,
+		recorder:       &sessionRecorder{reopened},
+		stdout:         &rdStdout,
+		stderr:         &rdStderr,
+		hooks:          hookRuntime.Dispatcher(),
+		retry:          retryAdapter,
+		retryPolicy:    agent.RetryPolicy{Enabled: false},
+		catalog:        extensions.NewToolCatalog(),
+		commands:       extensions.NewCommandCatalog(),
+		store:          store,
+		sess:           reopened,
+		cwd:            workspace,
+		controller:     controller,
+		env:            env,
+		resumedSession: true,
+		handlerContext: func(signal context.Context) sdk.HandlerContext {
+			return hookRuntime.HandlerContext(signal)
+		},
+	}
+	lineUI := ui.New(deps.Stdin, deps.Stdout, deps.Stderr, sdk.ModeInteractive)
+	factory := func(io.Reader, io.Writer) tui.Terminal {
+		return tui.NewProcessTerminal(slave, slave)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil)
+	}()
+	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
+	capture.waitFor(t, "pty prior answer", 5*time.Second)
+	if client.snapshot() != 0 {
+		t.Fatal("resume replay must not execute a turn")
+	}
+	smokePTYWrite(t, master, "pty resume prompt\r")
+	capture.waitFor(t, "pty resumed answer 4b81", 10*time.Second)
+	smokePTYWrite(t, master, "/quit\r")
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runTUI: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runTUI did not exit after /quit")
+	}
+	capture.drain(t, 500*time.Millisecond)
+	full := capture.snapshot()
+	enter := smokePTYIndex(full, tui.AltScreenEnter)
+	prior := smokePTYIndex(full, "pty prior answer")
+	resumed := smokePTYIndex(full, "pty resumed answer 4b81")
+	exit := smokePTYIndex(full, tui.AltScreenExit)
+	if prior < 0 || resumed < 0 || exit < 0 {
+		t.Fatalf("missing resume smoke markers: prior=%d resumed=%d exit=%d\n%q", prior, resumed, exit, full)
+	}
+	if !(enter < prior && prior < resumed && resumed < exit) {
+		t.Fatalf("resume ordering wrong: enter=%d prior=%d resumed=%d exit=%d", enter, prior, resumed, exit)
+	}
+	if client.snapshot() != 1 {
+		t.Fatalf("client calls = %d, want 1", client.snapshot())
 	}
 }

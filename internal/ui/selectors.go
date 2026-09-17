@@ -141,6 +141,7 @@ func (r *Runner) ShowHelp(ctx context.Context, entries []HelpEntry) error {
 		Items:       items,
 		Searchable:  true,
 		Placeholder: "filter commands",
+		MaxVisible:  12,
 	})
 	return err
 }

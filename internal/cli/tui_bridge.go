@@ -8,9 +8,11 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/digitalygo/smidja/internal/agent"
 	"github.com/digitalygo/smidja/internal/extensions"
+	"github.com/digitalygo/smidja/internal/session"
 	"github.com/digitalygo/smidja/internal/tui"
 	"github.com/digitalygo/smidja/internal/tui/interactive"
 	"github.com/digitalygo/smidja/internal/ui"
@@ -249,6 +251,12 @@ type tuiBridge struct {
 
 	lifecycle *tuiLifecycle
 	history   []*agent.Message
+	entryIDs  []string
+	sessions  *sessionController
+
+	projectionStale bool
+	pendingNotice   string
+	applyStep       func(next *activeSession) error
 
 	afterTurn func()
 }
@@ -261,6 +269,7 @@ func newTuiBridge(ctx context.Context, cancelWork context.CancelFunc, rd *runDep
 		runner:     runner,
 		capture:    capture,
 		lifecycle:  newTuiLifecycle(),
+		sessions:   rd.controller,
 	}
 	bridge.lifecycle.onPanic = func() {
 		bridge.runner.Surface().AddNotice(interactive.NoticeError, workerPanicNotice)
@@ -271,21 +280,202 @@ func newTuiBridge(ctx context.Context, cancelWork context.CancelFunc, rd *runDep
 
 type tuiCommandContext struct {
 	sdk.HandlerContext
-	bridge *tuiBridge
+	bridge     *tuiBridge
+	invocation *commandInvocation
 }
 
 var _ sdk.CommandContext = (*tuiCommandContext)(nil)
+
+type commandInvocation struct {
+	signal   context.Context
+	active   atomic.Bool
+	mu       sync.Mutex
+	opCtx    context.Context
+	opCancel context.CancelFunc
+	wg       sync.WaitGroup
+	mutCh    chan struct{}
+}
+
+func newCommandInvocation(signal context.Context) *commandInvocation {
+	parent := signal
+	if parent == nil {
+		parent = context.Background()
+	}
+	opCtx, cancel := context.WithCancel(parent)
+	mutCh := make(chan struct{}, 1)
+	mutCh <- struct{}{}
+	invocation := &commandInvocation{signal: signal, opCtx: opCtx, opCancel: cancel, mutCh: mutCh}
+	invocation.active.Store(true)
+	return invocation
+}
+
+func (i *commandInvocation) invalidate() {
+	if i == nil {
+		return
+	}
+	i.mu.Lock()
+	i.active.Store(false)
+	cancel := i.opCancel
+	i.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	i.wg.Wait()
+}
+
+func (i *commandInvocation) check(signal context.Context) error {
+	if i == nil || !i.active.Load() {
+		return sdk.ErrModeUnsupported
+	}
+	if signal != nil && signal.Err() != nil {
+		return signal.Err()
+	}
+	if i.signal != nil && i.signal.Err() != nil {
+		return i.signal.Err()
+	}
+	return nil
+}
+
+func (i *commandInvocation) beginMutation(signal context.Context) (context.Context, func(), error) {
+	if i == nil {
+		return nil, nil, sdk.ErrModeUnsupported
+	}
+	if signal != nil && signal.Err() != nil {
+		return nil, nil, signal.Err()
+	}
+	i.mu.Lock()
+	if !i.active.Load() {
+		i.mu.Unlock()
+		return nil, nil, sdk.ErrModeUnsupported
+	}
+	if i.signal != nil && i.signal.Err() != nil {
+		err := i.signal.Err()
+		i.mu.Unlock()
+		return nil, nil, err
+	}
+	op := i.opCtx
+	mutCh := i.mutCh
+	i.mu.Unlock()
+	if mutCh == nil {
+		i.mu.Lock()
+		defer i.mu.Unlock()
+		if op == nil {
+			op = context.Background()
+		}
+		i.wg.Add(1)
+		return op, func() { i.wg.Done() }, nil
+	}
+	var signalDone <-chan struct{}
+	if signal != nil {
+		signalDone = signal.Done()
+	}
+	var opDone <-chan struct{}
+	if op != nil {
+		opDone = op.Done()
+	}
+	select {
+	case <-mutCh:
+	case <-opDone:
+		if op != nil {
+			return nil, nil, op.Err()
+		}
+		return nil, nil, context.Canceled
+	case <-signalDone:
+		if signal != nil {
+			return nil, nil, signal.Err()
+		}
+		return nil, nil, context.Canceled
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if !i.active.Load() {
+		select {
+		case mutCh <- struct{}{}:
+		default:
+		}
+		return nil, nil, sdk.ErrModeUnsupported
+	}
+	if signal != nil && signal.Err() != nil {
+		select {
+		case mutCh <- struct{}{}:
+		default:
+		}
+		return nil, nil, signal.Err()
+	}
+	if op != nil && op.Err() != nil {
+		select {
+		case mutCh <- struct{}{}:
+		default:
+		}
+		return nil, nil, op.Err()
+	}
+	if op == nil {
+		op = context.Background()
+	}
+	i.wg.Add(1)
+	done := func() {
+		select {
+		case mutCh <- struct{}{}:
+		default:
+		}
+		i.wg.Done()
+	}
+	return op, done, nil
+}
+
+func (c *tuiCommandContext) sessionControlError() error {
+	if c.bridge == nil || c.bridge.sessions == nil {
+		return errors.New("session: session control is unavailable")
+	}
+	return nil
+}
+
+func (c *tuiCommandContext) mutationError() error {
+	var signal context.Context
+	if c.HandlerContext != nil {
+		signal = c.HandlerContext.Signal()
+	}
+	return c.invocation.check(signal)
+}
 
 func (c *tuiCommandContext) WaitForIdle() error {
 	return sdk.ErrModeUnsupported
 }
 
 func (c *tuiCommandContext) NewSession(opts sdk.NewSessionOptions) (*sdk.SessionSwitchResult, error) {
-	return nil, sdk.ErrModeUnsupported
+	if opts.Setup != nil || opts.WithSession != nil || strings.TrimSpace(opts.ParentSession) != "" {
+		return nil, fmt.Errorf("new session: unsupported option for the interactive session controller")
+	}
+	if err := c.sessionControlError(); err != nil {
+		return nil, err
+	}
+	opCtx, done, err := c.invocation.beginMutation(c.commandSignal())
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	if err := c.bridge.newSessionWithSignal(opCtx, ""); err != nil {
+		return nil, err
+	}
+	return &sdk.SessionSwitchResult{}, nil
 }
 
 func (c *tuiCommandContext) Fork(entryID string, opts sdk.ForkOptions) (*sdk.SessionSwitchResult, error) {
-	return nil, sdk.ErrModeUnsupported
+	if opts.WithSession != nil || (opts.Position != "" && opts.Position != "end") {
+		return nil, fmt.Errorf("fork: unsupported option for the interactive session controller")
+	}
+	if err := c.sessionControlError(); err != nil {
+		return nil, err
+	}
+	opCtx, done, err := c.invocation.beginMutation(c.commandSignal())
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	if err := c.bridge.forkSessionWithSignal(opCtx, entryID); err != nil {
+		return nil, err
+	}
+	return &sdk.SessionSwitchResult{}, nil
 }
 
 func (c *tuiCommandContext) NavigateTree(targetID string, opts sdk.TreeOptions) (*sdk.SessionSwitchResult, error) {
@@ -293,11 +483,35 @@ func (c *tuiCommandContext) NavigateTree(targetID string, opts sdk.TreeOptions) 
 }
 
 func (c *tuiCommandContext) SwitchSession(path string, opts sdk.SwitchOptions) (*sdk.SessionSwitchResult, error) {
-	return nil, sdk.ErrModeUnsupported
+	if opts.WithSession != nil {
+		return nil, fmt.Errorf("switch session: unsupported option for the interactive session controller")
+	}
+	if err := c.sessionControlError(); err != nil {
+		return nil, err
+	}
+	opCtx, done, err := c.invocation.beginMutation(c.commandSignal())
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("switch session: a session path is required")
+	}
+	if err := c.bridge.resumeSessionWithSignal(opCtx, path); err != nil {
+		return nil, err
+	}
+	return &sdk.SessionSwitchResult{}, nil
 }
 
 func (c *tuiCommandContext) Reload() error {
 	return sdk.ErrModeUnsupported
+}
+
+func (c *tuiCommandContext) commandSignal() context.Context {
+	if c.HandlerContext == nil {
+		return nil
+	}
+	return c.HandlerContext.Signal()
 }
 
 func (c *tuiCommandContext) runInput(input string) error {
@@ -323,6 +537,25 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	defer cancelWork()
 	bridge := newTuiBridge(workCtx, cancelWork, &rdTUI, runner, capture)
 	bridge.holdAdmission()
+	var initial *activeSession
+	if rd.controller != nil && rd.env != nil && rd.sess != nil {
+		rd.controller.SetPreparer(func(candidate *session.Session, mode sessionLoadMode) (*activeSession, error) {
+			return buildActiveSession(rd.env, bridge.rd, candidate, mode)
+		})
+		loadMode := sessionModeNew
+		if rd.resumedSession {
+			loadMode = sessionModeResume
+		}
+		prepared, err := rd.controller.Adopt(rd.sess, loadMode)
+		if err != nil {
+			bridge.shutdown()
+			bridge.wait()
+			return err
+		}
+		initial = prepared
+		bridge.history = prepared.history
+		bridge.entryIDs = prepared.entryIDs
+	}
 	runner.SetOnSubmit(bridge.submit)
 	runner.SetOnInterrupt(bridge.interrupt)
 	if err := runner.Start(); err != nil {
@@ -346,6 +579,10 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	surface.SetModel(rd.model)
 	surface.SetWorkspace(workspace)
 	surface.SetSessionName(rd.sessionPath)
+	if initial != nil {
+		bridge.replaySession(initial)
+	}
+	bridge.syncCommandInventory()
 	startupCtx, cancelStartup := context.WithCancel(ctx)
 	defer cancelStartup()
 	startupDone := make(chan error, 1)
@@ -366,6 +603,7 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 		stopStartup()
 	case err := <-startupDone:
 		if err == nil {
+			bridge.syncCommandInventory()
 			bridge.openAdmission()
 		}
 		select {
@@ -427,49 +665,25 @@ func (b *tuiBridge) handle(input string) {
 }
 
 func (b *tuiBridge) handleSlash(input string) {
-	if input == "/quit" || input == "/exit" {
-		b.runner.RequestExit()
-		return
-	}
 	name, args := splitCommandInput(input)
-	switch name {
-	case "help":
-		b.showHelp()
-		return
-	case "model":
-		b.selectModel()
-		return
-	case "theme":
-		b.selectTheme()
-		return
-	case "settings":
-		b.showSettings()
-		return
-	}
-	cmd, ok := b.rd.commands.Get(name)
-	if !ok {
+	if !b.dispatchCommand(name, args) {
 		b.runner.Surface().AddNotice(interactive.NoticeWarning, "unknown command /"+name)
-		return
 	}
-	hctx := &tuiCommandContext{HandlerContext: b.rd.handlerContext(b.ctx), bridge: b}
-	b.capture.Begin()
-	err := cmd.Handler(hctx, args)
-	captured := b.capture.End()
-	if captured != "" {
-		b.runner.Surface().AddNotice(interactive.NoticeInfo, captured)
-	}
-	if err != nil {
-		b.runner.Surface().AddNotice(interactive.NoticeWarning, "/"+name+": "+err.Error())
-	}
+	b.syncCommandInventory()
 }
 
 func (b *tuiBridge) runUserTurn(input string) {
 	surface := b.runner.Surface()
 	surface.AddUserMessage(input)
+	if err := b.refreshProjection(); err != nil {
+		surface.AddNotice(interactive.NoticeError, "session: cannot reload the active session: "+err.Error())
+		return
+	}
 	turnCtx, cancel := context.WithCancel(b.ctx)
 	handle := &tuiTurnHandle{cancel: cancel}
 	b.lifecycle.trackTurn(handle)
 	defer b.lifecycle.completeTurn(handle)
+	defer b.syncCommandInventory()
 	b.runner.SetWorking(true)
 	defer b.runner.SetWorking(false)
 	scope := ui.NewTurnScope(surface, b.runner.Active)
@@ -477,6 +691,9 @@ func (b *tuiBridge) runUserTurn(input string) {
 	boundary := len(b.history)
 	history, err := runTurn(turnCtx, b.rd, b.loopDeps(scope, decorator), b.history, input)
 	b.history = history
+	if reloadErr := b.refreshProjection(); reloadErr != nil {
+		surface.AddNotice(interactive.NoticeError, "session: cannot reload the active session: "+reloadErr.Error())
+	}
 	if err != nil {
 		var persistErr *persistError
 		isPersist := errors.As(err, &persistErr)
@@ -569,6 +786,31 @@ func (b *tuiBridge) runUserTurn(input string) {
 	}
 }
 
+func (b *tuiBridge) refreshProjection() error {
+	if b.sessions == nil {
+		return nil
+	}
+	active, err := b.sessions.Refresh()
+	if err != nil {
+		b.projectionStale = true
+		return err
+	}
+	b.history = active.history
+	b.entryIDs = active.entryIDs
+	b.projectionStale = false
+	return nil
+}
+
+func (b *tuiBridge) refreshEntryIDs(history []*agent.Message) ([]string, error) {
+	if err := b.refreshProjection(); err != nil {
+		return nil, err
+	}
+	if len(b.entryIDs) != len(history) {
+		return nil, fmt.Errorf("session: %d entry ids do not align with %d context messages", len(b.entryIDs), len(history))
+	}
+	return append([]string(nil), b.entryIDs...), nil
+}
+
 func (b *tuiBridge) loopDeps(scope *ui.TurnScope, hooks agent.HookDispatcher) *agent.LoopDeps {
 	d := b.rd
 	var catalog agent.ToolCatalog
@@ -579,7 +821,7 @@ func (b *tuiBridge) loopDeps(scope *ui.TurnScope, hooks agent.HookDispatcher) *a
 	if d.preparer != nil {
 		preparer = d.preparer
 	}
-	return &agent.LoopDeps{
+	deps := &agent.LoopDeps{
 		Client:            d.client,
 		Tools:             d.tools,
 		Catalog:           catalog,
@@ -593,7 +835,12 @@ func (b *tuiBridge) loopDeps(scope *ui.TurnScope, hooks agent.HookDispatcher) *a
 		Detector:          d.detector,
 		RetryPolicy:       d.retryPolicy,
 		RetryPolicySet:    d.retryPolicySet,
+		SessionEntryIDs:   append([]string(nil), b.entryIDs...),
 	}
+	if b.sessions != nil {
+		deps.RefreshSessionEntryIDs = b.refreshEntryIDs
+	}
+	return deps
 }
 
 func authoritativeSince(history []*agent.Message, boundary int) (*agent.AssistantMessage, bool) {

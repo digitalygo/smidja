@@ -27,12 +27,16 @@ type bridgeFixture struct {
 	client   *capturingClient
 	probe    *int
 	commands *extensions.CommandCatalog
+	store    *session.Store
+	sess     *session.Session
+	cwd      string
 }
 
 func newBridgeFixture(t *testing.T, script []*agent.AssistantMessage, tools []agent.Tool) *bridgeFixture {
 	t.Helper()
 	cwd := t.TempDir()
-	store, err := session.NewStore(t.TempDir())
+	browser := t.TempDir()
+	store, err := session.NewStore(browser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +74,9 @@ func newBridgeFixture(t *testing.T, script []*agent.AssistantMessage, tools []ag
 		retryPolicy: agent.RetryPolicy{Enabled: false},
 		catalog:     commandsCatalogFor(tools),
 		commands:    commands,
+		store:       store,
+		sess:        sess,
+		cwd:         cwd,
 		handlerContext: func(signal context.Context) sdk.HandlerContext {
 			return runtime.HandlerContext(signal)
 		},
@@ -83,6 +90,9 @@ func newBridgeFixture(t *testing.T, script []*agent.AssistantMessage, tools []ag
 		stderr:   &stderr,
 		client:   client,
 		commands: commands,
+		store:    store,
+		sess:     sess,
+		cwd:      cwd,
 	}
 }
 
@@ -438,20 +448,39 @@ func TestBridgeCommandContextUnsupported(t *testing.T) {
 	if err := hctx.WaitForIdle(); err != sdk.ErrModeUnsupported {
 		t.Errorf("WaitForIdle = %v", err)
 	}
-	if _, err := hctx.NewSession(sdk.NewSessionOptions{}); err != sdk.ErrModeUnsupported {
-		t.Errorf("NewSession = %v", err)
-	}
-	if _, err := hctx.Fork("x", sdk.ForkOptions{}); err != sdk.ErrModeUnsupported {
-		t.Errorf("Fork = %v", err)
-	}
 	if _, err := hctx.NavigateTree("x", sdk.TreeOptions{}); err != sdk.ErrModeUnsupported {
 		t.Errorf("NavigateTree = %v", err)
 	}
-	if _, err := hctx.SwitchSession("x", sdk.SwitchOptions{}); err != sdk.ErrModeUnsupported {
-		t.Errorf("SwitchSession = %v", err)
-	}
 	if err := hctx.Reload(); err != sdk.ErrModeUnsupported {
 		t.Errorf("Reload = %v", err)
+	}
+}
+
+func TestBridgeCommandContextRejectsUnreadySessionControl(t *testing.T) {
+	fixture := newBridgeFixture(t, nil, nil)
+	hctx := &tuiCommandContext{bridge: fixture.bridge}
+	if _, err := hctx.NewSession(sdk.NewSessionOptions{}); err == nil || err == sdk.ErrModeUnsupported {
+		t.Errorf("NewSession readiness error = %v, want a session-control error", err)
+	}
+	if _, err := hctx.Fork("x", sdk.ForkOptions{}); err == nil || err == sdk.ErrModeUnsupported {
+		t.Errorf("Fork readiness error = %v, want a session-control error", err)
+	}
+	if _, err := hctx.SwitchSession("x", sdk.SwitchOptions{}); err == nil || err == sdk.ErrModeUnsupported {
+		t.Errorf("SwitchSession readiness error = %v, want a session-control error", err)
+	}
+}
+
+func TestBridgeCommandContextRejectsUnsupportedOptions(t *testing.T) {
+	fixture := newBridgeFixture(t, nil, nil)
+	hctx := &tuiCommandContext{bridge: fixture.bridge}
+	if _, err := hctx.NewSession(sdk.NewSessionOptions{Setup: func(sdk.SessionView) error { return nil }}); err == nil {
+		t.Error("NewSession must reject an unsupported setup callback")
+	}
+	if _, err := hctx.Fork("x", sdk.ForkOptions{Position: "middle"}); err == nil {
+		t.Error("Fork must reject an unsupported position")
+	}
+	if _, err := hctx.SwitchSession("x", sdk.SwitchOptions{WithSession: func(sdk.CommandContext) error { return nil }}); err == nil {
+		t.Error("SwitchSession must reject an unsupported callback")
 	}
 }
 

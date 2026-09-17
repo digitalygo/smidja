@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/digitalygo/smidja/internal/tui"
@@ -67,22 +66,7 @@ func (b *tuiBridge) inform(text string) {
 }
 
 func (b *tuiBridge) helpEntries() []ui.HelpEntry {
-	entries := make([]ui.HelpEntry, 0, 8)
-	if b.rd.commands != nil {
-		for _, command := range b.rd.commands.List() {
-			entries = append(entries, ui.HelpEntry{Name: command.Name, Description: command.Description})
-		}
-	}
-	entries = append(entries,
-		ui.HelpEntry{Name: "help", Description: "show command help"},
-		ui.HelpEntry{Name: "model", Description: "select the model for the next turn"},
-		ui.HelpEntry{Name: "theme", Description: "select and apply a theme"},
-		ui.HelpEntry{Name: "settings", Description: "change session settings"},
-		ui.HelpEntry{Name: "quit", Description: "end the session"},
-		ui.HelpEntry{Name: "exit", Description: "end the session"},
-	)
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	return entries
+	return b.effectiveHelpEntries()
 }
 
 func (b *tuiBridge) showHelp() {

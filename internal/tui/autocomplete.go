@@ -35,6 +35,8 @@ type autocompleteFileEntry struct {
 
 type AutocompleteProvider struct {
 	extraCommands []AutocompleteItem
+	inventory     []AutocompleteItem
+	useInventory  bool
 	workspaceRoot string
 	listFiles     func(dir string) ([]autocompleteFileEntry, error)
 }
@@ -85,6 +87,11 @@ func (p *AutocompleteProvider) SetExtraCommands(commands []AutocompleteItem) {
 	p.extraCommands = append([]AutocompleteItem(nil), commands...)
 }
 
+func (p *AutocompleteProvider) SetCommandInventory(commands []AutocompleteItem) {
+	p.inventory = append([]AutocompleteItem(nil), commands...)
+	p.useInventory = true
+}
+
 func (p *AutocompleteProvider) SetWorkspaceRoot(root string) {
 	p.workspaceRoot = root
 }
@@ -100,6 +107,19 @@ func (p *AutocompleteProvider) SetLister(lister func(dir string) ([]autocomplete
 func (p *AutocompleteProvider) allCommands() []AutocompleteItem {
 	seen := make(map[string]struct{})
 	var out []AutocompleteItem
+	if p.useInventory {
+		for _, cmd := range p.inventory {
+			if cmd.Value == "" {
+				continue
+			}
+			if _, dup := seen[cmd.Value]; dup {
+				continue
+			}
+			seen[cmd.Value] = struct{}{}
+			out = append(out, cmd)
+		}
+		return out
+	}
 	for _, cmd := range DefaultSlashCommands() {
 		if _, dup := seen[cmd.Value]; dup {
 			continue

@@ -370,9 +370,35 @@ func (d *HookDecorator) SessionStart(ctx context.Context, reason string) error {
 	return d.next.SessionStart(ctx, reason)
 }
 
+func (d *HookDecorator) SessionStartWithFiles(ctx context.Context, reason, previousPath string) error {
+	if d.next == nil {
+		return nil
+	}
+	type starter interface {
+		SessionStartWithFiles(context.Context, string, string) error
+	}
+	if withFiles, ok := d.next.(starter); ok {
+		return withFiles.SessionStartWithFiles(ctx, reason, previousPath)
+	}
+	return d.next.SessionStart(ctx, reason)
+}
+
 func (d *HookDecorator) SessionShutdown(ctx context.Context, reason string) error {
 	if d.next == nil {
 		return nil
+	}
+	return d.next.SessionShutdown(ctx, reason)
+}
+
+func (d *HookDecorator) SessionShutdownWithFiles(ctx context.Context, reason, targetPath string) error {
+	if d.next == nil {
+		return nil
+	}
+	type stopper interface {
+		SessionShutdownWithFiles(context.Context, string, string) error
+	}
+	if withFiles, ok := d.next.(stopper); ok {
+		return withFiles.SessionShutdownWithFiles(ctx, reason, targetPath)
 	}
 	return d.next.SessionShutdown(ctx, reason)
 }

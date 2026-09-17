@@ -17,12 +17,12 @@ last_updated_at: 2026-09-17
 - **Status:** In progress.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
 - **Execution baseline:** Resumed 2026-09-16T08:25:38+02:00 at repository commit `19be845a27d963b320e73334a30008eae7eb623c` on `feat/tui`, matching `origin/feat/tui`, with the preserved unfinished P2 work and living-plan update recorded in the ignored workspace-state snapshot.
-- **Active phase:** Phase P3 publication, followed by P4 sessions.
-- **Last verified checkpoint:** Checkpoint 2026-09-17T02:10:32+02:00, P3 independently verified with quality and focused security verdicts PASS.
+- **Active phase:** Phase P4 publication, followed by P5 fullscreen extras.
+- **Last verified checkpoint:** Checkpoint 2026-09-17T15:34:16+02:00, P4 independently verified with quality and focused security verdicts PASS.
 - **Last successful checks:** The wiring slice passed formatting, vet, build, all delta-package tests, four Darwin and Linux amd64 and arm64 static cross-builds, dependency hygiene, sequential race tests, and repeated real-PTY smoke, panic, Ctrl-D, and Ctrl-G tests. Package coverage is 90.3% for `internal/tui`, 96.5% for `internal/tui/interactive`, 97.2% for `internal/ui`, and 86.9% for `internal/cli`. The only full-suite failures are the verified pre-existing `internal/mcp.TestListToolsRetryOnceAfterRestart` and `internal/session.TestListNewestFirst` flakes outside the delta.
 - **Open blockers:** None.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
-- **Next action:** Amend the P3 commit with execution evidence, push `feat/tui`, verify pull request 1, then begin P4 session navigation and replay.
+- **Next action:** Amend the P4 commit with execution evidence, push `feat/tui`, verify pull request 1, then begin P5 fullscreen extras.
 
 ## Planner baseline
 
@@ -391,9 +391,37 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** Mark P3 complete and publish one conventional commit. Existing `sdk.UI` signatures remain unchanged; print and non-TTY paths retain `sdk.ErrModeUnsupported`; reasoning effort remains truthfully provider-controlled while thinking visibility is a real session setting. Advance to P4 only after remote and pull request readback.
 - **Next action:** Publish P3, verify remote state, then implement session tree navigation, commands, and transcript replay using read-only session APIs.
 
+#### Checkpoint 2026-09-17T02:12:03+02:00: P3 published
+
+- **Event:** The complete P3 phase was pushed to the existing branch and pull request.
+- **Planner prediction:** Each phase receives one conventional commit, immediate push, and remote pull request readback without merge.
+- **Subagent claims:** None.
+- **Orchestrator finding:** The P3 commit contains only the verified dialog, selector, extension-context, model-wire, theme, settings, OAuth, sanitization, and test changes plus the living-plan evidence. Public SDK and protected paths are absent.
+- **Independently verified facts:** Commit `d2f4971817e699fe8ce5ffc25949ce7ce1d83c02` has subject `feat(tui): add dialogs and selectors`. Local `HEAD`, `origin/feat/tui`, and pull request 1 head all resolve to that SHA with zero ahead or behind. Pull request 1 remains open from `feat/tui` to `alpha` with six commits.
+- **Decision and impact:** Advance the quality cursor to `d2f4971817e699fe8ce5ffc25949ce7ce1d83c02` and start P4. No second pull request or merge is needed.
+- **Next action:** Complete session browsing, commands, switching, and replay without changing session codec or store semantics.
+
 ### Phase P4 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-09-17T02:20:31+02:00: P4 session architecture validated
+
+- **Event:** The solution architect defined active-session ownership, context reconstruction, visual replay, tree navigation, metadata operations, fork semantics, and filesystem safety before implementation.
+- **Planner prediction:** P4 would add session tree navigation, `/new`, `/tree`, `/fork`, `/resume`, `/sessions`, rename and delete actions, and replay before the first new turn without changing session codec or store semantics.
+- **Subagent claims:** The architect found that `--continue` currently restores neither model history nor visible transcript in the chat path. It proposed one CLI-owned session controller on the existing FIFO worker; prepare/commit transitions; separate model-history and active-branch transcript projections; atomic transcript replacement; read-only tree snapshots; new-session forks with reference remapping; metadata append operations; effective command inventory; and path, lock, symlink, and candidate validation.
+- **Orchestrator finding:** Existing store APIs cannot perform in-file leaf rewinds or physical deletion. P4 can meet the user-facing intent by keeping tree selection read-only, implementing forks as independent session files, appending existing metadata entry types for rename and labels, and using a narrowly scoped CLI-owned deletion helper for confirmed inactive session files after canonical identity and lock validation. `internal/session/` remains unmodified.
+- **Independently verified facts:** `Store.Open`, `Loader.BuildContextEntries`, `Loader.ActiveBranch`, `Roots`, `Children`, `Branch`, and existing entry types provide the required read/projection surfaces. Current `runChat` captures the initial session and recorder, and the TUI bridge starts with empty history; session switching therefore requires ownership transfer rather than a cosmetic selector update.
+- **Decision and impact:** Adopt the session-owner architecture. Branch browsing never changes the append leaf; `/fork` creates and activates a separate supported prefix; deletion is a CLI-owned, confirmed inactive-file operation confined to validated current-project store candidates. This preserves frozen session codec/store code while delivering the planned observable commands.
+- **Next action:** Race two P4 implementations, verify replay and transition integrity, then gate one winner.
+
+#### Checkpoint 2026-09-17T15:34:16+02:00: P4 sessions completed and gated
+
+- **Event:** P4 implementation, race selection, architecture correction loop, deterministic verification, delegated quality judgment, and focused security review completed successfully.
+- **Planner prediction:** P4 would add session browsing, branch navigation, commands, metadata operations, independent forks, safe deletion, and transcript replay without changing session codec or store semantics.
+- **Subagent claims:** Candidate A completed P4 and candidate B was eliminated as incomplete. The solution architect identified and rechecked active locks, deletion anchoring, model-profile destination, controller shutdown, command invocation lifetime, context projection, metadata sanitization, action snapshots, filters and labels, candidate listing, fork remapping, lifecycle hooks, entry-ID alignment, overflow continuation, and tool-pair compaction before returning `WINNER READY`. Quality and focused security reviews both returned PASS.
+- **Orchestrator finding:** Direct inspection confirmed one locked active-session owner, prepare/apply/commit rollback, replay before admission, separate model-context and visible transcript projections, real entry-ID refresh, strict tool history, read-only branch browsing, exact filters and label tombstones, safe action snapshots, current-project-only candidate listing, supported-prefix forks with remapped references, append-only rename/labels, and a confirmed inactive-file deletion transaction using compatible sidecar locks and anchored no-follow operations. `internal/session/` remains unchanged.
+- **Independently verified facts:** Review artifact `P4-bb2ddde0277b` is the sorted 65-file manifest with SHA-256 `bb2ddde0277ba46cced39926b4d0a8868008a42d68e24a4e3b9c5e7165fad42f`. `gofmt -l .`, `go vet ./...`, `go build ./...`, the complete `go test ./...`, sequential race tests for agent, context manager, CLI, TUI, interactive, UI, extensions, session and import compatibility, repeated real PTY resume smoke, module and dependency checks, and four static Darwin/Linux amd64/arm64 builds passed. Package coverage is 88.9% CLI, 85.2% agent, 89.5% context manager, 90.9% TUI, 94.2% interactive, and 94.4% UI; high-risk changed files are at least 86.7%. Quality and focused security verdicts are PASS on the same artifact.
+- **Decision and impact:** Mark P4 complete and publish one conventional commit. Branch browsing remains read-only; forks are separate sessions; physical delete remains the narrow CLI exception recorded in V-006. Residual non-blocking risks are the unavoidable local unlink name-swap window, Darwin deletion paths being cross-compiled rather than executed, and quadratic behavior on unusually large forks or trees.
+- **Next action:** Publish P4, verify remote state, then implement P5 search, mouse/link behavior, images, mermaid, math, and syntax highlighting with honest fallbacks.
 
 ### Phase P5 execution checkpoints
 
@@ -453,6 +481,15 @@ No checkpoints yet.
 - **Scope and downstream impact:** P3 may add internal dialog and selector components, per-call extension context decoration, and CLI selector adapters without editing `sdk/` or protected provider/session semantics. P4 and P6 must consume these services and prove their final entry-point behavior. Print and non-TTY paths remain unchanged.
 - **Approval:** This preserves the planned phase responsibilities and public contract. It does not remove a client-visible capability; it records where the selector service becomes an applied session or startup transition.
 - **Resolution:** Checkpoint 2026-09-16T21:07:00+02:00 records the validated architecture and acceptance boundary.
+
+### Variation V-006: P4 branch and deletion semantics under frozen session APIs
+
+- **Baseline reference:** P4 requires branch navigation, forks, rename, delete, switching, and replay while keeping session codec and store semantics unchanged.
+- **Discovered evidence:** The session writer has no public leaf-navigation operation and always appends from its current leaf; the Store has no physical deletion method. `Create` cannot encode a parent-session header, and generic opaque entries cannot be safely rewritten into a fork.
+- **Decision:** Keep branch navigation read-only. Implement `/fork` as a new independent session containing a validated, remapped supported prefix. Implement rename and labels by appending existing metadata entries. Implement physical deletion in the CLI with explicit confirmation, inactive-file restriction, current-project candidate validation, canonical path and symlink checks, identity revalidation, and a held session lock; never edit `internal/session/`.
+- **Scope and downstream impact:** P4 may add CLI filesystem policy and session-controller files plus interactive navigator/replay components. In-place historical branch rewind remains unsupported because claiming it would diverge model history from persistence. Forks reject opaque or untranslatable prefixes rather than silently dropping entries.
+- **Approval:** The user explicitly requires deletion and fork behavior while prohibiting session-store edits. The CLI-owned boundary is the narrow implementation that satisfies both constraints.
+- **Resolution:** Checkpoint 2026-09-17T02:20:31+02:00 records the validated semantics before implementation.
 
 ## Closure evidence
 

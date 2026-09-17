@@ -37,6 +37,8 @@ type LoopDeps struct {
 
 	SessionEntryIDs []string
 
+	RefreshSessionEntryIDs func(history []*Message) ([]string, error)
+
 	RetryPolicy RetryPolicy
 
 	RetryPolicySet bool
@@ -117,6 +119,20 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 	}
 	history = append(history, &Message{User: userMsg})
 
+	return runTurnLoop(ctx, deps, model, system, history)
+}
+
+func ContinueTurn(ctx context.Context, deps *LoopDeps, model string, system string, history []*Message) ([]*Message, error) {
+	if deps == nil {
+		return history, errors.New("agent: nil loop deps")
+	}
+	if deps.Client == nil {
+		return history, errors.New("agent: nil client")
+	}
+	return runTurnLoop(ctx, deps, model, system, history)
+}
+
+func runTurnLoop(ctx context.Context, deps *LoopDeps, model string, system string, history []*Message) ([]*Message, error) {
 	onText := func(delta string) {
 		if deps.Stdout != nil {
 			io.WriteString(deps.Stdout, delta)
@@ -142,17 +158,26 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 
 	var lastUsageInput int64
 	turnIndex := 0
+	var err error
 
 	for {
 		if err := ctx.Err(); err != nil {
 			return history, fmt.Errorf("agent: %w", err)
 		}
 
+		entryIDs := deps.SessionEntryIDs
+		if deps.RefreshSessionEntryIDs != nil {
+			refreshed, refreshErr := deps.RefreshSessionEntryIDs(history)
+			if refreshErr != nil {
+				return history, fmt.Errorf("agent: refresh session entry ids: %w", refreshErr)
+			}
+			entryIDs = refreshed
+		}
 		req := ContextRequest{
 			Messages:       append([]*Message(nil), history...),
 			System:         system,
 			LastUsageInput: lastUsageInput,
-			EntryIDs:       deps.SessionEntryIDs,
+			EntryIDs:       entryIDs,
 		}
 		cres := ContextResult{Messages: req.Messages, System: req.System}
 		if deps.Preparer != nil {

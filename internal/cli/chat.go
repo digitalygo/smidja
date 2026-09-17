@@ -74,6 +74,14 @@ type runDeps struct {
 	modelRegistry  *models.Registry
 	reprepare      func(string, string) (*contextPreparerAdapter, error)
 	persistModel   func(string) error
+
+	store *session.Store
+	sess  *session.Session
+	cwd   string
+
+	controller     *sessionController
+	env            *sessionBuildEnv
+	resumedSession bool
 }
 
 func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string, tuiMode ui.TUIMode) error {
@@ -124,12 +132,14 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if continuePath != "" {
 		sess, err = store.Open(continuePath, session.OpenOptions{Strict: true})
 	} else {
-		sess, err = store.Create(cwd)
+		sess, err = createLockedSession(store, cwd)
 	}
 	if err != nil {
 		return fail(d, err)
 	}
-	defer sess.Close()
+	controller := newSessionController(store, cwd)
+	controller.Hold(sess)
+	defer controller.Close()
 
 	catalog := extensions.NewToolCatalog()
 	for _, t := range toolSet {
@@ -224,6 +234,14 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if providerID == "" {
 		providerID = openrouterProviderName
 	}
+	if continuePath != "" && prompt != "" {
+		if loader, lerr := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true}); lerr == nil {
+			if _, _, _, verr := projectModelHistoryWithIDs(loader); verr != nil {
+				sess.Close()
+				return fail(d, verr)
+			}
+		}
+	}
 	if continuePath != "" {
 		cur := currentRuntimeProfile(cfg, providerID, sysPrompt, toolsetFingerprint(catalog, toolSet), cfg.WorkspaceRoot)
 		reset, err := syncRuntimeProfile(sess, cur, func() string { return snapshot.Fingerprint() })
@@ -246,6 +264,9 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		recorder:     &sessionRecorder{sess},
 		stdout:       d.Stdout,
 		stderr:       d.Stderr,
+		store:        store,
+		sess:         sess,
+		cwd:          cwd,
 		preparer:     preparer,
 		hooks:        hooks,
 		retryPolicy: agent.RetryPolicy{
@@ -268,13 +289,9 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	rd.reprepare = func(model, wireModel string) (*contextPreparerAdapter, error) {
 		return newModelPreparer(*cfg, modelReg, model, wireModel, selector)
 	}
-	rd.persistModel = func(model string) error {
-		updated := *cfg
-		updated.Model = model
-		cur := currentRuntimeProfile(&updated, providerID, sysPrompt, toolsetFingerprint(catalog, toolSet), cfg.WorkspaceRoot)
-		_, err := syncRuntimeProfile(sess, cur, func() string { return snapshot.Fingerprint() })
-		return err
-	}
+	rd.controller = controller
+	rd.resumedSession = continuePath != ""
+	rd.persistModel = newModelPersister(controller, cfg, providerID, sysPrompt, catalog, toolSet, cfg.WorkspaceRoot, func() string { return snapshot.Fingerprint() })
 
 	mode := sdk.ModeInteractive
 	if prompt != "" {
@@ -283,12 +300,28 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	lineUI := ui.New(d.Stdin, d.Stdout, d.Stderr, mode)
 
 	if prompt != "" {
+		if continuePath != "" {
+			if err := runOnceContinued(ctx, rd, sess, prompt); err != nil {
+				return fail(d, err)
+			}
+			return nil
+		}
 		if err := runOnce(ctx, rd, prompt); err != nil {
 			return fail(d, err)
 		}
 		return nil
 	}
 	if useTUI {
+		rd.env = &sessionBuildEnv{
+			cfg:         cfg,
+			providerID:  providerID,
+			system:      sysPrompt,
+			tools:       toolSet,
+			catalog:     catalog,
+			modelReg:    modelReg,
+			selector:    selector,
+			fingerprint: func() string { return snapshot.Fingerprint() },
+		}
 		if err := runTUI(ctx, d, rd, lineUI, tuiMode, cfg.WorkspaceRoot, cwd, skillOut, nil, runtime); err != nil {
 			return fail(d, err)
 		}
@@ -298,6 +331,20 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		return fail(d, err)
 	}
 	return nil
+}
+
+func newModelPersister(controller *sessionController, cfg *config.Config, providerID, systemPrompt string, catalog agent.ToolCatalog, tools []agent.Tool, affinityRoot string, contentFingerprint func() string) func(string) error {
+	return func(model string) error {
+		active := controller.Current()
+		if active == nil || active.sess == nil {
+			return errors.New("session: no active session for the model change")
+		}
+		updated := *cfg
+		updated.Model = model
+		cur := currentRuntimeProfile(&updated, providerID, systemPrompt, toolsetFingerprint(catalog, tools), affinityRoot)
+		_, err := syncRuntimeProfile(active.sess, cur, contentFingerprint)
+		return err
+	}
 }
 
 func loadChatConfig(d *Deps) (*config.Config, error) {
@@ -443,7 +490,38 @@ func modelWindow(reg *models.Registry, model string) int64 {
 
 func runOnce(ctx context.Context, d *runDeps, prompt string) error {
 	out := &trailingWriter{w: d.stdout}
-	if _, err := runTurn(ctx, d, loopDeps(d, out), nil, prompt); err != nil {
+	deps := loopDeps(d, out)
+	d.attachProjectedEntryIDs(deps)
+	if _, err := runTurn(ctx, d, deps, nil, prompt); err != nil {
+		return err
+	}
+	if !out.endsWithNewline() {
+		fmt.Fprintln(out.w)
+	}
+	return nil
+}
+
+func runOnceContinued(ctx context.Context, d *runDeps, sess *session.Session, prompt string) error {
+	loader, err := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true})
+	if err != nil {
+		return err
+	}
+	history, entryIDs, _, err := projectModelHistoryWithIDs(loader)
+	if err != nil {
+		return err
+	}
+	rd := *d
+	if rd.sessionPath == "" {
+		rd.sessionPath = sess.Path()
+	}
+	if rd.sess == nil {
+		rd.sess = sess
+	}
+	out := &trailingWriter{w: rd.stdout}
+	deps := loopDeps(&rd, out)
+	deps.SessionEntryIDs = entryIDs
+	rd.attachProjectedEntryIDs(deps)
+	if _, err := runTurn(ctx, &rd, deps, history, prompt); err != nil {
 		return err
 	}
 	if !out.endsWithNewline() {
@@ -520,19 +598,78 @@ func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*a
 				fmt.Fprintln(d.stderr, "smidja: context overflow, compacting and retrying once")
 			}
 			d.preparer.forceSafety()
-			h, err = agent.RunTurn(ctx, deps, d.wireModelID(), d.system, history, input)
-			if err != nil {
-				var again *agent.ContextOverflowError
-				if errors.As(err, &again) {
-					return h, fmt.Errorf("context still overflows the model window after compaction: %w", err)
-				}
-			}
+			h, err = d.continueTurn(ctx, deps)
 		}
 	}
 	if perr := d.persistCompactions(); perr != nil {
 		return h, &persistError{err: perr}
 	}
 	return h, err
+}
+
+func (d *runDeps) continueTurn(ctx context.Context, deps *agent.LoopDeps) ([]*agent.Message, error) {
+	contHistory, contIDs, err := d.loadProjectedContext()
+	if err != nil {
+		return nil, err
+	}
+	contDeps := *deps
+	contDeps.SessionEntryIDs = contIDs
+	contDeps.RefreshSessionEntryIDs = d.refreshProjectedEntryIDs
+	cont, err := agent.ContinueTurn(ctx, &contDeps, d.wireModelID(), d.system, contHistory)
+	if err != nil {
+		var again *agent.ContextOverflowError
+		if errors.As(err, &again) {
+			return cont, fmt.Errorf("context still overflows the model window after compaction: %w", err)
+		}
+	}
+	return cont, err
+}
+
+func (d *runDeps) attachProjectedEntryIDs(deps *agent.LoopDeps) {
+	if deps == nil || deps.RefreshSessionEntryIDs != nil {
+		return
+	}
+	if d.controller == nil && d.sess == nil && d.sessionPath == "" {
+		return
+	}
+	deps.RefreshSessionEntryIDs = d.refreshProjectedEntryIDs
+}
+
+func (d *runDeps) loadProjectedContext() ([]*agent.Message, []string, error) {
+	if d.controller != nil {
+		active, err := d.controller.Refresh()
+		if err != nil {
+			return nil, nil, fmt.Errorf("session: refresh the active session: %w", err)
+		}
+		return active.history, active.entryIDs, nil
+	}
+	path := d.sessionPath
+	if d.sess != nil && d.sess.Path() != "" {
+		path = d.sess.Path()
+	}
+	if path == "" {
+		return nil, nil, errors.New("session: no active session")
+	}
+	loader, err := session.LoadWithOptions(path, session.LoadOptions{Strict: true})
+	if err != nil {
+		return nil, nil, fmt.Errorf("session: reload %q: %w", path, err)
+	}
+	projected, entryIDs, _, err := projectModelHistoryWithIDs(loader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session: project %q: %w", path, err)
+	}
+	return projected, entryIDs, nil
+}
+
+func (d *runDeps) refreshProjectedEntryIDs(history []*agent.Message) ([]string, error) {
+	_, entryIDs, err := d.loadProjectedContext()
+	if err != nil {
+		return nil, err
+	}
+	if len(entryIDs) != len(history) {
+		return nil, fmt.Errorf("session: %d entry ids do not align with %d context messages", len(entryIDs), len(history))
+	}
+	return entryIDs, nil
 }
 
 func (d *runDeps) persistCompactions() error {

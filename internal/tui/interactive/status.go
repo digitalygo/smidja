@@ -137,6 +137,19 @@ func (s *StatusIndicator) StopAnimation() {
 	s.mu.Unlock()
 }
 
+func (s *StatusIndicator) Reset() {
+	s.mu.Lock()
+	s.working = false
+	s.compacting = false
+	s.retryAttempt = 0
+	s.retryMax = 0
+	s.message = ""
+	s.deadline = time.Time{}
+	s.workingSince = time.Time{}
+	s.stopAnimationLocked()
+	s.mu.Unlock()
+}
+
 func (s *StatusIndicator) SetController(controller tui.TUIController) {
 	s.mu.Lock()
 	s.controller = controller

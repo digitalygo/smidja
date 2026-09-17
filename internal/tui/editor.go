@@ -176,6 +176,27 @@ func (e *Editor) SetCommandCatalog(commands []AutocompleteItem) {
 	e.mu.Unlock()
 }
 
+func (e *Editor) SetCommandInventory(commands []AutocompleteItem) {
+	e.mu.Lock()
+	if e.provider != nil {
+		e.provider.SetCommandInventory(commands)
+	}
+	e.mu.Unlock()
+}
+
+func (e *Editor) ClearQueued() int {
+	e.mu.Lock()
+	count := len(e.queued)
+	e.queued = nil
+	changed := e.buffer.Text()
+	onChange := e.onChange
+	e.mu.Unlock()
+	if count > 0 && onChange != nil {
+		onChange(changed)
+	}
+	return count
+}
+
 func (e *Editor) SetClipboard(supported bool, write func(string)) {
 	e.mu.Lock()
 	e.clipboardSupported = supported

@@ -359,6 +359,16 @@ type SkillBlock struct {
 	keyDisplay string
 }
 
+func NewCustomBlock(label, content string, theme *tui.Theme, hyperlinks bool, keyDisplay string) *SkillBlock {
+	return &SkillBlock{
+		name:       SanitizeSingleLine(label),
+		content:    content,
+		theme:      theme,
+		hyperlinks: hyperlinks,
+		keyDisplay: keyDisplay,
+	}
+}
+
 func NewSkillBlock(name, content string, theme *tui.Theme, hyperlinks bool, keyDisplay string) *SkillBlock {
 	return &SkillBlock{
 		name:       SanitizeSingleLine(name),
