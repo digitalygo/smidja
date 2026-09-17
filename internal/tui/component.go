@@ -76,6 +76,9 @@ type Base struct {
 	renderedOverlays  []overlayLayout
 
 	mode string
+
+	modalCapture  bool
+	modalProtocol func(string) bool
 }
 
 const defaultMinRenderInterval = 16 * time.Millisecond
@@ -130,6 +133,24 @@ func (b *Base) ClearOnShrink() bool { return b.clearOnShrink }
 func (b *Base) SetClearOnShrink(enabled bool) { b.clearOnShrink = enabled }
 
 func (b *Base) SetOnDebug(callback func()) { b.onDebug = callback }
+
+func (b *Base) SetModalCapture(enabled bool) {
+	b.mu.Lock()
+	b.modalCapture = enabled
+	b.mu.Unlock()
+}
+
+func (b *Base) ModalCapture() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.modalCapture
+}
+
+func (b *Base) SetModalProtocolRouter(router func(string) bool) {
+	b.mu.Lock()
+	b.modalProtocol = router
+	b.mu.Unlock()
+}
 
 func (b *Base) FocusedComponent() Component {
 	b.mu.Lock()

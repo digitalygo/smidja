@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+	"sync"
+	"sync/atomic"
+)
 
 type SettingItem struct {
 	ID           string
@@ -49,6 +53,7 @@ func DefaultSettingsListTheme(accent, muted, dim func(string) string) SettingsLi
 }
 
 type SettingsList struct {
+	mu            sync.RWMutex
 	items         []SettingItem
 	filtered      []SettingItem
 	theme         SettingsListTheme
@@ -62,8 +67,19 @@ type SettingsList struct {
 
 	submenuComponent      Component
 	submenuItemIndex      *int
+	applySubmenuTheme     func(Component)
 	navigateAfterClose    string
 	hasNavigateAfterClose bool
+}
+
+type settingsRenderState struct {
+	theme         SettingsListTheme
+	allItems      []SettingItem
+	displayItems  []SettingItem
+	selectedIndex int
+	maxVisible    int
+	searchEnabled bool
+	searchInput   *Input
 }
 
 func NewSettingsList(items []SettingItem, maxVisible int, theme SettingsListTheme,
@@ -89,6 +105,12 @@ func NewSettingsList(items []SettingItem, maxVisible int, theme SettingsListThem
 }
 
 func (s *SettingsList) applyThemeDefaults() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyThemeDefaultsLocked()
+}
+
+func (s *SettingsList) applyThemeDefaultsLocked() {
 	if s.theme.Label == nil {
 		s.theme.Label = func(text string, selected bool) string { return text }
 	}
@@ -106,16 +128,69 @@ func (s *SettingsList) applyThemeDefaults() {
 	}
 }
 
+func (s *SettingsList) SetTheme(theme SettingsListTheme) {
+	s.mu.Lock()
+	s.theme = theme
+	s.applyThemeDefaultsLocked()
+	s.mu.Unlock()
+}
+
+func (s *SettingsList) SetSubmenuTheme(applier func(Component)) {
+	s.mu.Lock()
+	s.applySubmenuTheme = applier
+	submenu := s.submenuComponent
+	s.mu.Unlock()
+	if submenu != nil && applier != nil {
+		applier(submenu)
+	}
+}
+
+func sanitizeSettingsSingleLine(text string) string {
+	if text == "" {
+		return ""
+	}
+	stripped := StripTerminalSequences(text)
+	stripped = strings.ReplaceAll(stripped, "\r", " ")
+	stripped = strings.ReplaceAll(stripped, "\n", " ")
+	stripped = strings.ReplaceAll(stripped, "\t", "   ")
+	var b strings.Builder
+	b.Grow(len(stripped))
+	for _, r := range stripped {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func (s *SettingsList) UpdateValue(id, newValue string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateValueLocked(id, newValue)
+}
+
+func (s *SettingsList) updateValueLocked(id, newValue string) {
 	for index := range s.items {
 		if s.items[index].ID == id {
 			s.items[index].CurrentValue = newValue
 		}
 	}
+	for index := range s.filtered {
+		if s.filtered[index].ID == id {
+			s.filtered[index].CurrentValue = newValue
+		}
+	}
 }
 
 func (s *SettingsList) SelectItem(id string) {
-	items := s.displayItems()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.selectItemLocked(id)
+}
+
+func (s *SettingsList) selectItemLocked(id string) {
+	items := s.displayItemsLocked()
 	for index, item := range items {
 		if item.ID == id {
 			s.selectedIndex = index
@@ -124,118 +199,150 @@ func (s *SettingsList) SelectItem(id string) {
 	}
 }
 
-func (s *SettingsList) displayItems() []SettingItem {
+func (s *SettingsList) displayItemsLocked() []SettingItem {
 	if s.searchEnabled {
 		return s.filtered
 	}
 	return s.items
 }
 
+func (s *SettingsList) displayItems() []SettingItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.displayItemsLocked()
+}
+
 func (s *SettingsList) Invalidate() {
-	if s.submenuComponent != nil {
-		s.submenuComponent.Invalidate()
+	s.mu.RLock()
+	submenu := s.submenuComponent
+	s.mu.RUnlock()
+	if submenu != nil {
+		submenu.Invalidate()
 	}
 }
 
 func (s *SettingsList) Render(width int) []string {
-	if s.submenuComponent != nil {
-		return s.submenuComponent.Render(width)
+	s.mu.RLock()
+	submenu := s.submenuComponent
+	if submenu == nil {
+		state := s.renderStateLocked()
+		s.mu.RUnlock()
+		return renderSettingsList(width, state)
 	}
-	return s.renderMainList(width)
+	s.mu.RUnlock()
+	return submenu.Render(width)
 }
 
-func (s *SettingsList) renderMainList(width int) []string {
+func (s *SettingsList) renderStateLocked() settingsRenderState {
+	return settingsRenderState{
+		theme:         s.theme,
+		allItems:      append([]SettingItem(nil), s.items...),
+		displayItems:  append([]SettingItem(nil), s.displayItemsLocked()...),
+		selectedIndex: s.selectedIndex,
+		maxVisible:    s.maxVisible,
+		searchEnabled: s.searchEnabled,
+		searchInput:   s.searchInput,
+	}
+}
+
+func renderSettingsList(width int, state settingsRenderState) []string {
 	var lines []string
-	if s.searchEnabled && s.searchInput != nil {
-		lines = append(lines, s.searchInput.Render(width)...)
+	if state.searchEnabled && state.searchInput != nil {
+		lines = append(lines, state.searchInput.Render(width)...)
 		lines = append(lines, "")
 	}
 
-	if len(s.items) == 0 {
-		lines = append(lines, s.theme.Hint("  No settings available"))
-		if s.searchEnabled {
-			s.addHintLine(&lines, width)
+	if len(state.allItems) == 0 {
+		lines = append(lines, state.theme.Hint("  No settings available"))
+		if state.searchEnabled {
+			settingsAddHintLine(&lines, width, state.theme, true)
 		}
 		return lines
 	}
 
-	displayItems := s.displayItems()
-	if len(displayItems) == 0 {
-		lines = append(lines, TruncateToWidth(s.theme.Hint("  No matching settings"), width, "...", false))
-		s.addHintLine(&lines, width)
+	if len(state.displayItems) == 0 {
+		lines = append(lines, TruncateToWidth(state.theme.Hint("  No matching settings"), width, "...", false))
+		settingsAddHintLine(&lines, width, state.theme, state.searchEnabled)
 		return lines
 	}
 
-	startIndex, endIndex := s.visibleRange(displayItems)
+	startIndex, endIndex := settingsVisibleRange(state.selectedIndex, len(state.displayItems), state.maxVisible)
 	maxLabelWidth := 0
-	for _, item := range s.items {
-		maxLabelWidth = maxInt(maxLabelWidth, VisibleWidth(item.Label))
+	for _, item := range state.allItems {
+		maxLabelWidth = maxInt(maxLabelWidth, VisibleWidth(sanitizeSettingsSingleLine(item.Label)))
 	}
 	maxLabelWidth = minInt(36, maxLabelWidth)
 
 	for i := startIndex; i < endIndex; i++ {
-		item := displayItems[i]
-		isSelected := i == s.selectedIndex
+		item := state.displayItems[i]
+		isSelected := i == state.selectedIndex
 		prefix := "  "
 		if isSelected {
-			prefix = s.theme.Cursor
+			prefix = state.theme.Cursor
 		}
 		prefixWidth := VisibleWidth(prefix)
-		labelPadded := item.Label + strings.Repeat(" ", maxInt(0, maxLabelWidth-VisibleWidth(item.Label)))
-		labelText := s.theme.Label(labelPadded, isSelected)
+		sanitizedLabel := sanitizeSettingsSingleLine(item.Label)
+		sanitizedValue := sanitizeSettingsSingleLine(item.CurrentValue)
+		labelPadded := sanitizedLabel + strings.Repeat(" ", maxInt(0, maxLabelWidth-VisibleWidth(sanitizedLabel)))
+		labelText := state.theme.Label(labelPadded, isSelected)
 		separator := "  "
 		usedWidth := prefixWidth + maxLabelWidth + VisibleWidth(separator)
 		valueMaxWidth := width - usedWidth - 2
-		valueText := s.theme.Value(TruncateToWidth(item.CurrentValue, maxInt(1, valueMaxWidth), "...", false), isSelected)
+		valueText := state.theme.Value(TruncateToWidth(sanitizedValue, maxInt(1, valueMaxWidth), "...", false), isSelected)
 		lines = append(lines, TruncateToWidth(prefix+labelText+separator+valueText, width, "...", false))
 	}
 
-	if startIndex > 0 || endIndex < len(displayItems) {
-		scrollText := "  (" + itoa(s.selectedIndex+1) + "/" + itoa(len(displayItems)) + ")"
-		lines = append(lines, s.theme.Hint(TruncateToWidth(scrollText, maxInt(0, width-2), "", false)))
+	if startIndex > 0 || endIndex < len(state.displayItems) {
+		scrollText := "  (" + itoa(state.selectedIndex+1) + "/" + itoa(len(state.displayItems)) + ")"
+		lines = append(lines, state.theme.Hint(TruncateToWidth(scrollText, maxInt(0, width-2), "", false)))
 	}
 
-	if s.selectedIndex < len(displayItems) && displayItems[s.selectedIndex].Description != "" {
+	if state.selectedIndex >= 0 && state.selectedIndex < len(state.displayItems) && state.displayItems[state.selectedIndex].Description != "" {
 		lines = append(lines, "")
-		wrapped := WrapTextWithANSI(displayItems[s.selectedIndex].Description, maxInt(1, width-4))
+		sanitizedDescription := sanitizeSettingsSingleLine(state.displayItems[state.selectedIndex].Description)
+		wrapped := WrapTextWithANSI(sanitizedDescription, maxInt(1, width-4))
 		for _, line := range wrapped {
-			lines = append(lines, s.theme.Description("  "+line))
+			lines = append(lines, state.theme.Description("  "+line))
 		}
 	}
 
-	s.addHintLine(&lines, width)
+	settingsAddHintLine(&lines, width, state.theme, state.searchEnabled)
 	return lines
 }
 
-func (s *SettingsList) addHintLine(lines *[]string, width int) {
+func settingsAddHintLine(lines *[]string, width int, theme SettingsListTheme, searchEnabled bool) {
 	hint := "  Enter/Space to change · Esc to cancel"
-	if s.searchEnabled {
+	if searchEnabled {
 		hint = "  Type to search · Enter/Space to change · Esc to cancel"
 	}
 	*lines = append(*lines, "")
-	*lines = append(*lines, TruncateToWidth(s.theme.Hint(hint), width, "...", false))
+	*lines = append(*lines, TruncateToWidth(theme.Hint(hint), width, "...", false))
 }
 
-func (s *SettingsList) visibleRange(displayItems []SettingItem) (int, int) {
-	startIndex := s.selectedIndex - s.maxVisible/2
-	startIndex = maxInt(0, minInt(startIndex, len(displayItems)-s.maxVisible))
-	endIndex := minInt(startIndex+s.maxVisible, len(displayItems))
+func settingsVisibleRange(selectedIndex, count, maxVisible int) (int, int) {
+	startIndex := selectedIndex - maxVisible/2
+	startIndex = maxInt(0, minInt(startIndex, count-maxVisible))
+	endIndex := minInt(startIndex+maxVisible, count)
 	return startIndex, endIndex
 }
 
 func (s *SettingsList) HandleInput(data string) {
+	s.mu.Lock()
 	if s.submenuComponent != nil {
-		if handler, ok := s.submenuComponent.(InputHandler); ok {
+		submenu := s.submenuComponent
+		s.mu.Unlock()
+		if handler, ok := submenu.(InputHandler); ok {
 			handler.HandleInput(data)
 		}
 		return
 	}
 
 	keybindings := GlobalKeybindings()
-	displayItems := s.displayItems()
+	displayItems := s.displayItemsLocked()
 	switch {
 	case keybindings.Matches(data, "tui.select.up"):
 		if len(displayItems) == 0 {
+			s.mu.Unlock()
 			return
 		}
 		if s.selectedIndex == 0 {
@@ -243,8 +350,10 @@ func (s *SettingsList) HandleInput(data string) {
 		} else {
 			s.selectedIndex--
 		}
+		s.mu.Unlock()
 	case keybindings.Matches(data, "tui.select.down"):
 		if len(displayItems) == 0 {
+			s.mu.Unlock()
 			return
 		}
 		if s.selectedIndex == len(displayItems)-1 {
@@ -252,94 +361,140 @@ func (s *SettingsList) HandleInput(data string) {
 		} else {
 			s.selectedIndex++
 		}
+		s.mu.Unlock()
 	case keybindings.Matches(data, "tui.select.confirm") ||
-		(data == " " && (!s.searchEnabled || s.searchInput.Value() == "")):
-		s.activateItem()
-	case keybindings.Matches(data, "tui.select.cancel"):
-		if s.onCancel != nil {
-			s.onCancel()
+		(data == " " && !s.searchEnabled) ||
+		(data == " " && s.searchInput != nil && s.searchInput.Value() == ""):
+		item, index, ok := s.selectedSettingLocked()
+		s.mu.Unlock()
+		if ok {
+			s.activate(item, index)
 		}
-	case s.searchEnabled && s.searchInput != nil:
-		s.searchInput.HandleInput(data)
-		s.applyFilter(s.searchInput.Value())
+	case keybindings.Matches(data, "tui.select.cancel"):
+		cancel := s.onCancel
+		s.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	default:
+		searchInput := s.searchInput
+		searchEnabled := s.searchEnabled
+		s.mu.Unlock()
+		if searchEnabled && searchInput != nil {
+			searchInput.HandleInput(data)
+			s.applyFilter(searchInput.Value())
+		}
 	}
 }
 
 func (s *SettingsList) applyFilter(query string) {
+	s.mu.Lock()
 	s.filtered = FuzzyFilter(s.items, query, func(item SettingItem) string { return item.Label })
 	s.selectedIndex = 0
+	s.mu.Unlock()
 }
 
-func (s *SettingsList) activateItem() {
-	displayItems := s.displayItems()
-	if s.selectedIndex < 0 || s.selectedIndex >= len(displayItems) {
-		return
+func (s *SettingsList) selectedSettingLocked() (SettingItem, int, bool) {
+	items := s.displayItemsLocked()
+	if s.selectedIndex < 0 || s.selectedIndex >= len(items) {
+		return SettingItem{}, 0, false
 	}
-	item := displayItems[s.selectedIndex]
+	return items[s.selectedIndex], s.selectedIndex, true
+}
 
+func (s *SettingsList) activateSelected() {
+	s.mu.Lock()
+	item, index, ok := s.selectedSettingLocked()
+	s.mu.Unlock()
+	if ok {
+		s.activate(item, index)
+	}
+}
+
+func (s *SettingsList) activate(item SettingItem, index int) {
 	if item.Submenu != nil {
-		index := s.selectedIndex
-		s.submenuItemIndex = &index
-		s.submenuComponent = item.Submenu(item.CurrentValue, func(selectedValue string, navigateTo string) {
-			if selectedValue != "" {
-				item.CurrentValue = selectedValue
-				for i := range s.items {
-					if s.items[i].ID == item.ID {
-						s.items[i].CurrentValue = selectedValue
-					}
-				}
-				if s.onChange != nil {
-					s.onChange(item.ID, selectedValue)
-				}
-			}
-			if navigateTo != "" {
-				s.navigateAfterClose = navigateTo
-				s.hasNavigateAfterClose = true
-			}
-			s.closeSubmenu()
+		var settled atomic.Bool
+		submenu := item.Submenu(item.CurrentValue, func(selectedValue string, navigateTo string) {
+			settled.Store(true)
+			s.handleSubmenuDone(item.ID, selectedValue, navigateTo)
 		})
+		s.mu.Lock()
+		if settled.Load() {
+			s.mu.Unlock()
+			return
+		}
+		s.submenuItemIndex = &index
+		s.submenuComponent = submenu
+		applier := s.applySubmenuTheme
+		s.mu.Unlock()
+		if applier != nil {
+			applier(submenu)
+		}
 		return
 	}
-	if len(item.Values) > 0 {
-		currentIndex := 0
-		for i, value := range item.Values {
-			if value == item.CurrentValue {
-				currentIndex = i
-				break
-			}
-		}
-		newValue := item.Values[(currentIndex+1)%len(item.Values)]
-		for i := range s.items {
-			if s.items[i].ID == item.ID {
-				s.items[i].CurrentValue = newValue
-			}
-		}
-		if s.onChange != nil {
-			s.onChange(item.ID, newValue)
+	if len(item.Values) == 0 {
+		return
+	}
+	currentIndex := 0
+	for i, value := range item.Values {
+		if value == item.CurrentValue {
+			currentIndex = i
+			break
 		}
 	}
+	newValue := item.Values[(currentIndex+1)%len(item.Values)]
+	s.mu.Lock()
+	s.updateValueLocked(item.ID, newValue)
+	onChange := s.onChange
+	s.mu.Unlock()
+	if onChange != nil {
+		onChange(item.ID, newValue)
+	}
+}
+
+func (s *SettingsList) handleSubmenuDone(id, selectedValue, navigateTo string) {
+	s.mu.Lock()
+	if selectedValue != "" {
+		s.updateValueLocked(id, selectedValue)
+	}
+	if navigateTo != "" {
+		s.navigateAfterClose = navigateTo
+		s.hasNavigateAfterClose = true
+	}
+	onChange := s.onChange
+	s.mu.Unlock()
+	if selectedValue != "" && onChange != nil {
+		onChange(id, selectedValue)
+	}
+	s.closeSubmenu()
 }
 
 func (s *SettingsList) closeSubmenu() {
+	s.mu.Lock()
 	s.submenuComponent = nil
 	if s.hasNavigateAfterClose {
 		id := s.navigateAfterClose
 		s.navigateAfterClose = ""
 		s.hasNavigateAfterClose = false
 		s.submenuItemIndex = nil
+		s.mu.Unlock()
 		s.SelectItem(id)
-		s.activateItem()
+		s.activateSelected()
 		return
 	}
 	if s.submenuItemIndex != nil {
 		s.selectedIndex = *s.submenuItemIndex
 		s.submenuItemIndex = nil
 	}
+	s.mu.Unlock()
 }
 
 func (s *SettingsList) HandleMouse(event MouseEvent) *MouseEventResult {
+	s.mu.Lock()
 	if s.submenuComponent != nil {
-		if handler, ok := s.submenuComponent.(MouseHandler); ok {
+		submenu := s.submenuComponent
+		s.mu.Unlock()
+		if handler, ok := submenu.(MouseHandler); ok {
 			if result := handler.HandleMouse(event); result != nil {
 				result.Focus = true
 				return result
@@ -349,20 +504,24 @@ func (s *SettingsList) HandleMouse(event MouseEvent) *MouseEventResult {
 	}
 
 	if s.searchEnabled && s.searchInput != nil {
+		searchInput := s.searchInput
 		if event.Y == 0 {
-			if result := s.searchInput.HandleMouse(event); result != nil {
+			s.mu.Unlock()
+			if result := searchInput.HandleMouse(event); result != nil {
 				result.Focus = true
 				return result
 			}
 			return nil
 		}
 		if event.Y == 1 {
+			s.mu.Unlock()
 			return nil
 		}
 	}
 
-	displayItems := s.displayItems()
+	displayItems := s.displayItemsLocked()
 	if len(displayItems) == 0 {
+		s.mu.Unlock()
 		return nil
 	}
 	if event.Type == MouseWheel && event.WheelDelta != 0 {
@@ -372,9 +531,12 @@ func (s *SettingsList) HandleMouse(event MouseEvent) *MouseEventResult {
 		}
 		previous := s.selectedIndex
 		s.selectedIndex = maxInt(0, minInt(len(displayItems)-1, s.selectedIndex+delta))
-		return &MouseEventResult{Handled: true, Render: s.selectedIndex != previous, renderSet: true}
+		changed := s.selectedIndex != previous
+		s.mu.Unlock()
+		return &MouseEventResult{Handled: true, Render: changed, renderSet: true}
 	}
 	if event.Button != MouseButtonLeft || (event.Type != MousePress && event.Type != MouseClick) {
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -382,15 +544,17 @@ func (s *SettingsList) HandleMouse(event MouseEvent) *MouseEventResult {
 	if s.searchEnabled {
 		rowOffset = 2
 	}
-	startIndex, endIndex := s.visibleRange(displayItems)
+	startIndex, endIndex := settingsVisibleRange(s.selectedIndex, len(displayItems), s.maxVisible)
 	itemIndex := startIndex + event.Y - rowOffset
 	if itemIndex < startIndex || itemIndex >= endIndex {
+		s.mu.Unlock()
 		return nil
 	}
 	if event.Type == MousePress {
 		pressed := itemIndex
 		s.mousePressed = &pressed
 		s.selectedIndex = itemIndex
+		s.mu.Unlock()
 		return &MouseEventResult{Handled: true, Focus: true}
 	}
 	clickedIndex := itemIndex
@@ -399,6 +563,10 @@ func (s *SettingsList) HandleMouse(event MouseEvent) *MouseEventResult {
 		s.mousePressed = nil
 	}
 	s.selectedIndex = clickedIndex
-	s.activateItem()
+	item, index, ok := s.selectedSettingLocked()
+	s.mu.Unlock()
+	if ok {
+		s.activate(item, index)
+	}
 	return &MouseEventResult{Handled: true}
 }

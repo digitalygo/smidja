@@ -7,7 +7,7 @@ planner: planner
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-09-15T00:31:24+02:00
-last_updated_at: 2026-09-16
+last_updated_at: 2026-09-17
 ---
 
 # Smidja TUI implementation plan
@@ -17,12 +17,12 @@ last_updated_at: 2026-09-16
 - **Status:** In progress.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
 - **Execution baseline:** Resumed 2026-09-16T08:25:38+02:00 at repository commit `19be845a27d963b320e73334a30008eae7eb623c` on `feat/tui`, matching `origin/feat/tui`, with the preserved unfinished P2 work and living-plan update recorded in the ignored workspace-state snapshot.
-- **Active phase:** Publish the verified post-P2 wiring commit and install the first testable local build.
-- **Last verified checkpoint:** Checkpoint 2026-09-16T20:53:24+02:00, minimal end-to-end wiring independently verified with quality and focused security verdicts PASS.
+- **Active phase:** Phase P3 publication, followed by P4 sessions.
+- **Last verified checkpoint:** Checkpoint 2026-09-17T02:10:32+02:00, P3 independently verified with quality and focused security verdicts PASS.
 - **Last successful checks:** The wiring slice passed formatting, vet, build, all delta-package tests, four Darwin and Linux amd64 and arm64 static cross-builds, dependency hygiene, sequential race tests, and repeated real-PTY smoke, panic, Ctrl-D, and Ctrl-G tests. Package coverage is 90.3% for `internal/tui`, 96.5% for `internal/tui/interactive`, 97.2% for `internal/ui`, and 86.9% for `internal/cli`. The only full-suite failures are the verified pre-existing `internal/mcp.TestListToolsRetryOnceAfterRestart` and `internal/session.TestListNewestFirst` flakes outside the delta.
 - **Open blockers:** None.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
-- **Next action:** Amend the wiring commit with this execution evidence, push `feat/tui`, read back pull request 1, install `v0.3.0-tui.1` at `/home/luca/.local/bin/smidja`, and verify its identity and PTY behavior before P3.
+- **Next action:** Amend the P3 commit with execution evidence, push `feat/tui`, verify pull request 1, then begin P4 session navigation and replay.
 
 ## Planner baseline
 
@@ -359,9 +359,37 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** Accept the race winner and complete the wiring slice. The existing `sdk/` contract remains unchanged, P3 dialogs remain unsupported rather than simulated, and every non-TTY path still uses `LineUI`. Advance the quality cursor after publication. Residual non-blocking items are long terminal ownership files, environment-gated PTY skips, pre-existing OSC background-color parsing risk in an unused path, and user-invoked extension commands that do not yet receive the P3 TUI context.
 - **Next action:** Publish the single wiring commit, verify the existing pull request and remote SHA, then build and install the committed `v0.3.0-tui.1` binary and run the installed-binary smoke check.
 
+#### Checkpoint 2026-09-16T20:57:53+02:00: wiring published and installed binary verified
+
+- **Event:** The wiring commit was pushed to the existing pull request and the committed build was installed and exercised through a real pseudo-terminal against a temporary deterministic OpenRouter-compatible fixture.
+- **Planner prediction:** The post-P2 slice would produce the first locally testable binary, preserve the existing pull request, verify build identity, and prove fullscreen startup, streaming, clean exit, and terminal restoration without merging.
+- **Subagent claims:** None.
+- **Orchestrator finding:** The installed binary selected fullscreen mode only on the real PTY, streamed the fixture response into the TUI, accepted `/quit`, exited zero, and restored the original terminal attributes. The fixture server, PTY descriptors, subprocess, and temporary home, session, package, and workspace directories were stopped or removed after the check.
+- **Independently verified facts:** Commit `b598cfb68897af9ff18dbb077a50335f8e0ba272` has subject `feat(tui): wire interactive chat`; local `HEAD`, `origin/feat/tui`, and pull request 1 head all match it with zero ahead or behind. Pull request 1 remains open from `feat/tui` to `alpha` with five commits. `/home/luca/.local/bin/smidja -version` prints `smidja v0.3.0-tui.1`; `smidja version -json` reports origin `github.com/digitalygo/smidja`, version `v0.3.0-tui.1`, and the same commit SHA. The installed static Linux amd64 binary has SHA-256 `6f15299a8800878a79a6c9464d7e3cfa8287761d607ad39f7942a4fd085101b6`. The installed-binary PTY smoke observed alternate-screen entry at byte 0, response text at byte 3032, alternate-screen exit at byte 3972, exit code 0, and exact termios restoration.
+- **Decision and impact:** Advance the quality cursor to `b598cfb68897af9ff18dbb077a50335f8e0ba272` and start P3. The installed build is testable now; running `smidja update` would replace it with the latest released binary and remains a documented replacement hazard.
+- **Next action:** Implement and gate P3 dialogs and selectors without changing existing `sdk.UI` signatures or print-mode behavior.
+
 ### Phase P3 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-09-16T21:07:00+02:00: P3 architecture and honest boundary validated
+
+- **Event:** The solution architect defined the P3 dialog lifecycle, extension context binding, selector effects, and the honest handoff to P4 and P6 before implementation.
+- **Planner prediction:** P3 would implement all existing `sdk.UI` methods in interactive TTY mode, preserve print-mode `sdk.ErrModeUnsupported`, and add model, thinking, theme, settings, session resume, project trust, OAuth login, and command-help selectors without changing `sdk/`.
+- **Subagent claims:** The architect proposed a runner-owned, context-bound modal service whose caller blocks while terminal input and rendering stay live; exactly-once completion; cancellation before worker join; masked host-only secret input; per-call extension context decoration; real model, theme, and settings effects; searchable command help; and reusable session, trust, and OAuth selector services. It found that startup trust/auth ordering belongs to P6, session switching/replay belongs to P4, and provider reasoning effort has no request-side contract under the current freeze.
+- **Orchestrator finding:** The proposed boundary implements the P3 UI mechanisms and interactive behavior without falsely claiming P4 session transitions or P6 startup policy. `sdk.UI.Input` remains ordinary text because its frozen signature has no masking option; host credential flows require an internal masked service. The existing active-runner test that expects every dialog to stay unsupported must be replaced by stronger interactive acceptance and cancellation tests, while all print and non-TTY unsupported assertions remain.
+- **Independently verified facts:** The current `Runner` already satisfies `sdk.UI` but returns `sdk.ErrModeUnsupported` for `Confirm`, `Select`, `Input`, and `Editor`; extension handler contexts still receive the default no-op UI; the agent request contract exposes no thinking-effort field; session resume currently opens the append target without replaying history into the TUI.
+- **Decision and impact:** Implement working SDK dialogs, per-call extension UI binding, actual model/theme/session-setting effects, and reusable host selector services in P3. Defer session transition and replay to P4, and startup trust/OAuth integration plus persisted theme/settings precedence to P6. Expose thinking visibility and a truthful provider-default/unavailable reasoning state rather than a cosmetic effort change. This preserves the agreed observable behavior and phase dependencies without changing public SDK signatures.
+- **Next action:** Race two P3 implementations, verify dialog lifecycle and selector effects, then gate one winner before publication.
+
+#### Checkpoint 2026-09-17T02:10:32+02:00: P3 dialogs and selectors completed and gated
+
+- **Event:** P3 implementation, architecture correction loop, deterministic verification, delegated quality judgment, and focused security review completed successfully.
+- **Planner prediction:** P3 would implement interactive `sdk.UI` dialogs, preserve print-mode unsupported behavior, add host selectors, and keep the public SDK frozen.
+- **Subagent claims:** Candidate A completed the dialog service and selectors; candidate B was eliminated as incomplete. The solution architect identified and rechecked modal handoff, list concurrency, settings state, secret input, display sanitization, retheming, extension context, model transport, startup hooks, OAuth generations, and test-readiness defects before returning `WINNER READY`. The final quality and focused security reviews both returned PASS.
+- **Orchestrator finding:** Direct source and diff inspection confirmed context-bound SDK dialogs, exact modal cancellation and focus restoration, host-only masked input, per-call extension signal binding, real model/preparer/runtime-profile changes with verified wire IDs, retained-content and active-dialog theme changes, draft/apply/cancel settings, searchable help, read-only session selection, and host-driven OAuth progress/manual/cancel services. Session transition remains deferred to P4 and startup trust/auth persistence to P6 as recorded in V-005. No public SDK or protected-path changes occurred.
+- **Independently verified facts:** Review artifact `P3-6574f56c272f` is the sorted 60-file manifest with SHA-256 `6574f56c272fa6e9ce0298f129985a7bd585c8c171df34d05aa2890a06c66a56`. `gofmt -l .`, `go vet ./...`, `go build ./...`, `git diff --check`, dependency and module checks, four static builds for Darwin and Linux on amd64 and arm64, sequential race tests for TUI, interactive, UI, CLI, and extensions, and the real PTY dialog accept/cancel/exit smoke passed. Package coverage is 91.2% for TUI, 95.3% for interactive, 95.6% for UI, 87.5% for CLI, and 95.5% for extensions; changed executable-file estimates are 82.4% to 100%. Full-suite verification reached only the unchanged `internal/mcp.TestListToolsRetryOnceAfterRestart` flake; all delta packages pass. The quality and focused security reviewers returned PASS on the same artifact.
+- **Decision and impact:** Mark P3 complete and publish one conventional commit. Existing `sdk.UI` signatures remain unchanged; print and non-TTY paths retain `sdk.ErrModeUnsupported`; reasoning effort remains truthfully provider-controlled while thinking visibility is a real session setting. Advance to P4 only after remote and pull request readback.
+- **Next action:** Publish P3, verify remote state, then implement session tree navigation, commands, and transcript replay using read-only session APIs.
 
 ### Phase P4 execution checkpoints
 
@@ -416,6 +444,15 @@ No checkpoints yet.
 - **Scope and downstream impact:** P2 may touch `internal/tui/` in addition to the preserved interactive package and tests. The wiring slice may touch `internal/cli/` and `internal/ui/`, must preserve `LineUI` and every non-TTY path, and must produce the first testable local binary. No protected path or public SDK surface changes before P7.
 - **Approval:** No new product behavior or requirement is introduced. The framework correction is necessary to meet P2 safety and the separate wiring slice was explicitly approved in V-001.
 - **Resolution:** Checkpoint 2026-09-16T08:43:10+02:00 adopts the architecture before implementation.
+
+### Variation V-005: P3 selector services and later-phase entry points
+
+- **Baseline reference:** P3 predicts interactive SDK dialogs and host selectors for model, thinking level, theme, settings, session resume, project trust, OAuth device login, and command help. P4 owns session transitions and replay; P6 owns startup wiring, settings precedence, and persisted configuration.
+- **Discovered evidence:** Session resume currently opens an append target but does not replay it into the TUI; startup client and workspace construction happen before the TUI exists; `sdk.UI.Input` has no masking option; and the frozen agent/provider request contract has no reasoning-effort field.
+- **Decision:** Complete P3 with working context-bound SDK dialogs, real model/theme/session-setting effects, searchable help, a host-only masked input service, and reusable session, trust, and OAuth selector services. Connect session transitions in P4 and startup trust/auth plus persisted settings in P6. Present reasoning effort as provider-default or unavailable rather than applying a cosmetic footer-only change.
+- **Scope and downstream impact:** P3 may add internal dialog and selector components, per-call extension context decoration, and CLI selector adapters without editing `sdk/` or protected provider/session semantics. P4 and P6 must consume these services and prove their final entry-point behavior. Print and non-TTY paths remain unchanged.
+- **Approval:** This preserves the planned phase responsibilities and public contract. It does not remove a client-visible capability; it records where the selector service becomes an applied session or startup transition.
+- **Resolution:** Checkpoint 2026-09-16T21:07:00+02:00 records the validated architecture and acceptance boundary.
 
 ## Closure evidence
 

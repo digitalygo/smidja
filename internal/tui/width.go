@@ -17,7 +17,7 @@ func extractANSI(s string, pos int) (ansiCode, bool) {
 		return ansiCode{}, false
 	}
 	if pos+1 >= len(s) {
-		return ansiCode{}, false
+		return ansiCode{code: s[pos:], length: len(s) - pos}, true
 	}
 	switch s[pos+1] {
 	case '[':
@@ -29,7 +29,7 @@ func extractANSI(s string, pos int) (ansiCode, bool) {
 			return ansiCode{code: s[pos : j+1], length: j + 1 - pos}, true
 		}
 		return ansiCode{}, false
-	case ']', '_':
+	case ']', 'P', '_', 'X', '^':
 		j := pos + 2
 		for j < len(s) {
 			if s[j] == 0x07 {
@@ -38,11 +38,29 @@ func extractANSI(s string, pos int) (ansiCode, bool) {
 			if s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\' {
 				return ansiCode{code: s[pos : j+2], length: j + 2 - pos}, true
 			}
+			if s[j] == 0xc2 && j+1 < len(s) && s[j+1] == 0x9c {
+				return ansiCode{code: s[pos : j+2], length: j + 2 - pos}, true
+			}
 			j++
 		}
 		return ansiCode{}, false
+	case '\\':
+		return ansiCode{code: s[pos : pos+2], length: 2}, true
+	case 'O':
+		if pos+2 < len(s) {
+			return ansiCode{code: s[pos : pos+3], length: 3}, true
+		}
+		return ansiCode{code: s[pos:], length: len(s) - pos}, true
+	default:
+		j := pos + 1
+		for j < len(s) && s[j] >= 0x20 && s[j] <= 0x2f {
+			j++
+		}
+		if j < len(s) && s[j] >= 0x30 && s[j] <= 0x7e {
+			return ansiCode{code: s[pos : j+1], length: j + 1 - pos}, true
+		}
+		return ansiCode{}, false
 	}
-	return ansiCode{}, false
 }
 
 func forEachANSI(s string, fn func(code ansiCode) bool) bool {
@@ -59,18 +77,90 @@ func forEachANSI(s string, fn func(code ansiCode) bool) bool {
 	return true
 }
 
+func c1SequenceLength(s string, pos int, r rune) int {
+	size := len(string(r))
+	if r == 0x9b {
+		j := pos + size
+		for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3f {
+			j++
+		}
+		if j < len(s) && s[j] >= 0x40 && s[j] <= 0x7e {
+			return j + 1 - pos
+		}
+		return size
+	}
+	if r == 0x90 || r == 0x98 || r == 0x9d || r == 0x9e || r == 0x9f {
+		j := pos + size
+		for j < len(s) {
+			if s[j] == 0x07 {
+				return j + 1 - pos
+			}
+			if s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\' {
+				return j + 2 - pos
+			}
+			if s[j] == 0xc2 && j+1 < len(s) && s[j+1] == 0x9c {
+				return j + 2 - pos
+			}
+			_, sz := utf8.DecodeRuneInString(s[j:])
+			if sz == 0 {
+				break
+			}
+			if j+sz < len(s) {
+				nr, nsz := utf8.DecodeRuneInString(s[j:])
+				if nr == 0x9c {
+					return j + nsz - pos
+				}
+				_ = sz
+			}
+			j += sz
+		}
+		return size
+	}
+	return size
+}
+
 func StripTerminalSequences(s string) string {
-	if !strings.ContainsRune(s, 0x1b) {
+	if s == "" {
+		return s
+	}
+	hasESC := strings.ContainsRune(s, 0x1b)
+	hasC1 := false
+	for _, r := range s {
+		if r >= 0x80 && r <= 0x9f {
+			hasC1 = true
+			break
+		}
+	}
+	if !hasESC && !hasC1 {
 		return s
 	}
 	var b strings.Builder
+	b.Grow(len(s))
 	for i := 0; i < len(s); {
 		if code, ok := extractANSI(s, i); ok {
 			i += code.length
 			continue
 		}
-		b.WriteByte(s[i])
-		i++
+		if s[i] == 0x1b {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r >= 0x80 && r <= 0x9f {
+			i += c1SequenceLength(s, i, r)
+			continue
+		}
+		if r == utf8.RuneError && size == 1 {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if size <= 0 {
+			size = 1
+		}
+		b.WriteString(s[i : i+size])
+		i += size
 	}
 	return b.String()
 }
@@ -635,4 +725,92 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func sanitizeRawAndBuildMap(raw string, singleLine bool) (string, []int) {
+	n := len(raw)
+	table := make([]int, n+1)
+	var b strings.Builder
+	b.Grow(n)
+	di := 0
+	ri := 0
+	for ri < n {
+		table[ri] = di
+		if raw[ri] == 0x1b {
+			if code, ok := extractANSI(raw, ri); ok {
+				for k := 1; k < code.length; k++ {
+					if ri+k < n {
+						table[ri+k] = di
+					}
+				}
+				ri += code.length
+				continue
+			}
+			ri++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(raw[ri:])
+		if r == utf8.RuneError && size == 1 {
+			b.WriteString("\uFFFD")
+			di += 3
+			ri++
+			continue
+		}
+		if r >= 0x80 && r <= 0x9f {
+			seqLen := c1SequenceLength(raw, ri, r)
+			for k := 1; k < seqLen; k++ {
+				table[ri+k] = di
+			}
+			ri += seqLen
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			if singleLine {
+				if r == '\r' || r == '\n' {
+					b.WriteByte(' ')
+					di++
+					ri += size
+					continue
+				}
+				if r == '\t' {
+					b.WriteString("   ")
+					di += 3
+					ri += size
+					continue
+				}
+			}
+			ri += size
+			continue
+		}
+		for k := 1; k < size; k++ {
+			table[ri+k] = di
+		}
+		b.WriteString(raw[ri : ri+size])
+		di += size
+		ri += size
+	}
+	table[n] = di
+	return b.String(), table
+}
+
+func mapRawOffset(table []int, rawLen int, rawOffset int, dispLen int) int {
+	if rawOffset < 0 {
+		rawOffset = 0
+	}
+	if rawOffset > rawLen {
+		rawOffset = rawLen
+	}
+	return table[rawOffset]
+}
+
+func sanitizeSingleLineWithMapping(raw string, rawCursor int) (string, int) {
+	sanitized, table := sanitizeRawAndBuildMap(raw, true)
+	disp := mapRawOffset(table, len(raw), rawCursor, len(sanitized))
+	return sanitized, disp
+}
+
+func sanitizeEditorLineWithMapping(raw string, rawCursor int) (string, int) {
+	sanitized, table := sanitizeRawAndBuildMap(raw, false)
+	disp := mapRawOffset(table, len(raw), rawCursor, len(sanitized))
+	return sanitized, disp
 }

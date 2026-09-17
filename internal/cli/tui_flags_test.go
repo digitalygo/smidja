@@ -138,7 +138,7 @@ func TestRunTUIEndToEnd(t *testing.T) {
 	lineUI := ui.New(deps.Stdin, deps.Stdout, deps.Stderr, sdk.ModeInteractive)
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal))
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil)
 	}()
 	select {
 	case <-terminal.startedC:

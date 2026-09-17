@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/digitalygo/smidja/internal/agent"
+	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/tui"
 	"github.com/digitalygo/smidja/internal/tui/interactive"
 	"github.com/digitalygo/smidja/internal/ui"
@@ -96,10 +97,13 @@ type tuiLifecycle struct {
 	active     *tuiTurnHandle
 	workerDone chan struct{}
 	onPanic    func()
+
+	stopCh chan struct{}
+	gate   chan struct{}
 }
 
 func newTuiLifecycle() *tuiLifecycle {
-	l := &tuiLifecycle{workerDone: make(chan struct{})}
+	l := &tuiLifecycle{workerDone: make(chan struct{}), stopCh: make(chan struct{})}
 	l.queued = sync.NewCond(&l.mu)
 	go l.work()
 	return l
@@ -112,7 +116,46 @@ func (l *tuiLifecycle) work() {
 		if !ok {
 			return
 		}
+		if !l.awaitAdmission() {
+			return
+		}
 		l.runJob(job)
+	}
+}
+
+func (l *tuiLifecycle) holdAdmission() {
+	l.mu.Lock()
+	if !l.stopping && l.gate == nil {
+		l.gate = make(chan struct{})
+	}
+	l.mu.Unlock()
+}
+
+func (l *tuiLifecycle) openAdmission() {
+	l.mu.Lock()
+	if l.gate != nil {
+		close(l.gate)
+		l.gate = nil
+	}
+	l.mu.Unlock()
+}
+
+func (l *tuiLifecycle) awaitAdmission() bool {
+	l.mu.Lock()
+	gate := l.gate
+	stopping := l.stopping
+	l.mu.Unlock()
+	if stopping {
+		return false
+	}
+	if gate == nil {
+		return true
+	}
+	select {
+	case <-gate:
+		return true
+	case <-l.stopCh:
+		return false
 	}
 }
 
@@ -155,7 +198,10 @@ func (l *tuiLifecycle) enqueue(job func()) bool {
 
 func (l *tuiLifecycle) beginShutdown() {
 	l.mu.Lock()
-	l.stopping = true
+	if !l.stopping {
+		l.stopping = true
+		close(l.stopCh)
+	}
 	l.pending = nil
 	l.queued.Broadcast()
 	l.mu.Unlock()
@@ -259,7 +305,7 @@ func (c *tuiCommandContext) runInput(input string) error {
 	return nil
 }
 
-func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode ui.TUIMode, workspace, projectPath string, skillOut *switchWriter, newTerminal func(io.Reader, io.Writer) tui.Terminal) error {
+func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode ui.TUIMode, workspace, projectPath string, skillOut *switchWriter, newTerminal func(io.Reader, io.Writer) tui.Terminal, runtime *extensions.Runtime) error {
 	capture := &tuiCaptureWriter{fallback: d.Stdout}
 	runner := ui.NewRunner(ui.RunnerOptions{
 		Stdin:         d.Stdin,
@@ -276,13 +322,22 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	workCtx, cancelWork := context.WithCancel(ctx)
 	defer cancelWork()
 	bridge := newTuiBridge(workCtx, cancelWork, &rdTUI, runner, capture)
+	bridge.holdAdmission()
 	runner.SetOnSubmit(bridge.submit)
 	runner.SetOnInterrupt(bridge.interrupt)
 	if err := runner.Start(); err != nil {
 		fmt.Fprintf(d.Stderr, "smidja: tui unavailable (%v), using line mode\n", err)
+		_ = rd.hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
+		defer rd.hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
 		bridge.shutdown()
 		bridge.wait()
 		return repl(ctx, lineUI, rd)
+	}
+	if runtime != nil {
+		runtime.SetContextDecorator(func(signal context.Context, base sdk.HandlerContext) sdk.HandlerContext {
+			return runner.InteractiveHandlerContext(signal, base)
+		})
+		defer runtime.SetContextDecorator(nil)
 	}
 	if skillOut != nil {
 		skillOut.Set(capture)
@@ -291,16 +346,48 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	surface.SetModel(rd.model)
 	surface.SetWorkspace(workspace)
 	surface.SetSessionName(rd.sessionPath)
+	startupCtx, cancelStartup := context.WithCancel(ctx)
+	defer cancelStartup()
+	startupDone := make(chan error, 1)
+	go func() {
+		startupDone <- rd.hooks.SessionStart(startupCtx, string(sdk.SessionStartStartup))
+	}()
+	stopStartup := func() {
+		cancelStartup()
+		runner.CancelDialogs()
+		<-startupDone
+	}
 	var runErr error
 	select {
 	case <-runner.Done():
+		stopStartup()
 	case <-ctx.Done():
 		runErr = ctx.Err()
+		stopStartup()
+	case err := <-startupDone:
+		if err == nil {
+			bridge.openAdmission()
+		}
+		select {
+		case <-runner.Done():
+		case <-ctx.Done():
+			runErr = ctx.Err()
+		}
 	}
+	runner.CancelDialogs()
 	bridge.shutdown()
 	bridge.wait()
+	_ = rd.hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
 	runner.Stop()
 	return runErr
+}
+
+func (b *tuiBridge) holdAdmission() {
+	b.lifecycle.holdAdmission()
+}
+
+func (b *tuiBridge) openAdmission() {
+	b.lifecycle.openAdmission()
 }
 
 func (b *tuiBridge) shutdown() {
@@ -345,12 +432,18 @@ func (b *tuiBridge) handleSlash(input string) {
 		return
 	}
 	name, args := splitCommandInput(input)
-	if name == "help" {
-		var help bytes.Buffer
-		printCommandHelp(&help, b.rd.commands)
-		if text := strings.TrimSpace(help.String()); text != "" {
-			b.runner.Surface().AddNotice(interactive.NoticeInfo, text)
-		}
+	switch name {
+	case "help":
+		b.showHelp()
+		return
+	case "model":
+		b.selectModel()
+		return
+	case "theme":
+		b.selectTheme()
+		return
+	case "settings":
+		b.showSettings()
 		return
 	}
 	cmd, ok := b.rd.commands.Get(name)

@@ -342,7 +342,7 @@ func TestTUIRealPTYWiredSmoke(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory)
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil)
 	}()
 	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
 	capture.waitFor(t, tui.OSCTitle("smidja"), 5*time.Second)
@@ -447,5 +447,90 @@ func TestTUIRealPTYWiredSmoke(t *testing.T) {
 	stripped := tui.StripTerminalSequences(full[exit:])
 	if !smokePTYContains(stripped, "pty second answer 9c2e") {
 		t.Fatalf("final document after exit missing transcript:\n%q", stripped)
+	}
+}
+
+func TestTUIRealPTYDialogAcceptCancelExit(t *testing.T) {
+	master, slave := smokePTYOpen(t)
+	capture := &smokePTYCapture{master: master}
+	workspace := t.TempDir()
+	home := t.TempDir()
+	store := wiringStore(t)
+	sess, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	var depsStderr bytes.Buffer
+	var rdStdout bytes.Buffer
+	var rdStderr bytes.Buffer
+	deps := &Deps{
+		Env:    envFrom(nil),
+		Getwd:  func() (string, error) { return workspace, nil },
+		Home:   func() string { return home },
+		Stdin:  slave,
+		Stdout: slave,
+		Stderr: &depsStderr,
+	}
+	rd := &runDeps{
+		model:       "test/model",
+		system:      "be terse",
+		sessionPath: sess.Path(),
+		client:      &capturingClient{},
+		recorder:    &sessionRecorder{sess},
+		stdout:      &rdStdout,
+		stderr:      &rdStderr,
+		hooks:       extensions.NewRuntime(extensions.NewRegistry()).Dispatcher(),
+		retry:       retryAdapter,
+		retryPolicy: agent.RetryPolicy{Enabled: false},
+		commands:    extensions.NewCommandCatalog(),
+		handlerContext: func(signal context.Context) sdk.HandlerContext {
+			return extensions.NewRuntime(extensions.NewRegistry()).HandlerContext(signal)
+		},
+	}
+	lineUI := ui.New(deps.Stdin, deps.Stdout, deps.Stderr, sdk.ModeInteractive)
+	factory := func(io.Reader, io.Writer) tui.Terminal {
+		return tui.NewProcessTerminal(slave, slave)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil)
+	}()
+	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
+
+	smokePTYWrite(t, master, "/help\r")
+	capture.waitFor(t, "Command help", 5*time.Second)
+	smokePTYWrite(t, master, "\r")
+	time.Sleep(150 * time.Millisecond)
+
+	smokePTYWrite(t, master, "/settings\r")
+	capture.waitFor(t, "Auto retry", 5*time.Second)
+	smokePTYWrite(t, master, "\x03")
+	time.Sleep(150 * time.Millisecond)
+
+	smokePTYWrite(t, master, "/help\r")
+	capture.waitFor(t, "Command help", 5*time.Second)
+	smokePTYWrite(t, master, "\x1b")
+	time.Sleep(150 * time.Millisecond)
+
+	smokePTYWrite(t, master, "/quit\r")
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runTUI: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runTUI did not exit after /quit")
+	}
+	capture.drain(t, 300*time.Millisecond)
+	full := capture.snapshot()
+	if smokePTYIndex(full, "Command help") < 0 {
+		t.Fatalf("output missing the help dialog:\n%q", full)
+	}
+	if smokePTYIndex(full, "Auto retry") < 0 {
+		t.Fatalf("output missing the settings dialog:\n%q", full)
+	}
+	if smokePTYIndex(full, tui.AltScreenExit) < 0 {
+		t.Fatalf("output missing alt-screen exit:\n%q", full)
 	}
 }

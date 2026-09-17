@@ -350,8 +350,11 @@ func TestRunnerUISetMethods(t *testing.T) {
 	}
 }
 
-func TestRunnerUIDialogsUnsupported(t *testing.T) {
-	runner, _ := startTestRunner(t, TUIModeRegular, nil)
+func TestRunnerUIDialogsUnsupportedInactive(t *testing.T) {
+	terminal := newFakeUITerminal(80, 24)
+	opts := fakeUIRunnerOptions(terminal)
+	opts.Home = t.TempDir()
+	runner := NewRunner(opts)
 	if _, err := runner.Confirm("t", "m"); !errors.Is(err, sdk.ErrModeUnsupported) {
 		t.Errorf("Confirm error = %v, want ErrModeUnsupported", err)
 	}

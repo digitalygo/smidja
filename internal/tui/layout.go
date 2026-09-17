@@ -89,6 +89,10 @@ type StackLayoutProvider interface {
 	StackLayout() StackLayoutSpec
 }
 
+type LayoutFrameProvider interface {
+	RenderLayoutFrame(width, height int, requestRender func()) *LayoutFrame
+}
+
 type ScrollLayoutSpec struct {
 	Child Component
 	State *ScrollView

@@ -4,6 +4,19 @@ import (
 	"strings"
 )
 
+func sanitizeEditorLine(s string) string {
+	stripped := StripTerminalSequences(s)
+	var b strings.Builder
+	b.Grow(len(stripped))
+	for _, r := range stripped {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func editorScrollBorder(direction string, count, width int) string {
 	if width <= 0 {
 		return ""
@@ -201,37 +214,64 @@ func (e *Editor) Render(width int) []string {
 		globalIdx := e.scrollOffset + i
 		hasCursor := globalIdx == cursorIdx
 		cropped := e.buffer.cropForLayout(e.buffer.lines[vl.logicalLine])
-		var text string
-		if vl.startCol < len(cropped) {
-			limit := vl.startCol + vl.length
-			if limit > len(cropped) {
-				limit = len(cropped)
-			}
-			text = cropped[vl.startCol:limit]
+		sanitizedFull, rawToDisp := sanitizeRawAndBuildMap(cropped, false)
+		mapRaw := func(rawOff int) int {
+			return mapRawOffset(rawToDisp, len(cropped), rawOff, len(sanitizedFull))
+		}
+		dispSegStart := mapRaw(vl.startCol)
+		rawSegEnd := vl.startCol + vl.length
+		dispSegEnd := mapRaw(rawSegEnd)
+		if dispSegStart < 0 {
+			dispSegStart = 0
+		}
+		if dispSegEnd > len(sanitizedFull) {
+			dispSegEnd = len(sanitizedFull)
+		}
+		if dispSegStart > dispSegEnd {
+			dispSegStart = dispSegEnd
+		}
+		text := ""
+		if dispSegStart < len(sanitizedFull) && dispSegEnd > dispSegStart {
+			text = sanitizedFull[dispSegStart:dispSegEnd]
 		}
 		display := text
 		lineWidth := VisibleWidth(text)
 		cursorInPadding := false
 		selStart, selEnd, hasSel := e.selectionSpanForLineLocked(vl.logicalLine, len(cropped))
+		dispSelStart, dispSelEnd := 0, 0
+		if hasSel {
+			dispSelStart = mapRaw(selStart)
+			dispSelEnd = mapRaw(selEnd)
+		}
 		relStart, relEnd := 0, 0
 		hasVisualSel := false
 		if hasSel {
-			segS := vl.startCol
-			segE := vl.startCol + len(text)
-			lo := segS
-			if selStart > lo {
-				lo = selStart
+			lo := dispSegStart
+			if dispSelStart > lo {
+				lo = dispSelStart
 			}
-			hi := segE
-			if selEnd < hi {
-				hi = selEnd
+			hi := dispSegEnd
+			if dispSelEnd < hi {
+				hi = dispSelEnd
 			}
 			if hi > lo {
 				hasVisualSel = true
-				relStart = lo - segS
-				relEnd = hi - segS
+				relStart = lo - dispSegStart
+				relEnd = hi - dispSegStart
 				if relStart < 0 {
 					relStart = 0
+				}
+				if relEnd > len(text) {
+					relEnd = len(text)
+				}
+				if relStart < 0 {
+					relStart = 0
+				}
+				if relStart > len(text) {
+					relStart = len(text)
+				}
+				if relEnd < 0 {
+					relEnd = 0
 				}
 				if relEnd > len(text) {
 					relEnd = len(text)
@@ -245,7 +285,8 @@ func (e *Editor) Render(width int) []string {
 			display = text[:relStart] + SGRInverse + text[relStart:relEnd] + SGRInverseOff + text[relEnd:]
 		}
 		if hasCursor {
-			adjusted := e.buffer.cursorCol - vl.startCol
+			mappedCursor := mapRaw(e.buffer.cursorCol)
+			adjusted := mappedCursor - dispSegStart
 			if adjusted < 0 {
 				adjusted = 0
 			}
@@ -271,10 +312,11 @@ func (e *Editor) Render(width int) []string {
 				beforeWrapped := before
 				restWrapped := rest
 				if hasVisualSel {
-					beforeWrapped = wrapSelectionSegment(before, vl.startCol, vl.startCol+adjusted, selStart, selEnd)
-					restStart := vl.startCol + adjusted + len(first)
-					restEnd := vl.startCol + len(text)
-					restWrapped = wrapSelectionSegment(rest, restStart, restEnd, selStart, selEnd)
+					dispCursor := dispSegStart + adjusted
+					beforeWrapped = wrapSelectionSegment(before, dispSegStart, dispCursor, dispSelStart, dispSelEnd)
+					restStart := dispCursor + len(first)
+					restEnd := dispSegEnd
+					restWrapped = wrapSelectionSegment(rest, restStart, restEnd, dispSelStart, dispSelEnd)
 				}
 				if hint != "" {
 					display = beforeWrapped + marker + cursorChar + hint + restWrapped
@@ -285,7 +327,8 @@ func (e *Editor) Render(width int) []string {
 				cursorChar := SGRInverse + " " + SGRInverseOff
 				beforeWrapped := before
 				if hasVisualSel {
-					beforeWrapped = wrapSelectionSegment(before, vl.startCol, vl.startCol+adjusted, selStart, selEnd)
+					dispCursor := dispSegStart + adjusted
+					beforeWrapped = wrapSelectionSegment(before, dispSegStart, dispCursor, dispSelStart, dispSelEnd)
 				}
 				if hint != "" {
 					display = beforeWrapped + marker + cursorChar + hint

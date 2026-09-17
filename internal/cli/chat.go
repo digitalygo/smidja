@@ -48,6 +48,7 @@ const modelFetchTimeout = 5 * time.Second
 
 type runDeps struct {
 	model        string
+	wireModel    string
 	system       string
 	showThinking bool
 	sessionPath  string
@@ -66,9 +67,13 @@ type runDeps struct {
 	isOverflow     func(string) bool
 	detector       agent.LoopDetector
 
+	provider       string
 	catalog        *extensions.ToolCatalog
 	commands       *extensions.CommandCatalog
 	handlerContext func(context.Context) sdk.HandlerContext
+	modelRegistry  *models.Registry
+	reprepare      func(string, string) (*contextPreparerAdapter, error)
+	persistModel   func(string) error
 }
 
 func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string, tuiMode ui.TUIMode) error {
@@ -177,9 +182,11 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	defer mcpRt.Close()
 
-	_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
-	defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
-
+	useTUI := prompt == "" && ui.ShouldUseTUI(d.Stdin, d.Stdout, prompt)
+	if !useTUI {
+		_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
+		defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
+	}
 	modelReg := d.ModelRegistry
 	if modelReg == nil {
 		modelReg = models.NewRegistry()
@@ -193,7 +200,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		window = modelWindow(modelReg, cfg.Model)
 	}
 	selector := subagent.NewOpenRouterSelector(client)
-	preparer, err := newContextPreparer(*cfg, window, selector)
+	preparer, err := newContextPreparer(*cfg, window, cfg.Model, selector)
 	if err != nil {
 		return fail(d, err)
 	}
@@ -213,11 +220,11 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		}
 	}
 
+	providerID := selectedProvider
+	if providerID == "" {
+		providerID = openrouterProviderName
+	}
 	if continuePath != "" {
-		providerID := selectedProvider
-		if providerID == "" {
-			providerID = "openrouter"
-		}
 		cur := currentRuntimeProfile(cfg, providerID, sysPrompt, toolsetFingerprint(catalog, toolSet), cfg.WorkspaceRoot)
 		reset, err := syncRuntimeProfile(sess, cur, func() string { return snapshot.Fingerprint() })
 		if err != nil {
@@ -230,6 +237,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 
 	rd := &runDeps{
 		model:        cfg.Model,
+		wireModel:    cfg.Model,
 		system:       sysPrompt,
 		showThinking: envTruthy(d.Env("SMIDJA_SHOW_THINKING")),
 		sessionPath:  sess.Path(),
@@ -254,6 +262,18 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		handlerContext: func(signal context.Context) sdk.HandlerContext {
 			return runtime.HandlerContext(signal)
 		},
+		modelRegistry: modelReg,
+		provider:      providerID,
+	}
+	rd.reprepare = func(model, wireModel string) (*contextPreparerAdapter, error) {
+		return newModelPreparer(*cfg, modelReg, model, wireModel, selector)
+	}
+	rd.persistModel = func(model string) error {
+		updated := *cfg
+		updated.Model = model
+		cur := currentRuntimeProfile(&updated, providerID, sysPrompt, toolsetFingerprint(catalog, toolSet), cfg.WorkspaceRoot)
+		_, err := syncRuntimeProfile(sess, cur, func() string { return snapshot.Fingerprint() })
+		return err
 	}
 
 	mode := sdk.ModeInteractive
@@ -268,8 +288,8 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		}
 		return nil
 	}
-	if ui.ShouldUseTUI(d.Stdin, d.Stdout, prompt) {
-		if err := runTUI(ctx, d, rd, lineUI, tuiMode, cfg.WorkspaceRoot, cwd, skillOut, nil); err != nil {
+	if useTUI {
+		if err := runTUI(ctx, d, rd, lineUI, tuiMode, cfg.WorkspaceRoot, cwd, skillOut, nil, runtime); err != nil {
 			return fail(d, err)
 		}
 		return nil
@@ -358,7 +378,7 @@ func packageStoreRoot(d *Deps) string {
 	return packages.DefaultRoot()
 }
 
-func newContextPreparer(cfg config.Config, window int64, selector subagent.Selector) (*contextPreparerAdapter, error) {
+func newContextPreparer(cfg config.Config, window int64, wireModel string, selector subagent.Selector) (*contextPreparerAdapter, error) {
 	cmCfg := contextmanager.Config{
 		Enabled:                cfg.ContextEnabled,
 		ContextWindowTokens:    window,
@@ -372,7 +392,7 @@ func newContextPreparer(cfg config.Config, window int64, selector subagent.Selec
 		SelectorModel:          cfg.ContextSelectorModel,
 	}
 	if cmCfg.SelectorModel == "" {
-		cmCfg.SelectorModel = cfg.Model
+		cmCfg.SelectorModel = wireModel
 	}
 	if cmCfg.CacheMissAfter <= 0 {
 		cmCfg.CacheMissAfter = contextmanager.DefaultCacheMissAfter
@@ -400,6 +420,16 @@ func newContextPreparer(cfg config.Config, window int64, selector subagent.Selec
 		return nil, err
 	}
 	return newContextPreparerAdapter(live, cmCfg), nil
+}
+
+func newModelPreparer(cfg config.Config, reg *models.Registry, model, wireModel string, selector subagent.Selector) (*contextPreparerAdapter, error) {
+	updated := cfg
+	updated.Model = model
+	window := updated.ContextWindowTokens
+	if window <= 0 {
+		window = modelWindow(reg, model)
+	}
+	return newContextPreparer(updated, window, wireModel, selector)
 }
 
 func modelWindow(reg *models.Registry, model string) int64 {
@@ -474,8 +504,15 @@ func repl(ctx context.Context, lineUI *ui.LineUI, d *runDeps) error {
 	}
 }
 
+func (d *runDeps) wireModelID() string {
+	if strings.TrimSpace(d.wireModel) == "" {
+		return d.model
+	}
+	return d.wireModel
+}
+
 func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, input string) ([]*agent.Message, error) {
-	h, err := agent.RunTurn(ctx, deps, d.model, d.system, history, input)
+	h, err := agent.RunTurn(ctx, deps, d.wireModelID(), d.system, history, input)
 	if err != nil {
 		var overflow *agent.ContextOverflowError
 		if errors.As(err, &overflow) && d.preparer != nil {
@@ -483,7 +520,7 @@ func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*a
 				fmt.Fprintln(d.stderr, "smidja: context overflow, compacting and retrying once")
 			}
 			d.preparer.forceSafety()
-			h, err = agent.RunTurn(ctx, deps, d.model, d.system, history, input)
+			h, err = agent.RunTurn(ctx, deps, d.wireModelID(), d.system, history, input)
 			if err != nil {
 				var again *agent.ContextOverflowError
 				if errors.As(err, &again) {
@@ -615,9 +652,11 @@ func agentVerdict(v loopdetector.Verdict) agent.Verdict {
 }
 
 type contextPreparerAdapter struct {
-	live        *contextmanager.Manager
-	recovery    *contextmanager.Manager
-	forceTokens int64
+	live          *contextmanager.Manager
+	recovery      *contextmanager.Manager
+	forceTokens   int64
+	contextWindow int64
+	selectorModel string
 
 	mu      sync.Mutex
 	force   bool
@@ -632,9 +671,11 @@ func newContextPreparerAdapter(live *contextmanager.Manager, cfg contextmanager.
 		recovery = live
 	}
 	return &contextPreparerAdapter{
-		live:        live,
-		recovery:    recovery,
-		forceTokens: int64(math.Ceil(cfg.SafetyCompactThreshold * float64(cfg.ContextWindowTokens))),
+		live:          live,
+		recovery:      recovery,
+		forceTokens:   int64(math.Ceil(cfg.SafetyCompactThreshold * float64(cfg.ContextWindowTokens))),
+		contextWindow: cfg.ContextWindowTokens,
+		selectorModel: cfg.SelectorModel,
 	}
 }
 

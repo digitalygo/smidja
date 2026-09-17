@@ -313,9 +313,20 @@ func TestBridgeInterruptCancelsTurn(t *testing.T) {
 
 func TestBridgeSlashCommands(t *testing.T) {
 	fixture := newBridgeFixture(t, nil, nil)
-	fixture.bridge.handle("/help")
-	if text := bridgeFrameText(t, fixture); !strings.Contains(text, "/quit, /exit") {
-		t.Errorf("help missing the quit note:\n%s", text)
+	helpDone := make(chan struct{})
+	go func() {
+		fixture.bridge.handle("/help")
+		close(helpDone)
+	}()
+	output := waitForOutputSettled(t, fixture.terminal, "show command", 3*time.Second)
+	if !strings.Contains(tui.StripTerminalSequences(output), "quit") {
+		t.Errorf("help missing the quit command:\n%s", output)
+	}
+	fixture.terminal.SendInput("\x1b")
+	select {
+	case <-helpDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("help overlay did not close")
 	}
 	fixture.bridge.handle("/nope")
 	if text := bridgeFrameText(t, fixture); !strings.Contains(text, "unknown command") {
@@ -413,7 +424,7 @@ func TestRunTUIFallsBackToLineUI(t *testing.T) {
 		},
 	}
 	lineUI := ui.New(deps.Stdin, deps.Stdout, deps.Stderr, sdk.ModeInteractive)
-	if err := runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, cwd, cwd, nil, bridgeTerminalFactory(terminal)); err != nil {
+	if err := runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil); err != nil {
 		t.Fatalf("runTUI fallback: %v", err)
 	}
 	if !strings.Contains(stderr.String(), "tui unavailable") {
@@ -595,13 +606,12 @@ func TestBridgeSubmitRunsAsync(t *testing.T) {
 	turned := make(chan struct{})
 	fixture.bridge.afterTurn = func() { close(turned) }
 	fixture.bridge.submit("/help")
+	waitForOutputSettled(t, fixture.terminal, "show command", 3*time.Second)
+	fixture.terminal.SendInput("\x1b")
 	select {
 	case <-turned:
 	case <-time.After(5 * time.Second):
 		t.Fatal("async submit did not complete")
-	}
-	if text := bridgeFrameText(t, fixture); !strings.Contains(text, "/quit, /exit") {
-		t.Errorf("frame missing help:\n%s", text)
 	}
 }
 
@@ -658,7 +668,7 @@ func TestRunTUIReturnsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(ctx, deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal))
+		done <- runTUI(ctx, deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil)
 	}()
 	select {
 	case <-terminal.startedC:

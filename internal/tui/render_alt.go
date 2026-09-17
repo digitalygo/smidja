@@ -78,6 +78,7 @@ func NewAltScreen(terminal Terminal, showHardwareCursor bool, options AltScreenO
 	})
 	remove := screen.AddInputListener(screen.handleViewportInput)
 	screen.removeInputListener = remove
+	screen.SetModalProtocolRouter(screen.routeModalProtocol)
 	screen.SetHooks(tuiHooks{
 		resetRenderState: screen.resetRenderState,
 		doRender:         func() { screen.doRender() },
@@ -333,7 +334,13 @@ func (s *AltScreen) doRender() {
 	if root == nil {
 		root = s.implicitScrollView
 	}
-	layout := RenderLayoutFrame(root, width, height, func() { s.RequestRender(false) })
+	requestRender := func() { s.RequestRender(false) }
+	var layout *LayoutFrame
+	if provider, ok := root.(LayoutFrameProvider); ok {
+		layout = provider.RenderLayoutFrame(width, height, requestRender)
+	} else {
+		layout = RenderLayoutFrame(root, width, height, requestRender)
+	}
 
 	screen := make([]string, len(layout.Lines))
 	for i, line := range layout.Lines {
@@ -663,6 +670,17 @@ func (s *AltScreen) handleWheelEvent(event parsedWheelEvent) {
 		WheelDelta: delta,
 	}
 	hit, result := s.dispatchMouseToOverlay(mouseEvent)
+	if s.ModalCapture() {
+		if result != nil {
+			s.applyMouseDispatchResult(mouseEvent, result)
+			s.RequestRender(false)
+			return
+		}
+		if hit {
+			s.RequestRender(false)
+		}
+		return
+	}
 	var dispatched *mouseDispatchResult
 	if result != nil {
 		dispatched = result
@@ -674,6 +692,25 @@ func (s *AltScreen) handleWheelEvent(event parsedWheelEvent) {
 		return
 	}
 	s.routeWheel(event, delta)
+}
+
+func (s *AltScreen) routeModalProtocol(data string) bool {
+	if data == FocusIn {
+		return true
+	}
+	if data == FocusOut {
+		s.clearMousePress()
+		return true
+	}
+	if event, ok := parseWheelEvent(data); ok {
+		s.handleWheelEvent(event)
+		return true
+	}
+	if event, ok := parseSGRMouseEvent(data); ok {
+		s.handleMouseEvent(event)
+		return true
+	}
+	return isMouseSequence(data)
 }
 
 func (s *AltScreen) wheelLinesFor(button int) int {
@@ -889,6 +926,20 @@ func (s *AltScreen) handleMouseEvent(raw parsedMouseEvent) {
 		Shift:   raw.button&4 != 0,
 		Alt:     raw.button&8 != 0,
 		Ctrl:    raw.button&16 != 0,
+	}
+
+	if s.ModalCapture() {
+		hit, overlayResult := s.dispatchMouseToOverlay(event)
+		if overlayResult != nil {
+			if s.applyMouseDispatchResult(event, overlayResult) {
+				s.RequestRender(false)
+			}
+			return
+		}
+		if hit {
+			s.RequestRender(false)
+		}
+		return
 	}
 
 	target := s.mouseTarget()

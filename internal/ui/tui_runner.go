@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -68,6 +69,12 @@ type screen interface {
 	Start() error
 	Stop(tui.StopOptions)
 	SetFocus(tui.Component)
+	FocusedComponent() tui.Component
+	ShowOverlay(tui.Component, tui.OverlayOptions) tui.OverlayHandle
+	HideOverlay()
+	HasOverlay() bool
+	SetModalCapture(bool)
+	ModalCapture() bool
 	AddInputListener(tui.InputListener) func()
 	RequestRender(bool)
 	RenderNow(bool)
@@ -108,10 +115,15 @@ type Runner struct {
 	view     screen
 	keys     *tui.KeybindingsManager
 	surface  *interactive.Surface
+	themes   *tui.ThemeRegistry
+	dialogs  *modalService
 	title    string
 	stdin    io.Reader
 	stdout   io.Writer
 	mode     TUIMode
+
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
 
 	working       atomic.Bool
 	started       atomic.Bool
@@ -128,6 +140,7 @@ type Runner struct {
 	signalStop func()
 
 	onSignalsRegistered func()
+	loginStartHook      func(*LoginOperation)
 
 	actionsMu      sync.Mutex
 	actionsCh      chan func()
@@ -161,7 +174,11 @@ func NewRunner(opts RunnerOptions) *Runner {
 	}
 	terminal := newTerminal(stdin, stdout)
 	keys := tui.NewDefaultKeybindingsManager(nil)
-	theme := resolveRunnerTheme()
+	themes := tui.NewThemeRegistry("", "", tui.ColorModeUnset)
+	theme := themes.Active()
+	if loaded, err := themes.SetTheme("dark"); err == nil {
+		theme = loaded
+	}
 	externalRunner := opts.ExternalRunner
 	if externalRunner == nil {
 		externalRunner = tui.RunnerFunc(func(command, filePath string) error {
@@ -187,18 +204,22 @@ func NewRunner(opts RunnerOptions) *Runner {
 	if strings.TrimSpace(title) == "" {
 		title = "smidja"
 	}
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	runner := &Runner{
-		terminal:    terminal,
-		keys:        keys,
-		surface:     surface,
-		title:       title,
-		done:        make(chan struct{}),
-		exitC:       make(chan struct{}),
-		onSubmit:    opts.OnSubmit,
-		onInterrupt: opts.OnInterrupt,
-		stdin:       stdin,
-		stdout:      stdout,
-		mode:        opts.Mode,
+		terminal:        terminal,
+		keys:            keys,
+		surface:         surface,
+		themes:          themes,
+		title:           title,
+		done:            make(chan struct{}),
+		exitC:           make(chan struct{}),
+		onSubmit:        opts.OnSubmit,
+		onInterrupt:     opts.OnInterrupt,
+		stdin:           stdin,
+		stdout:          stdout,
+		mode:            opts.Mode,
+		lifecycleCtx:    lifecycleCtx,
+		lifecycleCancel: lifecycleCancel,
 	}
 	rawTerminal := terminal
 	wrapped := &resizeNotifyingTerminal{Terminal: rawTerminal, onResize: func() { editor.SetTerminalRows(rawTerminal.Rows()) }}
@@ -216,6 +237,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 		view = main
 	}
 	runner.view = view
+	runner.dialogs = newModalService(view)
 	surface.SetController(runner)
 	surface.SetOnSubmit(runner.handleSubmit)
 	view.SetFocus(editor)
@@ -224,13 +246,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 	return runner
 }
 
-func resolveRunnerTheme() *tui.Theme {
-	registry := tui.NewThemeRegistry("", "", tui.ColorModeUnset)
-	if loaded, err := registry.SetTheme("dark"); err == nil {
-		return loaded
-	}
-	return registry.Active()
-}
+func (r *Runner) ThemeRegistry() *tui.ThemeRegistry { return r.themes }
 
 func (r *Runner) Surface() *interactive.Surface { return r.surface }
 
@@ -247,10 +263,19 @@ func (r *Runner) Done() <-chan struct{} { return r.exitC }
 
 func (r *Runner) RequestExit() {
 	r.exitOnce.Do(func() {
+		r.cancelDialogs()
 		r.endActions()
 		close(r.exitC)
 	})
 }
+
+func (r *Runner) cancelDialogs() {
+	if r.dialogs != nil {
+		r.dialogs.shutdown()
+	}
+}
+
+func (r *Runner) CancelDialogs() { r.cancelDialogs() }
 
 func (r *Runner) SetOnSubmit(fn func(string)) {
 	r.mu.Lock()
@@ -404,6 +429,7 @@ func (r *Runner) Stop() {
 		r.startStopMu.Lock()
 		defer r.startStopMu.Unlock()
 		r.stopped.Store(true)
+		r.cancelDialogs()
 		r.endActions()
 		r.joinActions()
 		r.flushFinalDocument()
@@ -411,6 +437,7 @@ func (r *Runner) Stop() {
 		r.unregisterSignals()
 		r.surface.Close()
 		r.RequestExit()
+		r.lifecycleCancel()
 		close(r.done)
 	})
 }
@@ -575,22 +602,6 @@ func (r *Runner) Notify(message string, kind sdk.NotifyKind) {
 		notice = interactive.NoticeError
 	}
 	r.surface.AddNotice(notice, message)
-}
-
-func (r *Runner) Confirm(title, message string) (bool, error) {
-	return false, sdk.ErrModeUnsupported
-}
-
-func (r *Runner) Select(title string, options []string) (string, error) {
-	return "", sdk.ErrModeUnsupported
-}
-
-func (r *Runner) Input(title, placeholder string) (string, error) {
-	return "", sdk.ErrModeUnsupported
-}
-
-func (r *Runner) Editor(title, prefill string) (string, error) {
-	return "", sdk.ErrModeUnsupported
 }
 
 func (r *Runner) SetStatus(key, text string) {

@@ -109,6 +109,23 @@ func dispatchMouseEvent(component Component, event MouseEvent) *mouseDispatchRes
 	return dispatch
 }
 
+func (b *Base) dispatchModalInput(focused Component, data string) {
+	if focused == nil || data == "" {
+		return
+	}
+	inputHandler, ok := focused.(InputHandler)
+	if !ok {
+		return
+	}
+	if optIn, canAsk := focused.(KeyReleaseOptIn); !canAsk || !optIn.WantsKeyRelease() {
+		if IsKeyRelease(data) {
+			return
+		}
+	}
+	inputHandler.HandleInput(data)
+	b.requestImmediateRender()
+}
+
 func retargetMouseEvent(event MouseEvent, target mouseDispatchTarget) MouseEvent {
 	event.X = event.ScreenX - target.originX
 	event.Y = event.ScreenY - target.originY
@@ -287,6 +304,19 @@ func (b *Base) handleTerminalInput(data string) {
 	b.mu.Lock()
 	if b.stopped {
 		b.mu.Unlock()
+		return
+	}
+	if b.modalCapture {
+		top := b.topmostVisibleOverlayLocked()
+		router := b.modalProtocol
+		b.mu.Unlock()
+		if router != nil && router(data) {
+			return
+		}
+		if top == nil {
+			return
+		}
+		b.dispatchModalInput(top.component, data)
 		return
 	}
 	listeners := append([]registeredListener(nil), b.inputListeners...)

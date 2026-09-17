@@ -74,7 +74,7 @@ func TestTUIRealPTYPanicRestoresTerminal(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory)
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil)
 	}()
 	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
 	capture.waitFor(t, tui.OSCTitle("smidja"), 5*time.Second)

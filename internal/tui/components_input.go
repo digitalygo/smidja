@@ -84,6 +84,15 @@ func (i *Input) SetFocused(focused bool) {
 	i.mu.Unlock()
 }
 
+func (i *Input) SetPlaceholderStyle(style func(string) string) {
+	if style == nil {
+		style = func(text string) string { return text }
+	}
+	i.mu.Lock()
+	i.placeholderStyle = style
+	i.mu.Unlock()
+}
+
 func (i *Input) Invalidate() {}
 
 func (i *Input) HandleInput(data string) {
@@ -415,9 +424,18 @@ func (i *Input) Render(width int) []string {
 	if availableWidth <= 0 {
 		return []string{TruncateToWidth(i.prompt, width, "", false)}
 	}
+	rawCursor := i.cursor
+	if rawCursor < 0 {
+		rawCursor = 0
+	}
+	if rawCursor > len(i.value) {
+		rawCursor = len(i.value)
+	}
+	sanitizedValue, sanitizedCursor := sanitizeSingleLineWithMapping(i.value, rawCursor)
+	sanitizedPlaceholder := sanitizeSelectSingleLine(i.placeholder)
 
-	if len(i.value) == 0 && i.placeholder != "" {
-		placeholder := TruncateToWidth(i.placeholder, availableWidth, "", false)
+	if len(sanitizedValue) == 0 && sanitizedPlaceholder != "" {
+		placeholder := TruncateToWidth(sanitizedPlaceholder, availableWidth, "", false)
 		graphemes := splitGraphemes(placeholder)
 		atCursor := " "
 		afterCursor := placeholder
@@ -436,18 +454,18 @@ func (i *Input) Render(width int) []string {
 	}
 
 	visibleText := ""
-	cursorDisplay := i.cursor
+	cursorDisplay := sanitizedCursor
 	i.renderedStartColumn = 0
-	totalWidth := VisibleWidth(i.value)
+	totalWidth := VisibleWidth(sanitizedValue)
 
 	if totalWidth < availableWidth {
-		visibleText = i.value
+		visibleText = sanitizedValue
 	} else {
 		scrollWidth := availableWidth
-		if i.cursor == len(i.value) {
+		if sanitizedCursor == len(sanitizedValue) {
 			scrollWidth = availableWidth - 1
 		}
-		cursorCol := VisibleWidth(i.value[:i.cursor])
+		cursorCol := VisibleWidth(sanitizedValue[:sanitizedCursor])
 		if scrollWidth > 0 {
 			halfWidth := scrollWidth / 2
 			startCol := 0
@@ -459,8 +477,8 @@ func (i *Input) Render(width int) []string {
 				startCol = maxInt(0, cursorCol-halfWidth)
 			}
 			i.renderedStartColumn = startCol
-			visibleText = SliceByColumn(i.value, startCol, scrollWidth, true)
-			beforeCursor := SliceByColumn(i.value, startCol, maxInt(0, cursorCol-startCol), true)
+			visibleText = SliceByColumn(sanitizedValue, startCol, scrollWidth, true)
+			beforeCursor := SliceByColumn(sanitizedValue, startCol, maxInt(0, cursorCol-startCol), true)
 			cursorDisplay = len(beforeCursor)
 		} else {
 			visibleText = ""

@@ -55,6 +55,14 @@ func (o *ownedRoot) StackLayout() tui.StackLayoutSpec {
 	return o.surface.root.StackLayout()
 }
 
+func (o *ownedRoot) RenderLayoutFrame(width, height int, requestRender func()) *tui.LayoutFrame {
+	var frame *tui.LayoutFrame
+	o.surface.runtime.Run(func() {
+		frame = tui.RenderLayoutFrame(o.surface.root, width, height, requestRender)
+	})
+	return frame
+}
+
 func (o *ownedRoot) Invalidate() {
 	o.surface.runtime.Run(func() {
 		o.surface.root.Invalidate()
@@ -182,6 +190,29 @@ func (s *Surface) Editor() *tui.Editor         { return s.editor }
 func (s *Surface) Footer() *Footer             { return s.footer }
 func (s *Surface) Status() *StatusIndicator    { return s.status }
 func (s *Surface) WidgetPanel() *WidgetPanel   { return s.widgets }
+func (s *Surface) Theme() *tui.Theme {
+	var theme *tui.Theme
+	s.runtime.Run(func() { theme = s.theme })
+	return theme
+}
+
+func (s *Surface) SetTheme(theme *tui.Theme) {
+	if theme == nil {
+		return
+	}
+	s.runtime.Run(func() {
+		s.theme = theme
+		for _, child := range s.chat.Children() {
+			applyComponentTheme(child, theme)
+		}
+		s.editor.SetTheme(theme)
+		s.footer.SetTheme(theme)
+		s.status.SetTheme(theme)
+		s.widgets.SetTheme(theme)
+	})
+	s.invalidateChat()
+	s.requestRender()
+}
 
 func (s *Surface) SetController(controller tui.TUIController) {
 	s.stateMu.Lock()
@@ -220,11 +251,7 @@ func (s *Surface) RenderDocument(width int) []string {
 }
 
 func (s *Surface) RenderFrame(width, height int) *tui.LayoutFrame {
-	var frame *tui.LayoutFrame
-	s.runtime.Run(func() {
-		frame = tui.RenderLayoutFrame(s.root, width, height, s.requestRender)
-	})
-	return frame
+	return s.owned.RenderLayoutFrame(width, height, s.requestRender)
 }
 
 func (s *Surface) requestRender() {
@@ -536,6 +563,38 @@ func (s *Surface) ToggleToolExpansion() bool {
 	})
 	s.invalidateChat()
 	return true
+}
+
+func (s *Surface) SetToolsExpanded(expanded bool) {
+	s.runtime.Run(func() {
+		s.toolsExpanded = expanded
+		for _, block := range s.collapsibles {
+			block.SetExpanded(expanded)
+		}
+	})
+	s.invalidateChat()
+}
+
+func (s *Surface) ToolsExpanded() bool {
+	var expanded bool
+	s.runtime.Run(func() { expanded = s.toolsExpanded })
+	return expanded
+}
+
+func (s *Surface) SetThinkingExpanded(expanded bool) {
+	s.runtime.Run(func() {
+		s.thinkingExpanded = expanded
+		for _, assistant := range s.assistants {
+			assistant.SetThinkingExpanded(expanded)
+		}
+	})
+	s.invalidateChat()
+}
+
+func (s *Surface) ThinkingExpanded() bool {
+	var expanded bool
+	s.runtime.Run(func() { expanded = s.thinkingExpanded })
+	return expanded
 }
 
 func (s *Surface) ToggleThinking() bool {

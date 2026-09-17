@@ -21,6 +21,7 @@ type EditorOptions struct {
 	ExternalCommand        string
 	ExternalRunner         ExternalRunner
 	TerminalRows           int
+	DisableAutocomplete    bool
 }
 
 type editorSelection struct {
@@ -92,7 +93,9 @@ func NewEditor(opts EditorOptions) *Editor {
 		maxVisible = 20
 	}
 	provider := opts.Provider
-	if provider == nil {
+	if opts.DisableAutocomplete {
+		provider = nil
+	} else if provider == nil {
 		provider = NewAutocompleteProvider(opts.WorkspaceRoot)
 	}
 	history := opts.History

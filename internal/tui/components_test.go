@@ -369,6 +369,30 @@ func TestFuzzyFilter(t *testing.T) {
 	}
 }
 
+func TestSelectListFuzzySearchMatchesProviderMetadata(t *testing.T) {
+	items := []SelectItem{
+		{Value: "anthropic/claude-sonnet-4.5", Label: "anthropic/claude-sonnet-4.5", Description: "anthropic · 200000 context"},
+		{Value: "openai/gpt-5", Label: "openai/gpt-5", Description: "openai · 400000 context"},
+		{Value: "deepseek/deepseek-r1", Label: "deepseek/deepseek-r1", Description: "deepseek · 64000 context"},
+	}
+	list := NewSelectList(items, 5, DefaultSelectListTheme(nil, nil))
+
+	list.SetFilterFuzzy("openai")
+	if item, ok := list.SelectedItem(); !ok || item.Value != "openai/gpt-5" {
+		t.Fatalf("provider search selection = %v ok=%v", item.Value, ok)
+	}
+
+	list.SetFilterFuzzy("deepseek")
+	if item, ok := list.SelectedItem(); !ok || item.Value != "deepseek/deepseek-r1" {
+		t.Fatalf("provider search selection = %v ok=%v", item.Value, ok)
+	}
+
+	list.SetFilterFuzzy("400000")
+	if item, ok := list.SelectedItem(); !ok || item.Value != "openai/gpt-5" {
+		t.Fatalf("context window search selection = %v ok=%v", item.Value, ok)
+	}
+}
+
 func settingsItems() []SettingItem {
 	return []SettingItem{
 		{ID: "theme", Label: "Theme", CurrentValue: "dark", Values: []string{"dark", "light", "solarized"}, Description: "Color theme"},
