@@ -1,28 +1,28 @@
 ---
 document_type: mycelium-plan
 plan_id: 2026-09-14-smidja-tui-plan
-status: in-progress
+status: blocked
 created_at: 2026-09-14
 planner: planner
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-09-15T00:31:24+02:00
-last_updated_at: 2026-09-17
+last_updated_at: 2026-09-18
 ---
 
 # Smidja TUI implementation plan
 
 ## Current execution snapshot
 
-- **Status:** In progress.
+- **Status:** Blocked by unavailable implementation-provider quota. The repository and preserved P5 worktrees are ready for a later restart.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
 - **Execution baseline:** Resumed 2026-09-16T08:25:38+02:00 at repository commit `19be845a27d963b320e73334a30008eae7eb623c` on `feat/tui`, matching `origin/feat/tui`, with the preserved unfinished P2 work and living-plan update recorded in the ignored workspace-state snapshot.
-- **Active phase:** Phase P4 publication, followed by P5 fullscreen extras.
-- **Last verified checkpoint:** Checkpoint 2026-09-17T15:34:16+02:00, P4 independently verified with quality and focused security verdicts PASS.
+- **Active phase:** Phase P5: fullscreen extras, paused before final correction and gates.
+- **Last verified checkpoint:** Checkpoint 2026-09-18T11:32:59+02:00, implementation paused and durable handoff recorded.
 - **Last successful checks:** The wiring slice passed formatting, vet, build, all delta-package tests, four Darwin and Linux amd64 and arm64 static cross-builds, dependency hygiene, sequential race tests, and repeated real-PTY smoke, panic, Ctrl-D, and Ctrl-G tests. Package coverage is 90.3% for `internal/tui`, 96.5% for `internal/tui/interactive`, 97.2% for `internal/ui`, and 86.9% for `internal/cli`. The only full-suite failures are the verified pre-existing `internal/mcp.TestListToolsRetryOnceAfterRestart` and `internal/session.TestListNewestFirst` flakes outside the delta.
-- **Open blockers:** None.
+- **Open blockers:** Codex subscription quota is exhausted. P5 Candidate A is uncommitted and has not passed the final full, race, coverage, quality, security, publication, or installed-binary gates. P6 and P7 have not started.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
-- **Next action:** Amend the P4 commit with execution evidence, push `feat/tui`, verify pull request 1, then begin P5 fullscreen extras.
+- **Next action:** On Luca's instruction and after provider capacity returns, read `docs/tui-handoff.md`, preserve both P5 worktrees, complete and publish Candidate A, then finish P6, P7, and the independent installed-binary acceptance suite.
 
 ## Planner baseline
 
@@ -423,9 +423,38 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** Mark P4 complete and publish one conventional commit. Branch browsing remains read-only; forks are separate sessions; physical delete remains the narrow CLI exception recorded in V-006. Residual non-blocking risks are the unavoidable local unlink name-swap window, Darwin deletion paths being cross-compiled rather than executed, and quadratic behavior on unusually large forks or trees.
 - **Next action:** Publish P4, verify remote state, then implement P5 search, mouse/link behavior, images, mermaid, math, and syntax highlighting with honest fallbacks.
 
+#### Checkpoint 2026-09-17T15:35:10+02:00: P4 published
+
+- **Event:** The complete P4 phase was pushed to the existing branch and pull request.
+- **Planner prediction:** Each phase receives one conventional commit, immediate push, and remote pull request readback without merge.
+- **Subagent claims:** None.
+- **Orchestrator finding:** The P4 commit contains only the verified session controller, projection, command, navigator, fork, deletion, compaction, entry-ID, lifecycle, UI, and test changes plus the living-plan evidence. Session codec/store code and other protected paths are absent.
+- **Independently verified facts:** Commit `44ec39ffc645b30e417551d98b4ea2f31da2e703` has subject `feat(tui): add session navigation and replay`. Local `HEAD`, `origin/feat/tui`, and pull request 1 head all resolve to that SHA with zero ahead or behind. Pull request 1 remains open from `feat/tui` to `alpha` with seven commits.
+- **Decision and impact:** Advance the quality cursor to `44ec39ffc645b30e417551d98b4ea2f31da2e703` and start P5. No second pull request or merge is needed.
+- **Next action:** Complete fullscreen extras with bounded parsers and truthful protocol fallbacks.
+
 ### Phase P5 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-09-17T15:43:00+02:00: P5 architecture and fallback matrix validated
+
+- **Event:** The solution architect defined renderer ownership, search and pointer interactions, protocol capabilities, image safety, bounded Mermaid and math subsets, syntax lexing, settings, and test boundaries before implementation.
+- **Planner prediction:** P5 would add search, prompt jumping, mouse/link/selection/scrollbar behavior, inline image protocols with fallback, bounded Mermaid and LaTeX rendering, and stdlib syntax highlighting.
+- **Subagent claims:** The architect proposed frame-snapshot search and selection, renderer-owned graphics placement, per-runner capability policy, safe fixed-executable link opening, workspace-contained bounded image loading, explicit parser budgets, shared Markdown highlighter construction, and session-scoped image disable settings. It confirmed that stdlib cannot decode WebP pixels and that iTerm2 fullscreen placement lacks safe deletion/cropping semantics.
+- **Orchestrator finding:** Honest P5 behavior requires Kitty fullscreen placement for validated PNG or stdlib-decoded JPEG/GIF, regular-mode iTerm2 inline images, bounded WebP passthrough only where the terminal performs decoding, and text fallback otherwise. Search operates on rendered visible content and cannot reconstruct every hard-versus-soft wrap boundary without a new rendering IR. Unsupported Mermaid/math syntax must preserve the original source and show a warning rather than approximate different semantics.
+- **Independently verified facts:** Existing AltScreen already owns published layout snapshots and prompt-jump actions; Markdown exposes `SetHighlight`; theme tokens include all required syntax colors; terminal ANSI helpers already define OSC 133, OSC 8, and OSC 52; no external dependency or WebP decoder exists.
+- **Decision and impact:** Implement the complete P5 runtime paths with explicit limits and the degradation matrix recorded in V-007. Do not embed graphics payloads in wrapped text lines, open links through a shell, or read image files while images are disabled. Preserve print/non-TTY behavior.
+- **Next action:** Race two P5 implementations, correct the winner, then gate search, interaction, graphics, parser, lexer, settings, and PTY evidence.
+
+#### Checkpoint 2026-09-18T11:32:59+02:00: implementation paused and handoff recorded
+
+- **Event:** Luca paused Smidja work after the Codex subscription quota was exhausted. No Smidja Pi process remains active. The hourly completion monitor is paused.
+- **Planner prediction:** P5 would finish as one verified commit before P6 and P7, followed by final installation and pull request readback.
+- **Subagent claims:** The latest P5 workers reported focused fixes for search, retheming, graphics capability handling, image safety, image placement, and parser behavior. Those reports are not phase-completion evidence.
+- **Orchestrator finding:** Candidate A is the advanced recovery source with 18 tracked modified files and 47 untracked files. Candidate B has eight untracked comparative files and no tracked changes. Candidate A's focused TUI, interactive, UI, and CLI package tests pass, but no final P5 commit or complete phase gate exists. The main worktree is unchanged except for this living-plan update and `docs/tui-handoff.md`.
+- **Independently verified facts:** Local `feat/tui`, `origin/feat/tui`, and pull request 1 head all equal `44ec39ffc645b30e417551d98b4ea2f31da2e703`. Pull request 1 is open against `alpha`. Candidate A has 65 status entries, no `go.mod` diff, no `go.sum`, clean `gofmt -l .`, clean `git diff --check`, and passing `go test ./internal/tui/... ./internal/ui ./internal/cli`. Candidate B has eight untracked files and no `go.sum`. The installed `v0.3.0-tui.1` binary identifies commit `b598cfb68897af9ff18dbb077a50335f8e0ba272`, so it predates P3 and P4.
+- **Decision and impact:** Preserve both P5 worktrees exactly as handoff material. Do not mark P5 complete, publish its code, begin P6 or P7, or use the installed binary as final evidence. `docs/tui-handoff.md` is the durable restart guide and acceptance checklist.
+- **Next action:** Resume only on Luca's instruction. Recheck ownership and Git state, then complete Candidate A without resetting either worktree.
+
 
 ### Phase P6 execution checkpoints
 
@@ -490,6 +519,15 @@ No checkpoints yet.
 - **Scope and downstream impact:** P4 may add CLI filesystem policy and session-controller files plus interactive navigator/replay components. In-place historical branch rewind remains unsupported because claiming it would diverge model history from persistence. Forks reject opaque or untranslatable prefixes rather than silently dropping entries.
 - **Approval:** The user explicitly requires deletion and fork behavior while prohibiting session-store edits. The CLI-owned boundary is the narrow implementation that satisfies both constraints.
 - **Resolution:** Checkpoint 2026-09-17T02:20:31+02:00 records the validated semantics before implementation.
+
+### Variation V-007: P5 graphics and rendered-search degradation boundaries
+
+- **Baseline reference:** P5 requests PNG, JPEG, GIF, and WebP images through Kitty and iTerm2 plus transcript search, Mermaid, math, and syntax highlighting, all with zero dependencies and honest degradation.
+- **Discovered evidence:** The Go standard library has no WebP pixel decoder; Kitty fullscreen placement requires PNG/RGB/RGBA and owned deletion semantics; iTerm2 inline images do not provide the same safe fullscreen placement lifecycle. Rendered strings also do not preserve exact hard-break versus soft-wrap provenance.
+- **Decision:** Support validated PNG or stdlib-decoded JPEG/GIF through Kitty fullscreen placements; support regular-mode iTerm2 inline transfer including bounded WebP passthrough where the terminal decodes the file; use explicit text placeholders for WebP on Kitty and for iTerm2 fullscreen. Search indexes displayed rendered content with bounded literal matching and documents the wrap-boundary limitation. Unsupported or over-budget Mermaid/math input keeps the complete original source plus one warning.
+- **Scope and downstream impact:** P5 adds per-runner capabilities and image policy, workspace-contained bounded loading, renderer-owned placements, fixed-executable link opening, bounded parser/lexer modules, and session-scoped image disable settings. P6 documents these limits and persistence/precedence; no dependency is added.
+- **Approval:** This is the smallest technically truthful implementation under the explicit zero-dependency and fallback requirements. It preserves source content whenever a format or construct cannot be rendered safely.
+- **Resolution:** Checkpoint 2026-09-17T15:43:00+02:00 records the accepted degradation matrix.
 
 ## Closure evidence
 
