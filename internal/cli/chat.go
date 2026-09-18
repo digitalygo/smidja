@@ -48,6 +48,7 @@ const modelFetchTimeout = 5 * time.Second
 
 type runDeps struct {
 	model        string
+	wireModel    string
 	system       string
 	showThinking bool
 	sessionPath  string
@@ -66,12 +67,24 @@ type runDeps struct {
 	isOverflow     func(string) bool
 	detector       agent.LoopDetector
 
+	provider       string
 	catalog        *extensions.ToolCatalog
 	commands       *extensions.CommandCatalog
 	handlerContext func(context.Context) sdk.HandlerContext
+	modelRegistry  *models.Registry
+	reprepare      func(string, string) (*contextPreparerAdapter, error)
+	persistModel   func(string) error
+
+	store *session.Store
+	sess  *session.Session
+	cwd   string
+
+	controller     *sessionController
+	env            *sessionBuildEnv
+	resumedSession bool
 }
 
-func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string) error {
+func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string, tuiMode ui.TUIMode) error {
 	ctx := d.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -119,12 +132,14 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if continuePath != "" {
 		sess, err = store.Open(continuePath, session.OpenOptions{Strict: true})
 	} else {
-		sess, err = store.Create(cwd)
+		sess, err = createLockedSession(store, cwd)
 	}
 	if err != nil {
 		return fail(d, err)
 	}
-	defer sess.Close()
+	controller := newSessionController(store, cwd)
+	controller.Hold(sess)
+	defer controller.Close()
 
 	catalog := extensions.NewToolCatalog()
 	for _, t := range toolSet {
@@ -157,7 +172,8 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if err != nil {
 		return fail(d, err)
 	}
-	registerSkillCommand(commands, skillCat, d.Stdout)
+	skillOut := &switchWriter{target: d.Stdout}
+	registerSkillCommand(commands, skillCat, skillOut)
 
 	resolveEnv := func(key string) (string, bool) {
 		value := cfg.Default(key)
@@ -176,9 +192,11 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	defer mcpRt.Close()
 
-	_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
-	defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
-
+	useTUI := prompt == "" && ui.ShouldUseTUI(d.Stdin, d.Stdout, prompt)
+	if !useTUI {
+		_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
+		defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
+	}
 	modelReg := d.ModelRegistry
 	if modelReg == nil {
 		modelReg = models.NewRegistry()
@@ -192,7 +210,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		window = modelWindow(modelReg, cfg.Model)
 	}
 	selector := subagent.NewOpenRouterSelector(client)
-	preparer, err := newContextPreparer(*cfg, window, selector)
+	preparer, err := newContextPreparer(*cfg, window, cfg.Model, selector)
 	if err != nil {
 		return fail(d, err)
 	}
@@ -212,11 +230,19 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		}
 	}
 
-	if continuePath != "" {
-		providerID := selectedProvider
-		if providerID == "" {
-			providerID = "openrouter"
+	providerID := selectedProvider
+	if providerID == "" {
+		providerID = openrouterProviderName
+	}
+	if continuePath != "" && prompt != "" {
+		if loader, lerr := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true}); lerr == nil {
+			if _, _, _, verr := projectModelHistoryWithIDs(loader); verr != nil {
+				sess.Close()
+				return fail(d, verr)
+			}
 		}
+	}
+	if continuePath != "" {
 		cur := currentRuntimeProfile(cfg, providerID, sysPrompt, toolsetFingerprint(catalog, toolSet), cfg.WorkspaceRoot)
 		reset, err := syncRuntimeProfile(sess, cur, func() string { return snapshot.Fingerprint() })
 		if err != nil {
@@ -229,6 +255,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 
 	rd := &runDeps{
 		model:        cfg.Model,
+		wireModel:    cfg.Model,
 		system:       sysPrompt,
 		showThinking: envTruthy(d.Env("SMIDJA_SHOW_THINKING")),
 		sessionPath:  sess.Path(),
@@ -237,6 +264,9 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		recorder:     &sessionRecorder{sess},
 		stdout:       d.Stdout,
 		stderr:       d.Stderr,
+		store:        store,
+		sess:         sess,
+		cwd:          cwd,
 		preparer:     preparer,
 		hooks:        hooks,
 		retryPolicy: agent.RetryPolicy{
@@ -253,7 +283,15 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		handlerContext: func(signal context.Context) sdk.HandlerContext {
 			return runtime.HandlerContext(signal)
 		},
+		modelRegistry: modelReg,
+		provider:      providerID,
 	}
+	rd.reprepare = func(model, wireModel string) (*contextPreparerAdapter, error) {
+		return newModelPreparer(*cfg, modelReg, model, wireModel, selector)
+	}
+	rd.controller = controller
+	rd.resumedSession = continuePath != ""
+	rd.persistModel = newModelPersister(controller, cfg, providerID, sysPrompt, catalog, toolSet, cfg.WorkspaceRoot, func() string { return snapshot.Fingerprint() })
 
 	mode := sdk.ModeInteractive
 	if prompt != "" {
@@ -262,7 +300,29 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	lineUI := ui.New(d.Stdin, d.Stdout, d.Stderr, mode)
 
 	if prompt != "" {
+		if continuePath != "" {
+			if err := runOnceContinued(ctx, rd, sess, prompt); err != nil {
+				return fail(d, err)
+			}
+			return nil
+		}
 		if err := runOnce(ctx, rd, prompt); err != nil {
+			return fail(d, err)
+		}
+		return nil
+	}
+	if useTUI {
+		rd.env = &sessionBuildEnv{
+			cfg:         cfg,
+			providerID:  providerID,
+			system:      sysPrompt,
+			tools:       toolSet,
+			catalog:     catalog,
+			modelReg:    modelReg,
+			selector:    selector,
+			fingerprint: func() string { return snapshot.Fingerprint() },
+		}
+		if err := runTUI(ctx, d, rd, lineUI, tuiMode, cfg.WorkspaceRoot, cwd, skillOut, nil, runtime); err != nil {
 			return fail(d, err)
 		}
 		return nil
@@ -271,6 +331,20 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		return fail(d, err)
 	}
 	return nil
+}
+
+func newModelPersister(controller *sessionController, cfg *config.Config, providerID, systemPrompt string, catalog agent.ToolCatalog, tools []agent.Tool, affinityRoot string, contentFingerprint func() string) func(string) error {
+	return func(model string) error {
+		active := controller.Current()
+		if active == nil || active.sess == nil {
+			return errors.New("session: no active session for the model change")
+		}
+		updated := *cfg
+		updated.Model = model
+		cur := currentRuntimeProfile(&updated, providerID, systemPrompt, toolsetFingerprint(catalog, tools), affinityRoot)
+		_, err := syncRuntimeProfile(active.sess, cur, contentFingerprint)
+		return err
+	}
 }
 
 func loadChatConfig(d *Deps) (*config.Config, error) {
@@ -351,7 +425,7 @@ func packageStoreRoot(d *Deps) string {
 	return packages.DefaultRoot()
 }
 
-func newContextPreparer(cfg config.Config, window int64, selector subagent.Selector) (*contextPreparerAdapter, error) {
+func newContextPreparer(cfg config.Config, window int64, wireModel string, selector subagent.Selector) (*contextPreparerAdapter, error) {
 	cmCfg := contextmanager.Config{
 		Enabled:                cfg.ContextEnabled,
 		ContextWindowTokens:    window,
@@ -365,7 +439,7 @@ func newContextPreparer(cfg config.Config, window int64, selector subagent.Selec
 		SelectorModel:          cfg.ContextSelectorModel,
 	}
 	if cmCfg.SelectorModel == "" {
-		cmCfg.SelectorModel = cfg.Model
+		cmCfg.SelectorModel = wireModel
 	}
 	if cmCfg.CacheMissAfter <= 0 {
 		cmCfg.CacheMissAfter = contextmanager.DefaultCacheMissAfter
@@ -395,6 +469,16 @@ func newContextPreparer(cfg config.Config, window int64, selector subagent.Selec
 	return newContextPreparerAdapter(live, cmCfg), nil
 }
 
+func newModelPreparer(cfg config.Config, reg *models.Registry, model, wireModel string, selector subagent.Selector) (*contextPreparerAdapter, error) {
+	updated := cfg
+	updated.Model = model
+	window := updated.ContextWindowTokens
+	if window <= 0 {
+		window = modelWindow(reg, model)
+	}
+	return newContextPreparer(updated, window, wireModel, selector)
+}
+
 func modelWindow(reg *models.Registry, model string) int64 {
 	if reg != nil {
 		if m, ok := reg.Get(model); ok && m.ContextWindow > 0 {
@@ -406,7 +490,38 @@ func modelWindow(reg *models.Registry, model string) int64 {
 
 func runOnce(ctx context.Context, d *runDeps, prompt string) error {
 	out := &trailingWriter{w: d.stdout}
-	if _, err := runTurn(ctx, d, loopDeps(d, out), nil, prompt); err != nil {
+	deps := loopDeps(d, out)
+	d.attachProjectedEntryIDs(deps)
+	if _, err := runTurn(ctx, d, deps, nil, prompt); err != nil {
+		return err
+	}
+	if !out.endsWithNewline() {
+		fmt.Fprintln(out.w)
+	}
+	return nil
+}
+
+func runOnceContinued(ctx context.Context, d *runDeps, sess *session.Session, prompt string) error {
+	loader, err := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true})
+	if err != nil {
+		return err
+	}
+	history, entryIDs, _, err := projectModelHistoryWithIDs(loader)
+	if err != nil {
+		return err
+	}
+	rd := *d
+	if rd.sessionPath == "" {
+		rd.sessionPath = sess.Path()
+	}
+	if rd.sess == nil {
+		rd.sess = sess
+	}
+	out := &trailingWriter{w: rd.stdout}
+	deps := loopDeps(&rd, out)
+	deps.SessionEntryIDs = entryIDs
+	rd.attachProjectedEntryIDs(deps)
+	if _, err := runTurn(ctx, &rd, deps, history, prompt); err != nil {
 		return err
 	}
 	if !out.endsWithNewline() {
@@ -467,8 +582,15 @@ func repl(ctx context.Context, lineUI *ui.LineUI, d *runDeps) error {
 	}
 }
 
+func (d *runDeps) wireModelID() string {
+	if strings.TrimSpace(d.wireModel) == "" {
+		return d.model
+	}
+	return d.wireModel
+}
+
 func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, input string) ([]*agent.Message, error) {
-	h, err := agent.RunTurn(ctx, deps, d.model, d.system, history, input)
+	h, err := agent.RunTurn(ctx, deps, d.wireModelID(), d.system, history, input)
 	if err != nil {
 		var overflow *agent.ContextOverflowError
 		if errors.As(err, &overflow) && d.preparer != nil {
@@ -476,19 +598,78 @@ func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*a
 				fmt.Fprintln(d.stderr, "smidja: context overflow, compacting and retrying once")
 			}
 			d.preparer.forceSafety()
-			h, err = agent.RunTurn(ctx, deps, d.model, d.system, history, input)
-			if err != nil {
-				var again *agent.ContextOverflowError
-				if errors.As(err, &again) {
-					return h, fmt.Errorf("context still overflows the model window after compaction: %w", err)
-				}
-			}
+			h, err = d.continueTurn(ctx, deps)
 		}
 	}
 	if perr := d.persistCompactions(); perr != nil {
-		return h, perr
+		return h, &persistError{err: perr}
 	}
 	return h, err
+}
+
+func (d *runDeps) continueTurn(ctx context.Context, deps *agent.LoopDeps) ([]*agent.Message, error) {
+	contHistory, contIDs, err := d.loadProjectedContext()
+	if err != nil {
+		return nil, err
+	}
+	contDeps := *deps
+	contDeps.SessionEntryIDs = contIDs
+	contDeps.RefreshSessionEntryIDs = d.refreshProjectedEntryIDs
+	cont, err := agent.ContinueTurn(ctx, &contDeps, d.wireModelID(), d.system, contHistory)
+	if err != nil {
+		var again *agent.ContextOverflowError
+		if errors.As(err, &again) {
+			return cont, fmt.Errorf("context still overflows the model window after compaction: %w", err)
+		}
+	}
+	return cont, err
+}
+
+func (d *runDeps) attachProjectedEntryIDs(deps *agent.LoopDeps) {
+	if deps == nil || deps.RefreshSessionEntryIDs != nil {
+		return
+	}
+	if d.controller == nil && d.sess == nil && d.sessionPath == "" {
+		return
+	}
+	deps.RefreshSessionEntryIDs = d.refreshProjectedEntryIDs
+}
+
+func (d *runDeps) loadProjectedContext() ([]*agent.Message, []string, error) {
+	if d.controller != nil {
+		active, err := d.controller.Refresh()
+		if err != nil {
+			return nil, nil, fmt.Errorf("session: refresh the active session: %w", err)
+		}
+		return active.history, active.entryIDs, nil
+	}
+	path := d.sessionPath
+	if d.sess != nil && d.sess.Path() != "" {
+		path = d.sess.Path()
+	}
+	if path == "" {
+		return nil, nil, errors.New("session: no active session")
+	}
+	loader, err := session.LoadWithOptions(path, session.LoadOptions{Strict: true})
+	if err != nil {
+		return nil, nil, fmt.Errorf("session: reload %q: %w", path, err)
+	}
+	projected, entryIDs, _, err := projectModelHistoryWithIDs(loader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session: project %q: %w", path, err)
+	}
+	return projected, entryIDs, nil
+}
+
+func (d *runDeps) refreshProjectedEntryIDs(history []*agent.Message) ([]string, error) {
+	_, entryIDs, err := d.loadProjectedContext()
+	if err != nil {
+		return nil, err
+	}
+	if len(entryIDs) != len(history) {
+		return nil, fmt.Errorf("session: %d entry ids do not align with %d context messages", len(entryIDs), len(history))
+	}
+	return entryIDs, nil
 }
 
 func (d *runDeps) persistCompactions() error {
@@ -608,9 +789,11 @@ func agentVerdict(v loopdetector.Verdict) agent.Verdict {
 }
 
 type contextPreparerAdapter struct {
-	live        *contextmanager.Manager
-	recovery    *contextmanager.Manager
-	forceTokens int64
+	live          *contextmanager.Manager
+	recovery      *contextmanager.Manager
+	forceTokens   int64
+	contextWindow int64
+	selectorModel string
 
 	mu      sync.Mutex
 	force   bool
@@ -625,9 +808,11 @@ func newContextPreparerAdapter(live *contextmanager.Manager, cfg contextmanager.
 		recovery = live
 	}
 	return &contextPreparerAdapter{
-		live:        live,
-		recovery:    recovery,
-		forceTokens: int64(math.Ceil(cfg.SafetyCompactThreshold * float64(cfg.ContextWindowTokens))),
+		live:          live,
+		recovery:      recovery,
+		forceTokens:   int64(math.Ceil(cfg.SafetyCompactThreshold * float64(cfg.ContextWindowTokens))),
+		contextWindow: cfg.ContextWindowTokens,
+		selectorModel: cfg.SelectorModel,
 	}
 }
 
@@ -687,6 +872,14 @@ func (a *contextPreparerAdapter) drain() []*agent.CompactionEntry {
 type compactionSink interface {
 	appendCompaction(*agent.CompactionEntry) error
 }
+
+type persistError struct {
+	err error
+}
+
+func (e *persistError) Error() string { return e.err.Error() }
+
+func (e *persistError) Unwrap() error { return e.err }
 
 type sessionRecorder struct {
 	sess *session.Session

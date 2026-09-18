@@ -17,6 +17,7 @@ import (
 	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/providers/oauth"
 	"github.com/digitalygo/smidja/internal/session"
+	"github.com/digitalygo/smidja/internal/ui"
 	"github.com/digitalygo/smidja/internal/update"
 	"github.com/digitalygo/smidja/sdk"
 )
@@ -124,6 +125,7 @@ func run(args []string, d *Deps) error {
 		system       string
 		provider     string
 		continuePath string
+		tuiModeFlag  string
 		version      bool
 	)
 	fs.StringVar(&prompt, "p", "", "run one turn with the given prompt and exit")
@@ -131,6 +133,7 @@ func run(args []string, d *Deps) error {
 	fs.StringVar(&system, "system", "", "override the default system prompt")
 	fs.StringVar(&provider, "provider", "", "select the provider driver (manifest id or OAuth provider)")
 	fs.StringVar(&continuePath, "continue", "", "resume the session at the given path or id")
+	fs.StringVar(&tuiModeFlag, "tui-mode", "regular", "select the interactive renderer (regular|fullscreen)")
 	fs.BoolVar(&version, "version", false, "print the version and exit")
 	var allowWorkspaceMCP bool
 	fs.BoolVar(&allowWorkspaceMCP, "allow-workspace-mcp", false, "spawn MCP servers defined in the workspace .smidja/mcp.json")
@@ -147,6 +150,12 @@ func run(args []string, d *Deps) error {
 		fmt.Fprintf(d.Stdout, "smidja %s\n", versionFor(d))
 		return nil
 	}
+	tuiMode, err := ui.ParseTUIMode(tuiModeFlag)
+	if err != nil {
+		fmt.Fprintf(d.Stderr, "smidja: %v\n", err)
+		printUsage(d.Stderr)
+		return err
+	}
 	if fs.NArg() > 0 {
 		err := fmt.Errorf("unexpected argument %q", fs.Arg(0))
 		fmt.Fprintf(d.Stderr, "smidja: %v\n", err)
@@ -158,7 +167,7 @@ func run(args []string, d *Deps) error {
 			model = def
 		}
 	}
-	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP, continuePath)
+	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP, continuePath, tuiMode)
 }
 
 func versionFor(d *Deps) string {
@@ -237,6 +246,9 @@ flags:
   -model string   override the configured model (default: SMIDJA_MODEL)
   -provider id    select the provider driver (default: openrouter)
   -system string  override the default system prompt
+  -tui-mode mode  select the interactive renderer (regular|fullscreen)
+                  (default: regular; used only when stdin and stdout are
+                  terminals, otherwise the line interface is used)
   -version        print "smidja <version>" and exit
   -allow-workspace-mcp
                   spawn MCP servers defined in .smidja/mcp.json

@@ -48,7 +48,7 @@ func testPreparer(t *testing.T) *contextPreparerAdapter {
 		Model:               "test/model",
 		ContextEnabled:      true,
 		ContextWindowTokens: 100_000,
-	}, 100_000, nil)
+	}, 100_000, "test/model", nil)
 	if err != nil {
 		t.Fatalf("newContextPreparer: %v", err)
 	}

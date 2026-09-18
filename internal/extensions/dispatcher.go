@@ -239,9 +239,13 @@ func (d *Dispatcher) ToolResult(ctx context.Context, name string, callID string,
 }
 
 func (d *Dispatcher) SessionStart(ctx context.Context, reason string) error {
+	return d.SessionStartWithFiles(ctx, reason, "")
+}
+
+func (d *Dispatcher) SessionStartWithFiles(ctx context.Context, reason, previousPath string) error {
 	snap := d.snapshot()
 	hc := d.handlerContext(ctx)
-	ev := sdk.SessionStartEvent{Reason: sdk.SessionStartReason(reason)}
+	ev := sdk.SessionStartEvent{Reason: sdk.SessionStartReason(reason), PreviousSessionFile: previousPath}
 	for _, e := range snap.entries {
 		for _, h := range e.sessionStart {
 			d.call(e.id, sdk.EventSessionStart, func() error { return h(hc, ev) })
@@ -251,9 +255,13 @@ func (d *Dispatcher) SessionStart(ctx context.Context, reason string) error {
 }
 
 func (d *Dispatcher) SessionShutdown(ctx context.Context, reason string) error {
+	return d.SessionShutdownWithFiles(ctx, reason, "")
+}
+
+func (d *Dispatcher) SessionShutdownWithFiles(ctx context.Context, reason, targetPath string) error {
 	snap := d.snapshot()
 	hc := d.handlerContext(ctx)
-	ev := sdk.SessionShutdownEvent{Reason: sdk.SessionShutdownReason(reason)}
+	ev := sdk.SessionShutdownEvent{Reason: sdk.SessionShutdownReason(reason), TargetSessionFile: targetPath}
 	for _, e := range snap.entries {
 		for _, h := range e.sessionShutdown {
 			d.call(e.id, sdk.EventSessionShutdown, func() error { return h(hc, ev) })
