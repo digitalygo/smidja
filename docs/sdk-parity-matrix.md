@@ -8,6 +8,15 @@ or deferred to a later phase. The smidja side of the matrix is the public
 `github.com/digitalygo/smidja/sdk` package plus the internal ports in
 `internal/agent/ports.go`.
 
+As of the P6 TUI workstream (2026-10), the interactive TUI surface
+(dialogs, selectors, sessions, fullscreen extras) is implemented
+internally and the public `sdk/` package is unchanged through P6. P7,
+the extension-facing UI surface, is not implemented: custom components,
+message, Markdown, and entry renderers, an editor component factory,
+autocomplete providers, a terminal input hook, footer and header hooks,
+editor accessors, theme enumeration, and tools-expanded state stay
+deferred. Print mode and non-TTY paths keep the line interface.
+
 ## Disposition legend
 
 - **implement now**: the capability is part of the phase 1 SDK contract and
@@ -18,7 +27,8 @@ or deferred to a later phase. The smidja side of the matrix is the public
   no-ops, mirroring Pi's "extensions run but can't prompt" mode behavior.
 - **deferred**: the capability is either in the contract with its
   signature frozen but its backing landing in a later wave, or entirely
-  outside the v0 contract (TUI, gateway, sessions-tree, provider waves).
+  outside the v0 contract (extension-facing TUI surface, gateway,
+  provider waves).
 
 ## Inspected sources
 
@@ -51,18 +61,18 @@ contract is the `sdk.API` interface in `sdk/context.go`.
 | `on(event, handler)` | implement now (8 of the events) | typed registries: `LLMHookRegistry`, `ToolHookRegistry`, `SessionHookRegistry`; the full event disposition is in the events table below |
 | `registerTool` | implement now | `API.RegisterTool`; registering an existing name replaces it (Pi tool override) |
 | `registerCommand` | implement now | `API.RegisterCommand`; duplicate names get numeric invocation suffixes |
-| `registerShortcut` | deferred | keybindings phase (no keybinding model in v0) |
+| `registerShortcut` | deferred | extension keybinding registration is not in the v0 contract; the TUI keybinding registry is host-only |
 | `registerFlag` | implement now | `API.RegisterFlag` |
 | `getFlag` | implement now | `API.Flags` (map of current values, bool or string) |
-| `registerMessageRenderer` | deferred | TUI phase |
-| `registerMarkdownTransformer` | deferred | TUI phase |
-| `registerEntryRenderer` | deferred | TUI phase |
+| `registerMessageRenderer` | deferred | P7 extension-facing UI surface |
+| `registerMarkdownTransformer` | deferred | P7 extension-facing UI surface |
+| `registerEntryRenderer` | deferred | P7 extension-facing UI surface |
 | `sendMessage` | implement now | `API.SendMessage`; delivery modes (`steer`, `followUp`, `nextTurn`) modeled, queue ordering semantics land with the loop-detector wave |
 | `sendUserMessage` | implement now | `API.SendUserMessage`; text content only, image content deferred |
 | `appendEntry` | implement now | `API.AppendEntry` (custom session entries, not sent to the model) |
 | `setSessionName` | implement now | `API.SetSessionName` |
 | `getSessionName` | implement now | read side via `HandlerContext.SessionManager().Name()` |
-| `setLabel` | implement now | `API.LabelEntry`; JSONL persistence of label entries lands with the sessions wave |
+| `setLabel` | implement now | `API.LabelEntry`; label entries append to the session file |
 | `exec` | implement now | `API.Exec` with `ExecOptions` timeout |
 | `getActiveTools` | implement now | `API.ActiveTools` |
 | `getAllTools` | implement now | `API.AllTools` (`ToolInfo` with name, description, schema, source) |
@@ -86,13 +96,13 @@ contract is `sdk.HandlerContext` in `sdk/context.go`.
 | `ctx.mode` | implement now | `Mode` with `ModeInteractive` and `ModePrint`; Pi's `rpc` and `json` modes deferred to the gateway phase |
 | `ctx.hasUI` | implement now | `HandlerContext.HasUI()` |
 | `ctx.cwd` | implement now | `HandlerContext.Cwd()` |
-| `ctx.sessionManager` | implement now (subset) | `SessionView`: `ID`, `Path`, `Cwd`, `Name`, `Messages`; entry and tree access deferred to the sessions wave |
+| `ctx.sessionManager` | implement now (subset) | `SessionView`: `ID`, `Path`, `Cwd`, `Name`, `Messages`; entry and tree access is not in the v0 session view |
 | `ctx.modelRegistry` | implement now (subset) | `ModelRegistry`: `Model`, `Available`, `Find`; provider auth resolution deferred |
 | `ctx.model` | implement now | `HandlerContext.Model()` (`sdk.Model` with `ID`, `Name`, `Provider`) |
 | `ctx.scopedModels` | deferred | model scoping feature not in v0 |
 | `ctx.thinkingLevel` | implement now | `HandlerContext.ThinkingLevel()` |
-| `ctx.isIdle()` | deferred | covered by `CommandContext.WaitForIdle` |
-| `ctx.isProjectTrusted()` | deferred | project trust not in smidja v0 |
+| `ctx.isIdle()` | deferred | delivery-queue wave; `CommandContext.WaitForIdle` returns `sdk.ErrModeUnsupported` in the current contexts |
+| `ctx.isProjectTrusted()` | deferred | the interactive TUI asks for workspace trust at startup and does not persist it; extensions cannot query trust in the v0 contract |
 | `ctx.signal` | implement now | `HandlerContext.Signal()` returns a `context.Context`, nil when idle (Pi returns `undefined`) |
 | `ctx.abort()` | implement now | `HandlerContext.Abort()` |
 | `ctx.hasPendingMessages()` | deferred | delivery-queue wave |
@@ -111,11 +121,11 @@ signatures frozen in the contract so later waves do not rework them.
 | Pi capability | Disposition | Smidja v0 mapping |
 | --- | --- | --- |
 | `getSystemPromptOptions()` | deferred | system prompt builder not modeled in v0 |
-| `waitForIdle()` | implement now | `CommandContext.WaitForIdle` |
-| `newSession()` | implement now | `CommandContext.NewSession` (session store create) |
-| `fork()` | deferred | session tree and branching wave; signature frozen in `ForkOptions` |
-| `navigateTree()` | deferred | session tree wave; signature frozen in `TreeOptions` |
-| `switchSession()` | deferred | session open/resume wave; signature frozen in `SwitchOptions` |
+| `waitForIdle()` | deferred | signature frozen in `sdk.CommandContext`; the current command contexts return `sdk.ErrModeUnsupported` |
+| `newSession()` | implement now | `CommandContext.NewSession` in the interactive TUI command context; print and line modes return `sdk.ErrModeUnsupported` |
+| `fork()` | implement now | `CommandContext.Fork` in the interactive TUI command context; a fork activates a separate session file; print and line modes return `sdk.ErrModeUnsupported` |
+| `navigateTree()` | deferred | `CommandContext.NavigateTree` returns `sdk.ErrModeUnsupported`; the TUI `/tree` browser is read-only |
+| `switchSession()` | implement now | `CommandContext.SwitchSession` in the interactive TUI command context; print and line modes return `sdk.ErrModeUnsupported` |
 | `reload()` | deferred | hot-reload wave |
 | `ReplacedSessionContext` (`sendMessage`, `sendUserMessage` on the replacement session) | deferred | with the session-replacement flow |
 
@@ -132,15 +142,15 @@ contract is `sdk.UI` in `sdk/ui.go`.
 | `editor()` | implement now, print-mode | `UI.Editor`; returns `ErrModeUnsupported` in print mode |
 | `notify()` | implement now, print-mode | `UI.Notify`; no-op in print mode |
 | `setStatus()` | implement now, print-mode | `UI.SetStatus`; no-op in print mode |
-| `setWidget()` | implement now, print-mode | `UI.SetWidget`; string-list content only, component factories deferred to the TUI phase |
+| `setWidget()` | implement now, print-mode | `UI.SetWidget`; string-list content only, component factories deferred to P7 |
 | `setWorkingMessage()` | implement now, print-mode | `UI.SetWorkingMessage`; no-op in print mode |
 | `setTitle()` | implement now, print-mode | `UI.SetTitle`; no-op in print mode |
-| `onTerminalInput()` | deferred | TUI phase |
-| `setWorkingVisible()`, `setWorkingIndicator()`, `setHiddenThinkingLabel()` | deferred | TUI phase |
-| `setFooter()`, `setHeader()` | deferred | TUI phase |
-| `custom()` components | deferred | TUI phase |
-| `pasteToEditor()`, `setEditorText()`, `getEditorText()`, `addAutocompleteProvider()`, `setEditorComponent()`, `getEditorComponent()` | deferred | TUI phase |
-| `theme`, `getAllThemes()`, `getTheme()`, `setTheme()`, `getToolsExpanded()`, `setToolsExpanded()` | deferred | TUI phase |
+| `onTerminalInput()` | deferred | P7 extension-facing UI surface |
+| `setWorkingVisible()`, `setWorkingIndicator()`, `setHiddenThinkingLabel()` | deferred | P7 extension-facing UI surface |
+| `setFooter()`, `setHeader()` | deferred | P7 extension-facing UI surface |
+| `custom()` components | deferred | P7 extension-facing UI surface |
+| `pasteToEditor()`, `setEditorText()`, `getEditorText()`, `addAutocompleteProvider()`, `setEditorComponent()`, `getEditorComponent()` | deferred | P7 extension-facing UI surface |
+| `theme`, `getAllThemes()`, `getTheme()`, `setTheme()`, `getToolsExpanded()`, `setToolsExpanded()` | deferred | the interactive TUI exposes host-driven theme selection and tools expansion; the SDK surface is P7 |
 
 ## Events
 
@@ -168,10 +178,10 @@ structs in `sdk/events.go`.
 | `user_bash` | deferred | interactive-commands wave |
 | `input` | deferred | input-pipeline wave |
 | `resources_discover` | deferred | resources wave |
-| `session_info_changed` | deferred | sessions wave |
-| `session_before_switch`, `session_before_fork` | deferred | sessions wave |
+| `session_info_changed` | deferred | session metadata events are not dispatched in v0; the TUI reads its own session state |
+| `session_before_switch`, `session_before_fork` | deferred | session transition events are not dispatched in v0; the TUI handles switches internally |
 | `session_before_compact`, `session_compact` | deferred | compaction wave |
-| `session_before_tree`, `session_tree` | deferred | session tree wave |
+| `session_before_tree`, `session_tree` | deferred | session tree events are not dispatched in v0; the TUI tree browser is read-only and internal |
 | `project_trust` | deferred | trust wave |
 | `before_provider_request`, `before_provider_headers`, `after_provider_response` | deferred | provider wave |
 
@@ -195,16 +205,19 @@ modeled in `sdk.CompactionResult`:
 
 | Surface | Implement now | Implement now, print-mode | Deferred | Total |
 | --- | --- | --- | --- | --- |
-| Extension API (`pi.*`) | 21 | 0 | 5 | 26 |
-| Handler context (`ctx.*`) | 14 | 0 | 4 | 18 |
-| Command context | 2 | 0 | 6 | 8 |
+| Extension API (`pi.*`) | 22 | 0 | 4 | 26 |
+| Handler context (`ctx.*`) | 13 | 1 | 4 | 18 |
+| Command context | 3 | 0 | 5 | 8 |
 | UI (`ctx.ui.*`) | 0 | 9 | 6 | 15 |
 | Events | 8 | 0 | 27 | 35 |
-| Total | 45 | 9 | 48 | 102 |
+| Total | 46 | 10 | 46 | 102 |
 
-Of the 54 implemented capabilities, 4 dialogs return
-`sdk.ErrModeUnsupported` in print mode and 5 fire-and-forget UI methods
-are no-ops in print mode.
+Of the 56 implemented capabilities, 10 carry print-mode semantics: in
+print mode the `ctx.ui` surface exposes 4 blocking dialogs that return
+`sdk.ErrModeUnsupported` and 5 fire-and-forget methods that are no-ops.
+The interactive TUI command context also implements `newSession`,
+`fork`, and `switchSession`; print and line modes return
+`sdk.ErrModeUnsupported` for those three.
 
 ## Deviations from Pi
 

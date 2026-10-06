@@ -394,3 +394,31 @@ func findThemeSource(sources []ThemeSource, name string) string {
 	}
 	return ""
 }
+
+func TestThemeRegistryWatching(t *testing.T) {
+	userDir := t.TempDir()
+	registry := NewThemeRegistry(userDir, t.TempDir(), ColorModeTrueColor)
+	defer registry.StopWatching()
+	if registry.Watching() {
+		t.Fatal("no watcher before an active custom theme")
+	}
+	if _, err := registry.SetTheme("dark"); err != nil {
+		t.Fatal(err)
+	}
+	registry.StartWatching(5 * time.Millisecond)
+	if registry.Watching() {
+		t.Fatal("built-in themes must not start a file watcher")
+	}
+	writeThemeFile(t, userDir, "watch.json", strings.Replace(testThemeJSON, `"name": "custom"`, `"name": "watch"`, 1))
+	if _, err := registry.SetTheme("watch"); err != nil {
+		t.Fatal(err)
+	}
+	registry.StartWatching(5 * time.Millisecond)
+	if !registry.Watching() {
+		t.Fatal("an active custom theme must start a watcher")
+	}
+	registry.StopWatching()
+	if registry.Watching() {
+		t.Fatal("StopWatching must release the watcher")
+	}
+}

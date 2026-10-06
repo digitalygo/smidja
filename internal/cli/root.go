@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/digitalygo/smidja/internal/agent"
 	"github.com/digitalygo/smidja/internal/buildinfo"
@@ -126,6 +127,7 @@ func run(args []string, d *Deps) error {
 		provider     string
 		continuePath string
 		tuiModeFlag  string
+		useThemeFlag string
 		version      bool
 	)
 	fs.StringVar(&prompt, "p", "", "run one turn with the given prompt and exit")
@@ -133,7 +135,8 @@ func run(args []string, d *Deps) error {
 	fs.StringVar(&system, "system", "", "override the default system prompt")
 	fs.StringVar(&provider, "provider", "", "select the provider driver (manifest id or OAuth provider)")
 	fs.StringVar(&continuePath, "continue", "", "resume the session at the given path or id")
-	fs.StringVar(&tuiModeFlag, "tui-mode", "regular", "select the interactive renderer (regular|fullscreen)")
+	fs.StringVar(&tuiModeFlag, "tui-mode", "", "select the interactive renderer (regular|fullscreen)")
+	fs.StringVar(&useThemeFlag, "use-theme", "", "set the interactive theme (name or lightTheme/darkTheme)")
 	fs.BoolVar(&version, "version", false, "print the version and exit")
 	var allowWorkspaceMCP bool
 	fs.BoolVar(&allowWorkspaceMCP, "allow-workspace-mcp", false, "spawn MCP servers defined in the workspace .smidja/mcp.json")
@@ -150,10 +153,10 @@ func run(args []string, d *Deps) error {
 		fmt.Fprintf(d.Stdout, "smidja %s\n", versionFor(d))
 		return nil
 	}
-	tuiMode, err := ui.ParseTUIMode(tuiModeFlag)
-	if err != nil {
-		fmt.Fprintf(d.Stderr, "smidja: %v\n", err)
-		printUsage(d.Stderr)
+	if err := validateTUIModeFlag(tuiModeFlag, d); err != nil {
+		return err
+	}
+	if err := validateThemeFlag(useThemeFlag, d); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
@@ -167,7 +170,29 @@ func run(args []string, d *Deps) error {
 			model = def
 		}
 	}
-	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP, continuePath, tuiMode)
+	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP, continuePath, tuiModeFlag, useThemeFlag)
+}
+
+func validateTUIModeFlag(value string, d *Deps) error {
+	if _, err := ui.ParseTUIMode(value); err != nil {
+		fmt.Fprintf(d.Stderr, "smidja: %v\n", err)
+		printUsage(d.Stderr)
+		return err
+	}
+	return nil
+}
+
+func validateThemeFlag(value string, d *Deps) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	if _, err := config.ParseThemeSetting(value); err != nil {
+		wrapped := fmt.Errorf("smidja: --use-theme: %w", err)
+		fmt.Fprintf(d.Stderr, "%v\n", wrapped)
+		printUsage(d.Stderr)
+		return wrapped
+	}
+	return nil
 }
 
 func versionFor(d *Deps) string {
@@ -247,8 +272,14 @@ flags:
   -provider id    select the provider driver (default: openrouter)
   -system string  override the default system prompt
   -tui-mode mode  select the interactive renderer (regular|fullscreen)
-                  (default: regular; used only when stdin and stdout are
-                  terminals, otherwise the line interface is used)
+                  (default: regular or the configured tuiMode; used only
+                  when stdin and stdout are terminals, otherwise the line
+                  interface is used)
+  -use-theme name[/name]
+                  set the interactive theme for this run: a single theme
+                  name, or lightTheme/darkTheme to follow the terminal
+                  background (used only when stdin and stdout are
+                  terminals)
   -version        print "smidja <version>" and exit
   -allow-workspace-mcp
                   spawn MCP servers defined in .smidja/mcp.json

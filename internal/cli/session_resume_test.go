@@ -86,7 +86,7 @@ func TestRunTUIResumeReplaysAndSeedsHistoryBeforeFirstTurn(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(ctx, deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil)
+		done <- runTUI(ctx, deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil, nil)
 	}()
 	output := waitForOutputSettled(t, terminal, "prior answer", 5*time.Second)
 	if !strings.Contains(output, "prior question") {

@@ -103,16 +103,7 @@ func (r *Runner) ApplyTheme(name string) error {
 	if err != nil {
 		return fmt.Errorf("ui: load theme %q: %w", name, err)
 	}
-	r.surface.SetTheme(theme)
-	if r.dialogs != nil {
-		r.dialogs.SetTheme(theme)
-	}
-	if alt, ok := r.view.(*tui.AltScreen); ok && alt != nil {
-		alt.SetTheme(theme)
-		alt.Search().Rebuild()
-	}
-	r.view.Invalidate()
-	r.view.RequestRender(true)
+	r.installTheme(theme)
 	return nil
 }
 

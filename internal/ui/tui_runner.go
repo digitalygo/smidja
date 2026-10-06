@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/digitalygo/smidja/internal/config"
 	"github.com/digitalygo/smidja/internal/tui"
 	"github.com/digitalygo/smidja/internal/tui/interactive"
 	"github.com/digitalygo/smidja/sdk"
@@ -21,6 +22,8 @@ import (
 var errRunnerStopped = errors.New("ui: tui runner is stopped")
 
 const graphicsProbeTimeout = 150 * time.Millisecond
+
+const maxPendingSubmits = 16
 
 var (
 	notifySignals = signal.Notify
@@ -117,6 +120,9 @@ type RunnerOptions struct {
 	ImagesEnabled bool
 	LinkOpener    tui.LinkOpener
 
+	Theme              config.ThemeSetting
+	ThemeWatchInterval time.Duration
+
 	OnSubmit    func(string)
 	OnInterrupt func()
 }
@@ -162,10 +168,13 @@ type Runner struct {
 	mu          sync.Mutex
 	onSubmit    func(string)
 	onInterrupt func()
+	pending     []string
 
 	env                     func(string) string
 	hyperlinks              bool
 	imagesEnabled           bool
+	themeSetting            config.ThemeSetting
+	themeWatchInterval      time.Duration
 	imageLoader             *tui.ImageLoader
 	graphics                tui.GraphicsCapability
 	graphicsTracker         *tui.GraphicsReplyTracker
@@ -200,7 +209,14 @@ func NewRunner(opts RunnerOptions) *Runner {
 		graphicsProber = prober
 	}
 	keys := tui.NewDefaultKeybindingsManager(nil)
-	themes := tui.NewThemeRegistry("", "", tui.ColorModeUnset)
+	var keybindingsErr error
+	if loaded, err := loadRunnerKeybindings(opts.Home); err == nil {
+		keys = loaded
+	} else {
+		keybindingsErr = err
+	}
+	tui.SetGlobalKeybindings(keys)
+	themes := newRunnerThemeRegistry(opts.Home)
 	theme := themes.Active()
 	if loaded, err := themes.SetTheme("dark"); err == nil {
 		theme = loaded
@@ -227,6 +243,9 @@ func NewRunner(opts RunnerOptions) *Runner {
 		Home:        opts.Home,
 		Hyperlinks:  true,
 	})
+	if keybindingsErr != nil {
+		surface.AddNotice(interactive.NoticeWarning, "keybindings: "+keybindingsErr.Error())
+	}
 	title := opts.Title
 	if strings.TrimSpace(title) == "" {
 		title = "smidja"
@@ -241,27 +260,29 @@ func NewRunner(opts RunnerOptions) *Runner {
 		linkOpener = &tui.CommandLinkOpener{}
 	}
 	runner := &Runner{
-		terminal:        terminal,
-		keys:            keys,
-		surface:         surface,
-		themes:          themes,
-		title:           title,
-		done:            make(chan struct{}),
-		exitC:           make(chan struct{}),
-		onSubmit:        opts.OnSubmit,
-		onInterrupt:     opts.OnInterrupt,
-		stdin:           stdin,
-		stdout:          stdout,
-		mode:            opts.Mode,
-		lifecycleCtx:    lifecycleCtx,
-		lifecycleCancel: lifecycleCancel,
-		env:             env,
-		hyperlinks:      true,
-		imagesEnabled:   opts.ImagesEnabled,
-		graphicsTracker: tui.NewGraphicsReplyTracker(0),
-		linkOpener:      linkOpener,
-		imageLoader:     tui.NewImageLoader(opts.WorkspaceRoot, opts.ImagesEnabled),
-		graphicsProber:  graphicsProber,
+		terminal:           terminal,
+		keys:               keys,
+		surface:            surface,
+		themes:             themes,
+		title:              title,
+		done:               make(chan struct{}),
+		exitC:              make(chan struct{}),
+		onSubmit:           opts.OnSubmit,
+		onInterrupt:        opts.OnInterrupt,
+		stdin:              stdin,
+		stdout:             stdout,
+		mode:               opts.Mode,
+		lifecycleCtx:       lifecycleCtx,
+		lifecycleCancel:    lifecycleCancel,
+		env:                env,
+		hyperlinks:         true,
+		imagesEnabled:      opts.ImagesEnabled,
+		themeSetting:       opts.Theme,
+		themeWatchInterval: resolvedThemeWatchInterval(opts.ThemeWatchInterval),
+		graphicsTracker:    tui.NewGraphicsReplyTracker(0),
+		linkOpener:         linkOpener,
+		imageLoader:        tui.NewImageLoader(opts.WorkspaceRoot, opts.ImagesEnabled),
+		graphicsProber:     graphicsProber,
 	}
 	interactive.SetDefaultImageResolver(runner.resolveImage)
 	rawTerminal := terminal
@@ -282,6 +303,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 	runner.view = view
 	runner.dialogs = newModalService(view)
 	runner.configureScreen(view, theme)
+	themes.OnReload(runner.applyReloadedTheme)
 	surface.SetController(runner)
 	surface.SetOnSubmit(runner.handleSubmit)
 	view.SetFocus(editor)
@@ -472,9 +494,9 @@ func (r *Runner) Done() <-chan struct{} { return r.exitC }
 func (r *Runner) RequestExit() {
 	r.exitOnce.Do(func() {
 		r.CloseSearch()
+		close(r.exitC)
 		r.cancelDialogs()
 		r.endActions()
-		close(r.exitC)
 	})
 }
 
@@ -495,7 +517,15 @@ func (r *Runner) CancelDialogs() { r.cancelDialogs() }
 func (r *Runner) SetOnSubmit(fn func(string)) {
 	r.mu.Lock()
 	r.onSubmit = fn
+	pending := r.pending
+	r.pending = nil
 	r.mu.Unlock()
+	if fn == nil {
+		return
+	}
+	for _, text := range pending {
+		fn(text)
+	}
 }
 
 func (r *Runner) SetOnInterrupt(fn func()) {
@@ -533,6 +563,8 @@ func (r *Runner) Start() error {
 		return err
 	}
 	r.started.Store(true)
+	r.applyInitialTheme()
+	r.themes.StartWatching(r.themeWatchInterval)
 	r.applyGraphics(r.view)
 	r.surface.Editor().SetTerminalRows(r.terminal.Rows())
 	r.terminal.SetTitle(r.title)
@@ -645,6 +677,7 @@ func (r *Runner) Stop() {
 		r.startStopMu.Lock()
 		defer r.startStopMu.Unlock()
 		r.stopped.Store(true)
+		r.themes.StopWatching()
 		r.cancelDialogs()
 		r.endActions()
 		r.joinActions()
@@ -702,10 +735,16 @@ func (r *Runner) Interrupt() {
 func (r *Runner) handleSubmit(text string) {
 	r.mu.Lock()
 	callback := r.onSubmit
-	r.mu.Unlock()
-	if callback != nil {
-		callback(text)
+	if callback == nil {
+		if len(r.pending) >= maxPendingSubmits {
+			r.pending = r.pending[1:]
+		}
+		r.pending = append(r.pending, text)
+		r.mu.Unlock()
+		return
 	}
+	r.mu.Unlock()
+	callback(text)
 }
 
 func (r *Runner) handleInput(data string) tui.InputListenerResult {

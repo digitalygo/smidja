@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/digitalygo/smidja/internal/tui"
 )
@@ -47,6 +48,8 @@ type fakeUITerminal struct {
 
 	onStart func()
 	onStop  func()
+
+	background *tui.RGBColor
 
 	suspendCalls int
 	resumeCalls  int
@@ -147,6 +150,21 @@ func (f *fakeUITerminal) SetSize(columns, rows int) {
 
 func (f *fakeUITerminal) KittyProtocolActive() bool   { return false }
 func (f *fakeUITerminal) ModifyOtherKeysActive() bool { return false }
+
+func (f *fakeUITerminal) SetBackground(color *tui.RGBColor) {
+	f.mu.Lock()
+	f.background = color
+	f.mu.Unlock()
+}
+
+func (f *fakeUITerminal) QueryBackgroundColor(timeout time.Duration) (*tui.RGBColor, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.background == nil {
+		return nil, false
+	}
+	return f.background, true
+}
 
 func (f *fakeUITerminal) MoveBy(lines int)             { f.Write(tui.CursorMoveLines(lines)) }
 func (f *fakeUITerminal) HideCursor()                  { f.Write(tui.CursorHide) }

@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	errLoginSettled   = errors.New("ui: login already settled")
+	ErrLoginSettled   = errors.New("ui: login already settled")
 	errLoginCanceled  = errors.New("ui: login canceled")
 	errManualCanceled = errors.New("ui: manual code entry canceled")
 )
@@ -223,7 +223,7 @@ func (op *LoginOperation) RequestManualCode(ctx context.Context) (string, error)
 		if err != nil {
 			return "", err
 		}
-		return "", errLoginSettled
+		return "", ErrLoginSettled
 	}
 	op.promptGeneration++
 	generation := op.promptGeneration
@@ -271,7 +271,7 @@ func (op *LoginOperation) RequestManualCode(ctx context.Context) (string, error)
 		if err := op.Err(); err != nil {
 			return "", err
 		}
-		return "", errLoginSettled
+		return "", ErrLoginSettled
 	}
 }
 
@@ -280,6 +280,24 @@ func (op *LoginOperation) Succeed() { op.settle(LoginSucceeded, nil) }
 func (op *LoginOperation) Fail(err error) { op.settle(LoginFailed, err) }
 
 func (op *LoginOperation) Cancel() { op.settle(LoginCanceled, errLoginCanceled) }
+
+func (op *LoginOperation) Commit(persist func() error) error {
+	owned := false
+	var persistErr error
+	op.settleOnce.Do(func() {
+		owned = true
+		persistErr = persist()
+		if persistErr == nil {
+			op.applySettlement(LoginSucceeded, nil)
+			return
+		}
+		op.applySettlement(LoginFailed, persistErr)
+	})
+	if !owned {
+		return ErrLoginSettled
+	}
+	return persistErr
+}
 
 func (op *LoginOperation) watch() {
 	select {
@@ -359,36 +377,40 @@ func (op *LoginOperation) armDeadline(deadline time.Time) {
 
 func (op *LoginOperation) settle(state LoginState, err error) {
 	op.settleOnce.Do(func() {
-		op.mu.Lock()
-		op.settled = true
-		op.state = state
-		op.err = err
-		if op.timer != nil {
-			op.timer.Stop()
-			op.timer = nil
-		}
-		prompt := op.prompt
-		op.prompt = nil
-		if state == LoginFailed && err != nil {
-			op.view.Status = err.Error()
-		}
-		op.view.State = string(state)
-		view := op.view
-		op.mu.Unlock()
-
-		if prompt != nil {
-			prompt.resolve("", loginPromptError(err))
-		}
-		if op.dialog != nil {
-			op.dialog.SetState(view)
-			op.dialog.Settle()
-		}
-		if op.session != nil {
-			op.session.release()
-		}
-		op.cancel()
-		close(op.done)
+		op.applySettlement(state, err)
 	})
+}
+
+func (op *LoginOperation) applySettlement(state LoginState, err error) {
+	op.mu.Lock()
+	op.settled = true
+	op.state = state
+	op.err = err
+	if op.timer != nil {
+		op.timer.Stop()
+		op.timer = nil
+	}
+	prompt := op.prompt
+	op.prompt = nil
+	if state == LoginFailed && err != nil {
+		op.view.Status = err.Error()
+	}
+	op.view.State = string(state)
+	view := op.view
+	op.mu.Unlock()
+
+	if prompt != nil {
+		prompt.resolve("", loginPromptError(err))
+	}
+	if op.dialog != nil {
+		op.dialog.SetState(view)
+		op.dialog.Settle()
+	}
+	if op.session != nil {
+		op.session.release()
+	}
+	op.cancel()
+	close(op.done)
 }
 
 func loginManualTitle(provider string) string {

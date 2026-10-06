@@ -274,6 +274,12 @@ func (r *ThemeRegistry) loadByNamePublic(name string) (*Theme, error) {
 	return r.loadByName(name)
 }
 
+func (r *ThemeRegistry) Watching() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.stopWatch != nil
+}
+
 func (r *ThemeRegistry) StopWatching() {
 	r.mu.Lock()
 	stop := r.stopWatch

@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -833,6 +834,21 @@ func parseCursorPosition(response string) (row, col int, ok bool) {
 
 type RGBColor struct {
 	R, G, B int
+}
+
+func (c *RGBColor) IsLight() bool {
+	if c == nil {
+		return false
+	}
+	toLinear := func(channel int) float64 {
+		value := float64(channel) / 255
+		if value <= 0.03928 {
+			return value / 12.92
+		}
+		return math.Pow((value+0.055)/1.055, 2.4)
+	}
+	luminance := 0.2126*toLinear(c.R) + 0.7152*toLinear(c.G) + 0.0722*toLinear(c.B)
+	return luminance >= 0.5
 }
 
 func (t *ProcessTerminal) QueryBackgroundColor(timeout time.Duration) (*RGBColor, bool) {

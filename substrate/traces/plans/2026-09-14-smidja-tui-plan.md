@@ -14,15 +14,15 @@ last_updated_at: 2026-10-06
 
 ## Current execution snapshot
 
-- **Status:** In progress on the explicitly approved `feat/tui` branch. P5 is independently accepted and awaiting publication; P6 is next.
+- **Status:** In progress on the explicitly approved `feat/tui` branch. P5 is published and synchronized; P6 is active.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
-- **Execution baseline:** Resumed 2026-09-16T08:25:38+02:00 at repository commit `19be845a27d963b320e73334a30008eae7eb623c` on `feat/tui`, matching `origin/feat/tui`, with the preserved unfinished P2 work and living-plan update recorded in the ignored workspace-state snapshot.
-- **Active phase:** Phase P5 publication, then P6 final product wiring and documentation.
-- **Last verified checkpoint:** Checkpoint 2026-10-06T19:30:44+02:00, complete preserved P5 artifact accepted by independent deterministic, quality, and security gates.
-- **Last successful checks:** The wiring slice passed formatting, vet, build, all delta-package tests, four Darwin and Linux amd64 and arm64 static cross-builds, dependency hygiene, sequential race tests, and repeated real-PTY smoke, panic, Ctrl-D, and Ctrl-G tests. Package coverage is 90.3% for `internal/tui`, 96.5% for `internal/tui/interactive`, 97.2% for `internal/ui`, and 86.9% for `internal/cli`. The only full-suite failures are the verified pre-existing `internal/mcp.TestListToolsRetryOnceAfterRestart` and `internal/session.TestListNewestFirst` flakes outside the delta.
+- **Execution baseline:** Current session resumed from `5d15ed0` on approved `feat/tui`, preserving unfinished P5. P6 code and docs are gated against published P5 baseline `1a9f71a83a212105f1c98e433d842f3a03a5a8d9`.
+- **Active phase:** Phase P6: final product wiring, configuration, startup trust/OAuth, documentation and installation.
+- **Last verified checkpoint:** Checkpoint 2026-10-06T21:27:29+02:00, corrected P6 executable artifact accepted with independent tests, race, coverage, four static builds and delegated quality/security PASS.
+- **Last successful checks:** Corrected P6 formatting, vet, build, uncached delta tests, affected race suite, 32 repeated login race runs, explicit real PTY startup/trust and prior smoke tests, Markdown validation, four static release builds, dependency/protected-path checks passed. Fifteen executable delta files reach 88.7-100% instrumented changed-line coverage. Full-suite attempts alternated between a complete pass and known baseline MCP/session flakes; unchanged terminal lock-test race also reproduced on P5.
 - **Open blockers:** P6, P7 and final installed-binary acceptance remain open. Full-suite attempts expose unchanged MCP restart and session timestamp-order flakes, independently reproduced on untouched `origin/alpha`; all P5 delta tests pass. External ecosystem acceptance still requires an independent creator.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
-- **Next action:** Publish the accepted P5 artifact with this ledger, verify local/remote/PR equality, then finish P6 flags, configuration, trusted startup, OAuth, documentation and install. Execute P7 only after P6 gates pass.
+- **Next action:** Publish accepted P6 as one conventional commit with this ledger and operation record, verify local/remote/PR equality, install that committed build and prove real regular/fullscreen PTY behavior. Begin P7 implementation only after that installation gate.
 
 ## Planner baseline
 
@@ -477,7 +477,26 @@ git diff origin/alpha -- go.mod | wc -l
 
 ### Phase P6 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-10-06T19:35:00+02:00: P5 publication and P6 startup boundary validated
+
+- **Event:** Accepted P5 was consolidated and published as `1a9f71a83a212105f1c98e433d842f3a03a5a8d9`, `feat(tui): complete fullscreen extras`; P6 begins from that baseline.
+- **Planner prediction:** P6 connects existing dialog and selector services while preserving print/non-TTY behavior and all protected packages and SDK signatures.
+- **Subagent claims:** Read-only analysis confirmed missing UI settings/flags and theme/keybinding loading, and that workspace content, MCP and OAuth client construction currently precede TUI creation. No persisted trust store or production trust-dialog caller exists.
+- **Orchestrator finding:** Use one runner and a cancellable pre-admission startup stage, reusing P3 login and trust services before workspace content and optional workspace MCP are consumed. Trust is per invocation, not a new persistent trust format. Declining workspace trust must retain bundle/user/package content but skip project content and instructions; workspace MCP still requires the existing explicit flag. OAuth applies only to interactive real-TTY startup and must not change print/non-TTY auth ordering. Theme pairs mean light/dark appearance selection, not filesystem paths, confirmed against the outside-worktree Pi reference.
+- **Independently verified facts:** Main and origin HEAD match `1a9f71a`; PR 1 readback now matches that exact SHA and remains OPEN against `alpha`. Accepted P5 file hashes remain identical on main. Workspace trust currently has no persisted store; framework theme and keybinding loaders exist but are unwired.
+- **Decision and impact:** Choose a single implementation writer for this integration slice because existing P3 mechanisms and the required ordering are known. Do not create a new trust database, auto-enable MCP, rewrite provider drivers, change non-TTY semantics, or start P7 early. A documentation writer will follow verified source rather than infer behavior.
+- **Next action:** Implement P6 configuration and single-runner startup integration with behavior-mapped tests, then write accurate product docs and run all gates.
+
+
+#### Checkpoint 2026-10-06T21:27:29+02:00: corrected P6 code and documentation accepted
+
+- **Event:** P6 configuration and single-runner startup code plus product documentation passed independent verification and both applicable reviews; publication and installed-binary verification remain next.
+- **Planner prediction:** P6 wires mode/theme flags, tiered settings, user themes/keybindings, startup trust/OAuth, accurate docs and a locally installed static binary without changing SDK signatures or protected subsystems.
+- **Subagent claims:** The implementer reported the complete integration and tests; the documentation writer checked actual sources and reported several pre-existing SDK runtime-action gaps. A separate bounded correction fixed nondeterministic canceled-login outcome, serialized credential persistence with operation settlement and joined cooperative login workers with a bounded grace. Quality returned `PASS`; focused security returned exact `PASS`.
+- **Orchestrator finding:** Direct new-file, source, diff and documentation inspection confirmed one runner, per-run project trust, separately opt-in MCP, masked auth, loaded user bindings, stopped theme watchers and preserved non-TTY paths. A real new race failure in `TestStartupLoginCanceledByDialog` was corrected without weakening its expectation. Non-file test doubles are explicitly distinguished from injected real PTY files in docs. API parity arithmetic was corrected without rewriting the immutable planner baseline; runtime API backing remains a separate audit item, not a claim of full parity.
+- **Independently verified facts:** Artifact `P6-880065109aac`, SHA-256 `880065109aac0590bdf10dedae79998fd1c0c99af23eaca2a776bb421544d763`, covers 48 files excluding traces; all executable hashes remain identical after a documentation-only wording correction. Formatting, diff checks, vet, build, uncached config/content/TUI/interactive/UI/CLI tests, complete affected `-race -p 1`, 32 repeated login race runs, real regular/fullscreen and trust accepted/refused/EOF/signal/MCP tests, all four static builds, Markdown structure/links and dependency boundaries passed. `/tmp/smidja-p6-final.cover` measures 15 production files at 88.7-100% changed instrumented lines and 93.2-100% overlapping-block statements. Package coverage is config 98.0%, content 93.6%, TUI 91.0%, interactive 93.8%, UI 94.0%, CLI 89.3%. Full suite passed once and subsequent attempts exposed only alpha-reproduced MCP/session flakes. The terminal reentrancy lock-test flake reproduced 100 repetitions on archived P5 and latest affected race passed. No tests were skipped, deleted or weakened; unsupported-platform paths remain cross-compiled rather than executed.
+- **Decision and impact:** Accept P6 executable work and documentation. The operation record `substrate/traces/operations/2026-10-06-smidja-tui-implementation.md` records completed recovery slices while the plan remains in progress. Keep installation and final identity/runtime evidence as explicit unclosed gates. A non-cooperative injected auth callback may outlive the one-second join grace but cannot mutate settled UI or persist credentials; built-in providers honor cancellation.
+- **Next action:** Commit and publish `feat(tui): finish configuration and interactive startup`, then install and verify the exact committed P6 binary before P7.
 
 ### Phase P7 execution checkpoints
 

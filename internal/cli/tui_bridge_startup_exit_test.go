@@ -16,7 +16,7 @@ import (
 func (f *runTUIFixture) startMode(ctx context.Context, mode ui.TUIMode) chan error {
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(ctx, f.deps, f.rd, f.lineUI, mode, f.cwd, f.cwd, nil, bridgeTerminalFactory(f.terminal), f.runtime)
+		done <- runTUI(ctx, f.deps, f.rd, f.lineUI, mode, f.cwd, f.cwd, nil, bridgeTerminalFactory(f.terminal), f.runtime, nil)
 	}()
 	return done
 }
@@ -181,5 +181,53 @@ func TestRunTUIStartupCompletionOpensAdmissionUnderRace(t *testing.T) {
 		if fixture.terminal.Started() {
 			t.Error("terminal should be stopped after runTUI returns")
 		}
+	}
+}
+
+func TestRunTUIAdoptsPrestartedRunner(t *testing.T) {
+	log := &runTUIEventLog{}
+	extension := &runTUIHookExtension{log: log}
+	client := newRunTUITurnClient(log, "adopted answer")
+	fixture := newRunTUIFixture(t, client, extension)
+	runner := ui.NewRunner(ui.RunnerOptions{
+		Stdin:       fixture.deps.Stdin,
+		Stdout:      fixture.deps.Stdout,
+		Home:        fixture.deps.Home(),
+		Mode:        ui.TUIModeRegular,
+		NewTerminal: bridgeTerminalFactory(fixture.terminal),
+	})
+	if err := runner.Start(); err != nil {
+		t.Fatalf("runner.Start: %v", err)
+	}
+	startup := &tuiStartup{runner: runner}
+	done := make(chan error, 1)
+	go func() {
+		done <- runTUI(context.Background(), fixture.deps, fixture.rd, fixture.lineUI, ui.TUIModeRegular, fixture.cwd, fixture.cwd, nil, bridgeTerminalFactory(fixture.terminal), fixture.runtime, startup)
+	}()
+	select {
+	case <-fixture.terminal.startedC:
+	case <-time.After(5 * time.Second):
+		t.Fatal("terminal did not start")
+	}
+	if got := fixture.terminal.StartCount(); got != 1 {
+		t.Fatalf("terminal start count = %d, want 1 before runTUI adopts the runner", got)
+	}
+	fixture.terminal.FireEOF()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runTUI: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runTUI did not return after EOF")
+	}
+	if got := fixture.terminal.StartCount(); got != 1 {
+		t.Fatalf("terminal start count = %d, runTUI must not start a second terminal", got)
+	}
+	if got := fixture.terminal.StopCount(); got != 1 {
+		t.Fatalf("terminal stop count = %d, want exactly one owner", got)
+	}
+	if fixture.terminal.Started() {
+		t.Fatal("terminal should be stopped after runTUI returns")
 	}
 }

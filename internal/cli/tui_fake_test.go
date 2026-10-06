@@ -9,13 +9,14 @@ import (
 )
 
 type fakeBridgeTerminal struct {
-	mu        sync.Mutex
-	writes    []string
-	columns   int
-	rows      int
-	startErr  error
-	started   bool
-	stopCount int
+	mu         sync.Mutex
+	writes     []string
+	columns    int
+	rows       int
+	startErr   error
+	started    bool
+	startCount int
+	stopCount  int
 
 	suspendCalls int
 	resumeCalls  int
@@ -39,11 +40,18 @@ func (f *fakeBridgeTerminal) Start(onInput func(string), onResize func()) error 
 	}
 	wasStarted := f.started
 	f.started = true
+	f.startCount++
 	f.onInput = onInput
 	if !wasStarted {
 		close(f.startedC)
 	}
 	return nil
+}
+
+func (f *fakeBridgeTerminal) StartCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.startCount
 }
 
 func (f *fakeBridgeTerminal) Stop() {

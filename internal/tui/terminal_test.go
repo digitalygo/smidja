@@ -571,3 +571,26 @@ func TestRealPTYRawModeRoundTrip(t *testing.T) {
 		t.Fatal("isTerminal after restore = false")
 	}
 }
+
+func TestRGBColorIsLight(t *testing.T) {
+	cases := []struct {
+		name  string
+		color *RGBColor
+		want  bool
+	}{
+		{"nil", nil, false},
+		{"black", &RGBColor{R: 0, G: 0, B: 0}, false},
+		{"white", &RGBColor{R: 255, G: 255, B: 255}, true},
+		{"dark gray", &RGBColor{R: 40, G: 40, B: 40}, false},
+		{"light gray", &RGBColor{R: 230, G: 230, B: 230}, true},
+		{"green biased light", &RGBColor{R: 120, G: 220, B: 120}, true},
+		{"green biased dark", &RGBColor{R: 10, G: 200, B: 10}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.color.IsLight(); got != tc.want {
+				t.Fatalf("IsLight() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

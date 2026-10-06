@@ -259,7 +259,7 @@ func newRunTUIFixture(t *testing.T, client agent.Client, extension sdk.Extension
 func (f *runTUIFixture) start(ctx context.Context) chan error {
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(ctx, f.deps, f.rd, f.lineUI, ui.TUIModeRegular, f.cwd, f.cwd, nil, bridgeTerminalFactory(f.terminal), f.runtime)
+		done <- runTUI(ctx, f.deps, f.rd, f.lineUI, ui.TUIModeRegular, f.cwd, f.cwd, nil, bridgeTerminalFactory(f.terminal), f.runtime, nil)
 	}()
 	return done
 }

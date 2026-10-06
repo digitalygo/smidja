@@ -138,7 +138,7 @@ func TestRunTUIEndToEnd(t *testing.T) {
 	lineUI := ui.New(deps.Stdin, deps.Stdout, deps.Stderr, sdk.ModeInteractive)
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil)
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil, nil)
 	}()
 	select {
 	case <-terminal.startedC:
@@ -176,5 +176,94 @@ func TestRunTUIEndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(string(transcript), "hi") {
 		t.Errorf("session missing the user prompt:\n%s", transcript)
+	}
+}
+
+func TestUseThemeFlagValidation(t *testing.T) {
+	for _, value := range []string{"light", "light/dark", "custom"} {
+		var stdout, stderr bytes.Buffer
+		deps := wiringTestDeps(t.TempDir())
+		deps.Env = envFrom(map[string]string{"SMIDJA_PACKAGES_DIR": t.TempDir()})
+		deps.Stdout = &stdout
+		deps.Stderr = &stderr
+		deps.Stdin = strings.NewReader("")
+		deps.Client = &capturingClient{}
+		deps.Config = testConfig(t, t.TempDir())
+		deps.Store = wiringStore(t)
+		if err := RunWithDeps([]string{"--use-theme", value}, deps); err != nil {
+			t.Errorf("run --use-theme %s: %v (stderr %q)", value, err, stderr.String())
+		}
+		if strings.Contains(stderr.String(), "tui unavailable") {
+			t.Errorf("--use-theme %s with pipes must stay on line mode, stderr = %q", value, stderr.String())
+		}
+	}
+}
+
+func TestUseThemeFlagRejectsTraversal(t *testing.T) {
+	for _, value := range []string{"../escape", "..", "light/..", `..\\dark`, "a/b/c"} {
+		var stdout, stderr bytes.Buffer
+		err := run([]string{"--use-theme", value}, testDeps("", &stdout, &stderr))
+		if err == nil {
+			t.Errorf("--use-theme %q: want an error", value)
+			continue
+		}
+		if !strings.Contains(stderr.String(), "--use-theme") {
+			t.Errorf("--use-theme %q stderr = %q, want the flag name", value, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "usage: smidja") {
+			t.Errorf("--use-theme %q stderr = %q, want usage", value, stderr.String())
+		}
+	}
+}
+
+func TestUsageDocumentsUseTheme(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{"-h"}, testDeps("", &stdout, &stderr)); err != nil {
+		t.Fatalf("run -h: %v", err)
+	}
+	usage := stderr.String()
+	if !strings.Contains(usage, "-use-theme name") {
+		t.Errorf("usage missing the use-theme flag:\n%s", usage)
+	}
+	if !strings.Contains(usage, "lightTheme/darkTheme") {
+		t.Errorf("usage missing the theme pair:\n%s", usage)
+	}
+}
+
+func TestPrintIgnoresThemeAndTUIMode(t *testing.T) {
+	client := &capturingClient{script: []*agent.AssistantMessage{textStop("print answer")}}
+	var stdout, stderr bytes.Buffer
+	cwd := t.TempDir()
+	deps := wiringTestDeps(t.TempDir())
+	deps.Stdout = &stdout
+	deps.Stderr = &stderr
+	deps.Client = client
+	deps.Config = testConfig(t, cwd)
+	deps.Store = wiringStore(t)
+	if err := RunWithDeps([]string{"-p", "hello", "--use-theme", "light/dark", "--tui-mode", "fullscreen"}, deps); err != nil {
+		t.Fatalf("RunWithDeps: %v (stderr %q)", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "print answer") {
+		t.Fatalf("stdout = %q, want the print response", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "tui unavailable") {
+		t.Fatalf("print mode must never activate the terminal, stderr = %q", stderr.String())
+	}
+}
+
+func TestTUIModeEnvOnPipesStaysLineMode(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	deps := wiringTestDeps(t.TempDir())
+	deps.Env = envFrom(map[string]string{"SMIDJA_PACKAGES_DIR": t.TempDir(), "SMIDJA_TUI_MODE": "fullscreen"})
+	deps.Stdout = &stdout
+	deps.Stderr = &stderr
+	deps.Stdin = strings.NewReader("")
+	deps.Client = &capturingClient{}
+	deps.Store = wiringStore(t)
+	if err := RunWithDeps(nil, deps); err != nil {
+		t.Fatalf("RunWithDeps: %v (stderr %q)", err, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "tui unavailable") {
+		t.Fatalf("a piped session must stay on line mode, stderr = %q", stderr.String())
 	}
 }

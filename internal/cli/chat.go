@@ -17,6 +17,7 @@ import (
 	"github.com/digitalygo/smidja/internal/contextmanager"
 	"github.com/digitalygo/smidja/internal/extensions"
 	"github.com/digitalygo/smidja/internal/loopdetector"
+	"github.com/digitalygo/smidja/internal/mcp"
 	"github.com/digitalygo/smidja/internal/models"
 	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/retry"
@@ -84,7 +85,7 @@ type runDeps struct {
 	resumedSession bool
 }
 
-func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath string, tuiMode ui.TUIMode) error {
+func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath, tuiModeFlag, themeFlag string) error {
 	ctx := d.Context
 	if ctx == nil {
 		ctx = context.Background()
@@ -100,6 +101,46 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if model != "" {
 		cfg.Model = model
 	}
+	tuiMode, err := resolveTUIMode(tuiModeFlag, cfg.TUIMode)
+	if err != nil {
+		return fail(d, err)
+	}
+	theme, err := resolveThemeSetting(themeFlag, cfg.Theme)
+	if err != nil {
+		return fail(d, err)
+	}
+	useTUI := prompt == "" && ui.ShouldUseTUI(d.Stdin, d.Stdout, prompt)
+
+	var (
+		cwd          string
+		mcpCfg       *mcp.FileConfig
+		workspaceMCP map[string]bool
+		prepared     = &tuiStartupPlan{trustWorkspace: true}
+	)
+	if useTUI {
+		prepared, err = prepareTUIStartup(ctx, d, cfg, tuiStartupOptions{
+			mode:              tuiMode,
+			theme:             theme,
+			provider:          provider,
+			allowWorkspaceMCP: allowWorkspaceMCP,
+		})
+		if err != nil {
+			if errors.Is(err, errTUIStartupAborted) {
+				return nil
+			}
+			return fail(d, err)
+		}
+		if prepared.runner != nil {
+			defer prepared.runner.abort()
+		}
+		if !prepared.enabled {
+			useTUI = false
+		}
+	}
+	cwd = prepared.cwd
+	mcpCfg = prepared.mcpCfg
+	workspaceMCP = prepared.workspaceMCP
+	trustWorkspace := prepared.trustWorkspace
 	client, selectedProvider, err := selectChatClient(d, cfg, provider)
 	if err != nil {
 		return fail(d, err)
@@ -124,9 +165,11 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 			return fail(d, err)
 		}
 	}
-	cwd, err := d.Getwd()
-	if err != nil {
-		return fail(d, err)
+	if cwd == "" {
+		cwd, err = d.Getwd()
+		if err != nil {
+			return fail(d, err)
+		}
 	}
 	var sess *session.Session
 	if continuePath != "" {
@@ -164,7 +207,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	hooks := runtime.Dispatcher()
 
-	snapshot, err := buildContentSnapshot(d, cfg.WorkspaceRoot)
+	snapshot, err := buildContentSnapshot(d, cfg.WorkspaceRoot, trustWorkspace)
 	if err != nil {
 		return fail(d, err)
 	}
@@ -182,17 +225,18 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		}
 		return value, true
 	}
-	mcpCfg, workspaceMCP, err := loadMCPConfig(d.Home(), cwd)
-	if err != nil {
-		return fail(d, err)
+	if prepared.runner == nil {
+		mcpCfg, workspaceMCP, err = loadMCPConfig(d.Home(), cwd)
+		if err != nil {
+			return fail(d, err)
+		}
 	}
-	mcpRt, err := startMCP(ctx, mcpCfg, workspaceMCP, allowWorkspaceMCP, catalog, resolveEnv, d.Stderr)
+	mcpRt, err := startMCP(ctx, mcpCfg, workspaceMCP, allowWorkspaceMCP && trustWorkspace, catalog, resolveEnv, d.Stderr)
 	if err != nil {
 		return fail(d, err)
 	}
 	defer mcpRt.Close()
 
-	useTUI := prompt == "" && ui.ShouldUseTUI(d.Stdin, d.Stdout, prompt)
 	if !useTUI {
 		_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
 		defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
@@ -223,6 +267,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		BundleFS:      d.Bundle.FS,
 		WorkspaceRoot: cfg.WorkspaceRoot,
 		UserHome:      d.Home(),
+		SkipWorkspace: !trustWorkspace,
 	})
 	if err == nil {
 		if suffix := instr.Suffix(); suffix != "" {
@@ -322,7 +367,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 			selector:    selector,
 			fingerprint: func() string { return snapshot.Fingerprint() },
 		}
-		if err := runTUI(ctx, d, rd, lineUI, tuiMode, cfg.WorkspaceRoot, cwd, skillOut, nil, runtime); err != nil {
+		if err := runTUI(ctx, d, rd, lineUI, tuiMode, cfg.WorkspaceRoot, cwd, skillOut, nil, runtime, prepared.runner); err != nil {
 			return fail(d, err)
 		}
 		return nil
@@ -363,7 +408,7 @@ func loadChatConfig(d *Deps) (*config.Config, error) {
 	return config.LoadWithSources(d.Env, d.Getwd, d.Home, config.DefaultsFromAny(d.Bundle.ConfigDefaults), bundleSettings, pkgDefaults)
 }
 
-func buildContentSnapshot(d *Deps, workspaceRoot string) (content.Snapshot, error) {
+func buildContentSnapshot(d *Deps, workspaceRoot string, trustWorkspace bool) (content.Snapshot, error) {
 	dirs, err := activePackageDirs(d)
 	if err != nil {
 		return content.Snapshot{}, err
@@ -374,7 +419,7 @@ func buildContentSnapshot(d *Deps, workspaceRoot string) (content.Snapshot, erro
 		WorkspaceDir:   workspaceRoot,
 		UserHome:       d.Home(),
 		PackagesDirs:   dirs,
-		TrustWorkspace: true,
+		TrustWorkspace: trustWorkspace,
 	})
 }
 

@@ -545,3 +545,37 @@ func keys[T any](m map[string]T) []string {
 	}
 	return out
 }
+
+func TestHasWorkspaceContent(t *testing.T) {
+	empty := t.TempDir()
+	if HasWorkspaceContent("") {
+		t.Fatal("an empty workspace root must report false")
+	}
+	if HasWorkspaceContent(empty) {
+		t.Fatal("a workspace with no content must report false")
+	}
+
+	withSkill := t.TempDir()
+	writeTree(t, withSkill, map[string]string{".smidja/skills/demo.md": "# demo"})
+	if !HasWorkspaceContent(withSkill) {
+		t.Fatal("a workspace skill must report true")
+	}
+
+	withAgent := t.TempDir()
+	writeTree(t, withAgent, map[string]string{".smidja/agents/worker.md": "# worker"})
+	if !HasWorkspaceContent(withAgent) {
+		t.Fatal("a workspace agent must report true")
+	}
+
+	withPrompt := t.TempDir()
+	writeTree(t, withPrompt, map[string]string{".smidja/prompts/review.md": "# review"})
+	if !HasWorkspaceContent(withPrompt) {
+		t.Fatal("a workspace prompt must report true")
+	}
+
+	nonMarkdown := t.TempDir()
+	writeTree(t, nonMarkdown, map[string]string{".smidja/skills/readme.txt": "not content"})
+	if HasWorkspaceContent(nonMarkdown) {
+		t.Fatal("non-markdown files must not report content")
+	}
+}

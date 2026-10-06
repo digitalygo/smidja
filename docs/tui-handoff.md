@@ -1,12 +1,18 @@
 # TUI implementation handoff
 
+## Current state (2026-10-06)
+
+P5 is published at `1a9f71a` (`feat(tui): complete fullscreen extras`). P6 is in progress: the flags, settings, startup trust, OAuth startup, and product documentation are implemented in the main worktree but are not committed, published, installed, or through their final acceptance gates. P7, the extension-facing UI surface, is not implemented. Follow the [living TUI plan](../substrate/traces/plans/2026-09-14-smidja-tui-plan.md) for the current SHA, state, and next action.
+
+Everything after this note is the September 2026 historical record. Its published SHAs, phase status, installed-binary identity, and process, provider, and quota notes describe that moment. They are preserved as history and are superseded by the current state above and the living plan.
+
 ## Purpose
 
 This document is the restart point for the unfinished Smidja TUI work. It records the published state, the preserved P5 work, the remaining phases, the validation history, and the decisions that should not be rediscovered in a later session.
 
-The implementation is paused because the Codex subscription quota was exhausted. No Smidja Pi process is running. The hourly monitor is paused. Resume only when a working Pi provider is available and Luca asks to continue.
+The implementation is paused because the Codex subscription quota was exhausted. No Smidja Pi process is running. The hourly monitor is paused. Resume only when a working Pi provider is available and Luca asks to continue. This paragraph describes the September 2026 pause and is historical.
 
-## Authoritative state
+## Authoritative state (September 2026, historical)
 
 - Repository: `digitalygo/smidja`
 - Local clone: `/home/luca/Documents/github-digitalygo/smidja`
@@ -130,7 +136,7 @@ P4 deliberately does not rewrite `internal/session/` codec or store semantics. I
 
 The full suite, race tests across the affected packages, repeated PTY resume smoke, dependency checks, and four static cross-builds passed at the P4 checkpoint. Coverage was 88.9% for CLI, 85.2% for agent, 89.5% for context manager, 90.9% for TUI, 94.2% for interactive, and 94.4% for UI. Quality and focused security verdicts were PASS.
 
-## Preserved P5 work
+## Preserved P5 work (historical)
 
 P5 is not committed. Do not reset, clean, restore, stash, delete, or overwrite either worktree before comparing and consolidating them.
 
@@ -271,9 +277,11 @@ Variation V-007 in the living plan is the accepted behavior. Preserve it unless 
 - Unsupported or over-budget Mermaid and math input preserves the complete original source and adds a warning. It must not render plausible but wrong output.
 - Syntax highlighting remains stdlib-only.
 
-## What remains
+## What remains (historical)
 
-### Finish and publish P5
+This section predates the P5 publication. Keep it as the historical checklist; the current remaining work is P6 and the final gates in the living plan.
+
+### Finish and publish P5 (historical)
 
 Start from Candidate A. Candidate B is read-only comparison material.
 
@@ -343,7 +351,9 @@ The task is not complete when Pi stops. A separate verification pass must prove:
 
 Use temporary homes, sessions, and workspaces for destructive tests. Do not print credentials. If a live acceptance test fails, preserve the exact failure and send it back through Pi for correction before closure.
 
-## How to resume
+## How to resume (historical)
+
+The steps below describe the September 2026 restart. Use the living plan for the current resume point.
 
 1. Run `chezmoi update --force` because the Pi and Digitalygo workflows require a fresh harness state.
 2. Confirm no other writer owns the Smidja worktrees.

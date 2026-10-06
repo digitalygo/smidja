@@ -499,3 +499,38 @@ func TestRunnerToolsExpandKey(t *testing.T) {
 		t.Fatalf("expand key should expand the tool block:\n%s", after)
 	}
 }
+
+func TestRunnerQueuesSubmitsUntilCallbackInstalled(t *testing.T) {
+	terminal := newFakeUITerminal(80, 24)
+	opts := fakeUIRunnerOptions(terminal)
+	opts.Home = t.TempDir()
+	runner := NewRunner(opts)
+	t.Cleanup(runner.Stop)
+	if err := runner.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	terminal.SendInput("first")
+	terminal.SendInput("\r")
+	terminal.SendInput("second")
+	terminal.SendInput("\r")
+	var submitted []string
+	runner.SetOnSubmit(func(text string) { submitted = append(submitted, text) })
+	if len(submitted) != 2 || submitted[0] != "first" || submitted[1] != "second" {
+		t.Fatalf("submitted = %v, want the queued prompts in order", submitted)
+	}
+	runner.SetOnSubmit(nil)
+	var overflow []string
+	for i := 0; i < maxPendingSubmits+3; i++ {
+		overflow = append(overflow, string(rune('a'+i)))
+		terminal.SendInput(string(rune('a' + i)))
+		terminal.SendInput("\r")
+	}
+	var flushed []string
+	runner.SetOnSubmit(func(text string) { flushed = append(flushed, text) })
+	if len(flushed) != maxPendingSubmits {
+		t.Fatalf("flushed = %d prompts, want the %d prompt cap", len(flushed), maxPendingSubmits)
+	}
+	if flushed[0] != overflow[3] || flushed[len(flushed)-1] != overflow[len(overflow)-1] {
+		t.Fatalf("flushed = %v, want the most recent prompts", flushed)
+	}
+}

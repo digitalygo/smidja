@@ -344,7 +344,7 @@ func TestTUIRealPTYWiredSmoke(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil)
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil, nil)
 	}()
 	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
 	capture.waitFor(t, tui.OSCTitle("smidja"), 5*time.Second)
@@ -496,7 +496,7 @@ func TestTUIRealPTYDialogAcceptCancelExit(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil)
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil, nil)
 	}()
 	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
 
@@ -637,7 +637,7 @@ func TestTUIRealPTYResumeSmoke(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil)
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, nil, nil)
 	}()
 	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
 	capture.waitFor(t, "pty prior answer", 5*time.Second)

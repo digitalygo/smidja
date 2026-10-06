@@ -14,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/digitalygo/smidja/internal/agent"
+	"github.com/digitalygo/smidja/internal/tui"
 )
 
 const (
@@ -207,5 +208,84 @@ func TestRunChatTUIReturnsContextError(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("runChat did not return after cancel")
+	}
+}
+
+func TestRunChatTUIModeEnvFullscreen(t *testing.T) {
+	master, slave := openCLIPTY(t)
+	var stderr bytes.Buffer
+	deps := &Deps{
+		Env: envFrom(map[string]string{
+			"SMIDJA_PACKAGES_DIR": t.TempDir(),
+			"SMIDJA_TUI_MODE":     "fullscreen",
+			"OPENROUTER_API_KEY":  "sk-test",
+		}),
+		Getwd:  func() (string, error) { return t.TempDir(), nil },
+		Home:   func() string { return t.TempDir() },
+		Stdin:  slave,
+		Stdout: slave,
+		Stderr: &stderr,
+		Client: &capturingClient{script: []*agent.AssistantMessage{textStop("env mode answer")}},
+		Store:  wiringStore(t),
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- RunWithDeps(nil, deps)
+	}()
+	readMasterUntil(t, master, tui.AltScreenEnter, 10*time.Second)
+	readMasterUntil(t, master, "]0;smidja", 10*time.Second)
+	time.Sleep(200 * time.Millisecond)
+	if _, err := master.Write([]byte("hi\r")); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+	readMasterUntil(t, master, "env mode answer", 10*time.Second)
+	if _, err := master.Write([]byte("/quit\r")); err != nil {
+		t.Fatalf("write quit: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunWithDeps: %v (stderr %q)", err, stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunWithDeps did not exit")
+	}
+}
+
+func TestRunChatTUIModeFlagBeatsEnv(t *testing.T) {
+	master, slave := openCLIPTY(t)
+	var stderr bytes.Buffer
+	deps := &Deps{
+		Env: envFrom(map[string]string{
+			"SMIDJA_PACKAGES_DIR": t.TempDir(),
+			"SMIDJA_TUI_MODE":     "fullscreen",
+			"OPENROUTER_API_KEY":  "sk-test",
+		}),
+		Getwd:  func() (string, error) { return t.TempDir(), nil },
+		Home:   func() string { return t.TempDir() },
+		Stdin:  slave,
+		Stdout: slave,
+		Stderr: &stderr,
+		Client: &capturingClient{script: []*agent.AssistantMessage{textStop("regular answer")}},
+		Store:  wiringStore(t),
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- RunWithDeps([]string{"--tui-mode", "regular"}, deps)
+	}()
+	output := readMasterUntil(t, master, "]0;smidja", 10*time.Second)
+	if _, err := master.Write([]byte("/quit\r")); err != nil {
+		t.Fatalf("write quit: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunWithDeps: %v (stderr %q)", err, stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunWithDeps did not exit")
+	}
+	if strings.Contains(output, tui.AltScreenEnter) {
+		t.Fatal("--tui-mode regular must beat the fullscreen environment value")
 	}
 }

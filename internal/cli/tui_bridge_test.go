@@ -434,7 +434,7 @@ func TestRunTUIFallsBackToLineUI(t *testing.T) {
 		},
 	}
 	lineUI := ui.New(deps.Stdin, deps.Stdout, deps.Stderr, sdk.ModeInteractive)
-	if err := runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil); err != nil {
+	if err := runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil, nil); err != nil {
 		t.Fatalf("runTUI fallback: %v", err)
 	}
 	if !strings.Contains(stderr.String(), "tui unavailable") {
@@ -697,7 +697,7 @@ func TestRunTUIReturnsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- runTUI(ctx, deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil)
+		done <- runTUI(ctx, deps, rd, lineUI, ui.TUIModeRegular, cwd, cwd, nil, bridgeTerminalFactory(terminal), nil, nil)
 	}()
 	select {
 	case <-terminal.startedC:

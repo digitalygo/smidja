@@ -25,6 +25,8 @@ Content precedence, highest first: bundle > trusted workspace > user content in 
 
 Fasi 0-4 are complete, and the Fase 5 technical creator tooling is now available: the creator guides for compiled bundles and content packages plus the public [smidja-bundle-template](https://github.com/digitalygo/smidja-bundle-template) are published, the public [smidja-packages](https://github.com/digitalygo/smidja-packages) package catalog is available for discovery, and real external clean-room creator validation is still pending.
 
+The interactive TUI is a separate workstream on the `feat/tui` branch. Phases P0 to P5 are published there, P5 at `1a9f71a`. The P6 wiring and startup behavior is implemented and available for testing on the branch: TTY selection with a line-mode fallback, `--tui-mode` and `--use-theme`, the `theme` and `tuiMode` settings, themes and keybindings, session tree, fork, resume, and delete behavior, transcript search, inline images, bounded Mermaid and math fallbacks, and startup workspace trust and OAuth sign-in. The P6 publication and final acceptance gates are still pending, the work is not merged into `alpha`, and P7, the extension-facing UI surface, is not implemented. Print mode and non-TTY sessions keep the legacy line interface.
+
 - Fase 0 (spike): a working Go harness on OpenRouter with streaming, tools, and Pi-aligned JSONL sessions, benchmarked against Pi (see `docs/benchmarks/phase-0.md`).
 - Fase 1 (internal MVP): smart context management, extension hooks, `smidja import` for Pi sessions, and deterministic self-update.
 - Fase 2 (distribution): extended providers through the API-key manifest and OAuth flows, the GitHub release pipeline, the brew formula, and `smidja pkg` installs from public repositories.
@@ -37,6 +39,10 @@ Final gate details and the phase-by-phase execution ledger live in the plan unde
 
 - [Auth](docs/auth.md): how provider credentials work, `smidja auth` commands, where tokens live
 - [Settings](docs/settings.md): the settings files, supported fields, and configuration precedence
+- [TUI](docs/tui.md): TTY selection, renderer modes, flags, sessions, search, images, trust, and sign-in
+- [Themes](docs/themes.md): theme files, required tokens, selection, and hot reload
+- [Keybindings](docs/keybindings.md): action IDs, defaults, and user overrides
+- [Transcript search](docs/transcript-search.md): search budgets and the wrap-boundary limitation
 - [Brew tap](docs/brew.md): installing and upgrading through the public [digitalygo/homebrew-smidja](https://github.com/digitalygo/homebrew-smidja) tap
 - [Providers manifest](docs/providers-manifest.md): the frozen API-key provider catalogue
 - [Creating compiled bundles](docs/creating-bundles.md): the bundle template, the `sdk.Bundle` contract, build identity, and release assets

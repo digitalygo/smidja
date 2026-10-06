@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -185,6 +187,36 @@ func tierRank(t Tier) int {
 		}
 	}
 	return 0
+}
+
+func HasWorkspaceContent(workspaceDir string) bool {
+	if workspaceDir == "" {
+		return false
+	}
+	for _, kind := range [...]string{"skills", "agents", "prompts"} {
+		if dirHasMarkdown(filepath.Join(workspaceDir, ".smidja", kind)) {
+			return true
+		}
+	}
+	return false
+}
+
+func dirHasMarkdown(dir string) bool {
+	found := false
+	_ = fs.WalkDir(os.DirFS(dir), ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if entry.IsDir() || entry.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		if strings.HasSuffix(path, ".md") {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func validName(name string) error {

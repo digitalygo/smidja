@@ -519,18 +519,24 @@ func (c *tuiCommandContext) runInput(input string) error {
 	return nil
 }
 
-func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode ui.TUIMode, workspace, projectPath string, skillOut *switchWriter, newTerminal func(io.Reader, io.Writer) tui.Terminal, runtime *extensions.Runtime) error {
+func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode ui.TUIMode, workspace, projectPath string, skillOut *switchWriter, newTerminal func(io.Reader, io.Writer) tui.Terminal, runtime *extensions.Runtime, startup *tuiStartup) error {
 	capture := &tuiCaptureWriter{fallback: d.Stdout}
-	runner := ui.NewRunner(ui.RunnerOptions{
-		Stdin:         d.Stdin,
-		Stdout:        d.Stdout,
-		Mode:          mode,
-		Title:         "smidja",
-		Home:          d.Home(),
-		WorkspaceRoot: workspace,
-		ProjectPath:   projectPath,
-		NewTerminal:   newTerminal,
-	})
+	var runner *ui.Runner
+	if startup != nil && startup.runner != nil {
+		runner = startup.runner
+	} else {
+		runner = ui.NewRunner(ui.RunnerOptions{
+			Stdin:         d.Stdin,
+			Stdout:        d.Stdout,
+			Mode:          mode,
+			Title:         "smidja",
+			Home:          d.Home(),
+			WorkspaceRoot: workspace,
+			ProjectPath:   projectPath,
+			NewTerminal:   newTerminal,
+			ImagesEnabled: true,
+		})
+	}
 	rdTUI := *rd
 	rdTUI.stderr = &tuiNoticeWriter{runner: runner}
 	workCtx, cancelWork := context.WithCancel(ctx)
@@ -558,13 +564,15 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	}
 	runner.SetOnSubmit(bridge.submit)
 	runner.SetOnInterrupt(bridge.interrupt)
-	if err := runner.Start(); err != nil {
-		fmt.Fprintf(d.Stderr, "smidja: tui unavailable (%v), using line mode\n", err)
-		_ = rd.hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
-		defer rd.hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
-		bridge.shutdown()
-		bridge.wait()
-		return repl(ctx, lineUI, rd)
+	if startup == nil {
+		if err := runner.Start(); err != nil {
+			fmt.Fprintf(d.Stderr, "smidja: tui unavailable (%v), using line mode\n", err)
+			_ = rd.hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
+			defer rd.hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
+			bridge.shutdown()
+			bridge.wait()
+			return repl(ctx, lineUI, rd)
+		}
 	}
 	if runtime != nil {
 		runtime.SetContextDecorator(func(signal context.Context, base sdk.HandlerContext) sdk.HandlerContext {

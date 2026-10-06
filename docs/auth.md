@@ -114,6 +114,14 @@ openrouter-oauth         oauth     configured (store)
 
 The status values are `configured (env)`, `configured (store)`, `configured (env + store)`, and `not configured`. The `env` part reflects the provider environment variable, the `store` part the entry in `~/.smidja/auth.json`.
 
+## Startup sign-in in the TUI
+
+The interactive TUI runs the provider login flow during startup when a supported OAuth provider is selected and no credential is found. This covers the store keys from the table above, such as `openrouter-oauth`, `anthropic-oauth`, `codex`, `xai-subscription`, and `kimi-coding-oauth`, plus the friendly names `anthropic`, `codex`, `xai`, and `kimi`. The plain `openrouter` id and name are not part of this flow: they use the API-key client and resolve through `OPENROUTER_API_KEY`, so missing that key fails at request time instead of prompting. API-key providers without an OAuth login also fail at request time when their key is missing.
+
+The sign-in dialog shows the provider, the verification URL and user code for device flows, or waits for the browser callback, and accepts a pasted authorization code through masked input. Press `Esc` or `ctrl+c` to cancel. The flow has a five-minute deadline; a cancel, timeout, or failure stores nothing and ends the startup. On success smidja writes the credential to `~/.smidja/auth.json` and continues into the session. Credentials never render in the dialog frames.
+
+The prompt appears only on a real interactive TTY start. Print mode (`-p`) and non-TTY sessions never run it; they resolve credentials the same way as the rest of smidja and fail at request time when none is configured.
+
 ## Selecting a provider at runtime
 
 The chat commands accept a provider override:
