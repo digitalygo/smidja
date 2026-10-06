@@ -49,7 +49,9 @@ type StatusIndicator struct {
 	workingSince    time.Time
 	message         string
 	frames          []string
+	framesSet       bool
 	interval        time.Duration
+	visible         bool
 	frame           int
 	runtime         *tui.Runtime
 	controller      tui.TUIController
@@ -73,6 +75,7 @@ func NewStatusIndicator(clock Clock, runtime *tui.Runtime, controller tui.TUICon
 	return &StatusIndicator{
 		frames:      frames,
 		interval:    interval,
+		visible:     true,
 		runtime:     runtime,
 		controller:  controller,
 		clock:       clock,
@@ -214,6 +217,12 @@ func (s *StatusIndicator) Invalidate() {}
 func (s *StatusIndicator) Render(width int) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.visible {
+		return nil
+	}
+	if s.framesSet && len(s.frames) == 0 {
+		return nil
+	}
 	kind := s.resolveKindLocked()
 	var line string
 	switch kind {

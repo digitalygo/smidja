@@ -131,6 +131,18 @@ On macOS, the two tree actions keep both keys but reverse their order, because t
 | `app.tree.filter.cycleForward` | `ctrl+o` | Tree filter: cycle forward |
 | `app.tree.filter.cycleBackward` | `shift+ctrl+o` | Tree filter: cycle backward |
 
+## SDK access
+
+A custom editor factory receives an `sdk.EditorContext`. Its `Keybindings` value resolves action IDs to the active key list:
+
+```go
+func exitKeys(ctx sdk.EditorContext) []string {
+	return ctx.Keybindings.Keys("app.exit")
+}
+```
+
+The lookup is read-only and uses the same defaults and `~/.smidja/keybindings.json` overrides as the TUI. It never changes the bindings. See the [extension UI SDK documentation](sdk-ui.md).
+
 ## Legacy action names
 
 Earlier builds used short action names. The loader still accepts them and remaps each one to its namespaced ID. Prefer the namespaced IDs in new files.

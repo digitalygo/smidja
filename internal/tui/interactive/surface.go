@@ -40,6 +40,7 @@ type ownedRoot struct {
 }
 
 func (o *ownedRoot) Render(width int) []string {
+	o.surface.prepareExternalFrames(width)
 	var lines []string
 	o.surface.runtime.Run(func() {
 		lines = o.surface.root.Render(width)
@@ -56,6 +57,7 @@ func (o *ownedRoot) StackLayout() tui.StackLayoutSpec {
 }
 
 func (o *ownedRoot) RenderLayoutFrame(width, height int, requestRender func()) *tui.LayoutFrame {
+	o.surface.prepareExternalFrames(width)
 	var frame *tui.LayoutFrame
 	o.surface.runtime.Run(func() {
 		frame = tui.RenderLayoutFrame(o.surface.root, width, height, requestRender)
@@ -80,6 +82,7 @@ type Surface struct {
 	owned       *ownedRoot
 
 	stateMu    sync.RWMutex
+	themeMu    sync.RWMutex
 	controller tui.TUIController
 	onSubmit   func(string)
 	onChange   func(string)
@@ -93,6 +96,7 @@ type Surface struct {
 	footer       *Footer
 	status       *StatusIndicator
 	spinner      *tui.LoaderIndicator
+	ext          *surfaceExtensionState
 
 	assistants       []*AssistantMessage
 	collapsibles     []collapsible
@@ -144,6 +148,7 @@ func NewSurface(options SurfaceOptions) *Surface {
 		thinkingKey:  keyDisplayFor(keybindings, "app.thinking.toggle"),
 	}
 	surface.status = NewStatusIndicator(clock, surface.runtime, options.Controller, options.SpinnerIndicator, keybindings, theme)
+	surface.ext = newSurfaceExtensionState(surface)
 	surface.owned = &ownedRoot{surface: surface}
 	surface.statusRegion.AddChild(surface.status)
 	surface.buildLayout(options)
@@ -170,16 +175,19 @@ func (s *Surface) buildLayout(options SurfaceOptions) {
 		ScrollbarTrackStyle: func(text string) string { return s.theme.Fg("scrollbarTrack", text) },
 		ScrollbarThumbStyle: func(text string) string { return s.theme.Fg("scrollbarThumb", text) },
 	})
-	editorContainer := &tui.Container{}
-	editorContainer.AddChild(s.editor)
+	s.ext.editorSlot.AddChild(s.editor)
+	s.ext.activeEdit = s.editor
+	s.ext.footerSlot.AddChild(s.footer)
 	dock := tui.NewVStack(0, tui.AlignStretch)
-	dock.AddChildWithOptions(editorContainer, tui.StackEntryOptions{Shrink: 1, MinSize: 3})
+	dock.AddChildWithOptions(s.ext.editorSlot, tui.StackEntryOptions{Shrink: 1, MinSize: 3})
 	dock.AddChildWithOptions(s.pending, tui.StackEntryOptions{Shrink: 1})
 	dock.AddChildWithOptions(s.statusRegion, tui.StackEntryOptions{Shrink: 1})
 	dock.AddChildWithOptions(s.widgets, tui.StackEntryOptions{Shrink: 1})
-	dock.AddChildWithOptions(s.footer, tui.StackEntryOptions{Shrink: 1})
+	dock.AddChildWithOptions(s.ext.widgets, tui.StackEntryOptions{Shrink: 1})
+	dock.AddChildWithOptions(s.ext.footerSlot, tui.StackEntryOptions{Shrink: 1})
 	s.root = tui.NewVStack(0, tui.AlignStretch)
 	zero := 0
+	s.root.AddChildWithOptions(s.ext.headerSlot, tui.StackEntryOptions{Shrink: 1})
 	s.root.AddChildWithOptions(s.transcript, tui.StackEntryOptions{Basis: &zero, Grow: 1, Shrink: 1, MinSize: 1})
 	s.root.AddChildWithOptions(dock, tui.StackEntryOptions{Shrink: 1, MinSize: 1})
 }
@@ -191,9 +199,15 @@ func (s *Surface) Footer() *Footer             { return s.footer }
 func (s *Surface) Status() *StatusIndicator    { return s.status }
 func (s *Surface) WidgetPanel() *WidgetPanel   { return s.widgets }
 func (s *Surface) Theme() *tui.Theme {
-	var theme *tui.Theme
-	s.runtime.Run(func() { theme = s.theme })
-	return theme
+	s.themeMu.RLock()
+	defer s.themeMu.RUnlock()
+	return s.theme
+}
+
+func (s *Surface) currentTheme() *tui.Theme {
+	s.themeMu.RLock()
+	defer s.themeMu.RUnlock()
+	return s.theme
 }
 
 func (s *Surface) SetTheme(theme *tui.Theme) {
@@ -201,7 +215,9 @@ func (s *Surface) SetTheme(theme *tui.Theme) {
 		return
 	}
 	s.runtime.Run(func() {
+		s.themeMu.Lock()
 		s.theme = theme
+		s.themeMu.Unlock()
 		for _, child := range s.chat.Children() {
 			applyComponentTheme(child, theme)
 		}
@@ -210,8 +226,14 @@ func (s *Surface) SetTheme(theme *tui.Theme) {
 		s.status.SetTheme(theme)
 		s.widgets.SetTheme(theme)
 	})
+	if s.ext != nil {
+		s.ext.widgets.Invalidate()
+		s.ext.headerSlot.Invalidate()
+		s.ext.editorSlot.Invalidate()
+		s.ext.footerSlot.Invalidate()
+	}
 	if s.transcript != nil {
-		s.transcript.SetScrollbarStyles(func(text string) string { return s.theme.Fg("scrollbarTrack", text) }, func(text string) string { return s.theme.Fg("scrollbarThumb", text) })
+		s.transcript.SetScrollbarStyles(func(text string) string { return theme.Fg("scrollbarTrack", text) }, func(text string) string { return theme.Fg("scrollbarThumb", text) })
 	}
 	s.invalidateChat()
 	s.requestRender()
@@ -245,9 +267,13 @@ func (s *Surface) RenderDocument(width int) []string {
 }
 
 func (s *Surface) RenderRichDocument(width int) tui.RichRender {
+	if s.ext != nil {
+		s.ext.width.Store(int64(width))
+	}
+	s.prepareExternalFrames(width)
 	var rich tui.RichRender
 	s.runtime.Run(func() {
-		for _, component := range []tui.Component{s.chat, s.editor, s.pending, s.statusRegion, s.widgets, s.footer} {
+		for _, component := range []tui.Component{s.ext.headerSlot, s.chat, s.ext.editorSlot, s.pending, s.statusRegion, s.widgets, s.ext.widgets, s.ext.footerSlot} {
 			part := tui.RenderRichFrom(component, width)
 			offset := len(rich.Lines)
 			for _, descriptor := range part.Images {
@@ -261,6 +287,9 @@ func (s *Surface) RenderRichDocument(width int) tui.RichRender {
 }
 
 func (s *Surface) RenderFrame(width, height int) *tui.LayoutFrame {
+	if s.ext != nil {
+		s.ext.width.Store(int64(width))
+	}
 	return s.owned.RenderLayoutFrame(width, height, s.requestRender)
 }
 
@@ -322,7 +351,9 @@ func (s *Surface) AddUserMessage(text string) *UserMessage {
 	var block *UserMessage
 	s.runtime.Run(func() {
 		block = NewUserMessage(text, s.theme, s.hyperlinks)
+		s.applyUserTransformer(block)
 		s.chat.AddChild(block)
+		s.ext.trackPrepared(block)
 	})
 	s.invalidateChat()
 	return block
@@ -335,8 +366,11 @@ func (s *Surface) StartAssistantTurn() *AssistantMessage {
 		assistant.SetThinkingLevel(s.footer.ThinkingLevel())
 		assistant.SetThinkingExpanded(s.thinkingExpanded)
 		assistant.SetThinkingKeyDisplay(s.thinkingKey)
+		s.applyAssistantTransformer(assistant)
+		assistant.SetStreaming(true)
 		s.assistants = append(s.assistants, assistant)
 		s.chat.AddChild(assistant)
+		s.ext.trackPrepared(assistant)
 	})
 	s.invalidateChat()
 	return assistant
@@ -357,6 +391,7 @@ func (s *Surface) AppendAssistantText(delta string) {
 	if assistant == nil {
 		return
 	}
+	assistant.SetStreaming(true)
 	assistant.AppendText(delta)
 	s.invalidateChat()
 }
@@ -366,6 +401,7 @@ func (s *Surface) AppendAssistantThinking(delta string) {
 	if assistant == nil {
 		return
 	}
+	assistant.SetStreaming(true)
 	assistant.AppendThinking(delta)
 	s.invalidateChat()
 }
@@ -375,6 +411,7 @@ func (s *Surface) ReconcileAssistantContent(parts []AssistantMessagePart) bool {
 	if assistant == nil {
 		return false
 	}
+	assistant.SetStreaming(false)
 	assistant.ReconcileContent(parts)
 	s.invalidateChat()
 	return true
@@ -385,6 +422,7 @@ func (s *Surface) EndAssistantTurn(stopReason, errorMessage string) {
 	if assistant == nil {
 		return
 	}
+	assistant.SetStreaming(false)
 	assistant.SetStopReason(stopReason, errorMessage)
 	s.invalidateChat()
 }
@@ -438,6 +476,7 @@ func (s *Surface) AddSkillInvocation(name, content string) *SkillBlock {
 		block.SetExpanded(s.toolsExpanded)
 		s.collapsibles = append(s.collapsibles, block)
 		s.chat.AddChild(block)
+		s.ext.trackPrepared(block)
 	})
 	s.invalidateChat()
 	return block
@@ -501,6 +540,7 @@ func (s *Surface) SetModel(model string) {
 	s.runtime.Run(func() {
 		s.footer.SetModel(model)
 	})
+	s.updateRenderMetadata(func(metadata *RenderMetadata) { metadata.Model = model })
 	s.requestRender()
 }
 
@@ -512,6 +552,7 @@ func (s *Surface) SetThinkingLevel(level string) {
 			assistant.SetThinkingLevel(level)
 		}
 	})
+	s.updateRenderMetadata(func(metadata *RenderMetadata) { metadata.ThinkingLevel = level })
 	s.requestRender()
 }
 
@@ -519,6 +560,7 @@ func (s *Surface) SetWorkspace(workspace string) {
 	s.runtime.Run(func() {
 		s.footer.SetWorkspace(workspace)
 	})
+	s.updateRenderMetadata(func(metadata *RenderMetadata) { metadata.Cwd = workspace })
 	s.requestRender()
 }
 
@@ -526,6 +568,7 @@ func (s *Surface) SetSessionName(name string) {
 	s.runtime.Run(func() {
 		s.footer.SetSessionName(name)
 	})
+	s.updateRenderMetadata(func(metadata *RenderMetadata) { metadata.SessionID = name })
 	s.requestRender()
 }
 
@@ -640,6 +683,7 @@ func (s *Surface) Close() {
 	if s.closed.Swap(true) {
 		return
 	}
+	s.DisposeExtensionComponents()
 	s.runtime.Run(func() {
 		s.status.StopAnimation()
 	})

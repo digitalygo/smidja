@@ -574,6 +574,15 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 			return repl(ctx, lineUI, rd)
 		}
 	}
+	uiRegistry := rd.uiRegistry
+	if uiRegistry == nil && runtime != nil {
+		uiRegistry = runtime.UIRegistry()
+	}
+	if uiRegistry != nil {
+		if err := runner.AttachExtensionUI(uiRegistry); err != nil {
+			runner.Surface().AddNotice(interactive.NoticeWarning, "extensions: "+err.Error())
+		}
+	}
 	if runtime != nil {
 		runtime.SetContextDecorator(func(signal context.Context, base sdk.HandlerContext) sdk.HandlerContext {
 			return runner.InteractiveHandlerContext(signal, base)
@@ -587,6 +596,7 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	surface.SetModel(rd.model)
 	surface.SetWorkspace(workspace)
 	surface.SetSessionName(rd.sessionPath)
+	surface.SetRenderMetadata(interactive.RenderMetadata{Cwd: workspace, SessionID: rd.sessionPath, Model: rd.model})
 	if initial != nil {
 		bridge.replaySession(initial)
 	}

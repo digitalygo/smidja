@@ -182,6 +182,8 @@ type Runner struct {
 	graphicsProber          tui.GraphicsProber
 	graphicsProbeProtocol   tui.GraphicsProtocol
 	graphicsProbeGeneration uint64
+
+	ext *runnerExtensions
 }
 
 var _ tui.TUIController = (*Runner)(nil)
@@ -309,6 +311,8 @@ func NewRunner(opts RunnerOptions) *Runner {
 	view.SetFocus(editor)
 	view.AddInputListener(runner.handleInput)
 	terminal.OnEOF(runner.RequestExit)
+	runner.ext = newRunnerExtensions(runner)
+	surface.SetPanicReporter(runner.reportExtensionPanic)
 	return runner
 }
 
@@ -684,6 +688,10 @@ func (r *Runner) Stop() {
 		r.flushFinalDocument()
 		r.view.Stop(tui.StopOptions{})
 		r.unregisterSignals()
+		if r.ext != nil {
+			r.stopAutocompleteProviders()
+			r.ext.cleanup()
+		}
 		r.surface.Close()
 		r.RequestExit()
 		r.lifecycleCancel()
@@ -754,6 +762,14 @@ func (r *Runner) handleInput(data string) tui.InputListenerResult {
 	if r.graphicsTracker != nil && r.graphicsTracker.Observe(data) {
 		return tui.InputListenerResult{Consume: true}
 	}
+	replaced := false
+	if r.ext != nil {
+		var consume bool
+		data, consume, replaced = r.applyInputHooks(data)
+		if consume {
+			return tui.InputListenerResult{Consume: true}
+		}
+	}
 	if r.editorActive.Load() {
 		return tui.InputListenerResult{Consume: true}
 	}
@@ -762,7 +778,7 @@ func (r *Runner) handleInput(data string) tui.InputListenerResult {
 		return tui.InputListenerResult{Consume: true}
 	}
 	if r.keys.Matches(data, "app.exit") {
-		if strings.TrimSpace(r.surface.Editor().Text()) == "" {
+		if strings.TrimSpace(r.GetEditorText()) == "" {
 			r.RequestExit()
 			return tui.InputListenerResult{Consume: true}
 		}
@@ -774,6 +790,9 @@ func (r *Runner) handleInput(data string) tui.InputListenerResult {
 	}
 	if r.surface.HandleActionKey(data) {
 		return tui.InputListenerResult{Consume: true}
+	}
+	if replaced {
+		return tui.InputListenerResult{HasData: true, Data: data}
 	}
 	return tui.InputListenerResult{}
 }
@@ -807,10 +826,12 @@ func (r *Runner) runExternalEditor() {
 		}
 		return
 	}
+	r.syncEditorForExternalEditor()
 	var editErr error
 	if !r.stopped.Load() {
 		editErr = r.surface.Editor().OpenExternalEditor()
 	}
+	r.syncEditorFromExternalEditor()
 	resumeErr := r.resumeAfterEditor()
 	if resumeErr != nil {
 		r.view.ResumeScreen()

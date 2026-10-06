@@ -16,6 +16,7 @@ import (
 	"github.com/digitalygo/smidja/internal/content"
 	"github.com/digitalygo/smidja/internal/contextmanager"
 	"github.com/digitalygo/smidja/internal/extensions"
+	"github.com/digitalygo/smidja/internal/extensionui"
 	"github.com/digitalygo/smidja/internal/loopdetector"
 	"github.com/digitalygo/smidja/internal/mcp"
 	"github.com/digitalygo/smidja/internal/models"
@@ -48,6 +49,7 @@ interpretation.`
 const modelFetchTimeout = 5 * time.Second
 
 type runDeps struct {
+	uiRegistry   *extensionui.Registry
 	model        string
 	wireModel    string
 	system       string
@@ -191,6 +193,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		}
 	}
 	commands := extensions.NewCommandCatalog()
+	uiRegistry := extensionui.NewRegistry()
 
 	runtime := d.ExtensionRuntime
 	if runtime == nil {
@@ -200,8 +203,10 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		Catalog:       catalog,
 		Commands:      commands,
 		ResolveConfig: cfg.Default,
+		UI:            uiRegistry,
 	})
 	runtime.SetAPI(func() sdk.API { return api })
+	runtime.SetUIRegistry(uiRegistry)
 	if err := runtime.Start(); err != nil {
 		return fail(d, err)
 	}
@@ -330,6 +335,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		},
 		modelRegistry: modelReg,
 		provider:      providerID,
+		uiRegistry:    uiRegistry,
 	}
 	rd.reprepare = func(model, wireModel string) (*contextPreparerAdapter, error) {
 		return newModelPreparer(*cfg, modelReg, model, wireModel, selector)

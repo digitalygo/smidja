@@ -8,27 +8,42 @@ or deferred to a later phase. The smidja side of the matrix is the public
 `github.com/digitalygo/smidja/sdk` package plus the internal ports in
 `internal/agent/ports.go`.
 
-As of the P6 TUI workstream (2026-10), the interactive TUI surface
-(dialogs, selectors, sessions, fullscreen extras) is implemented
-internally and the public `sdk/` package is unchanged through P6. P7,
-the extension-facing UI surface, is not implemented: custom components,
-message, Markdown, and entry renderers, an editor component factory,
-autocomplete providers, a terminal input hook, footer and header hooks,
-editor accessors, theme enumeration, and tools-expanded state stay
-deferred. Print mode and non-TTY paths keep the line interface.
+As of the P7 workstream (2026-10), the extension-facing UI surface is
+implemented on `feat/tui`: custom components, message, entry, and
+Markdown renderers, an editor component factory, autocomplete providers,
+terminal input hooks, header, footer, and component widgets, editor
+accessors, theme enumeration, and tools-expanded state. P7 source and
+adapters passed independent code and review gates; installation and
+final runtime acceptance are tracked separately in the living TUI plan. Existing
+`sdk.UI` signatures are unchanged; the new surface is optional through
+`sdk.ExtendedUI` and `sdk.UIRegistrationAPI`, documented in
+[extension UI SDK](sdk-ui.md).
+
+Fourteen Extension API methods keep frozen signatures but are not
+runtime-backed yet. Their rows are counted as deferred, not as runtime:
+`SetActiveTools`, `SendMessage`, `SendUserMessage`, `AppendEntry`,
+`SetSessionName`, `LabelEntry`, `SetModel`, `SetThinkingLevel`,
+`RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, `Exec`,
+and `EmitCustomEvent`. Thirteen of them return an error naming the
+method (`extensions: API method not available in this release: <name>`),
+and `Flags` returns an empty map placeholder. They land in the next slice
+under the broader runtime-completion request.
 
 ## Disposition legend
 
-- **implement now**: the capability is part of the phase 1 SDK contract and
-  backed by a real v0 implementation.
+- **implement now**: the capability is backed by a real v0
+  implementation, whether it is part of the frozen `sdk.API` contract or
+  the optional P7 interfaces.
 - **implement now, print-mode**: the capability is in the contract and
   works in interactive mode; in print mode (`-p`) the blocking UI dialogs
-  return `sdk.ErrModeUnsupported` and the fire-and-forget UI methods are
-  no-ops, mirroring Pi's "extensions run but can't prompt" mode behavior.
+  return `sdk.ErrModeUnsupported`, interactive-only setters return
+  `sdk.ErrModeUnsupported` or are no-ops, and getters return zero values,
+  mirroring Pi's "extensions run but can't prompt" mode behavior.
 - **deferred**: the capability is either in the contract with its
-  signature frozen but its backing landing in a later wave, or entirely
-  outside the v0 contract (extension-facing TUI surface, gateway,
-  provider waves).
+  signature frozen but its backing landing in a later wave (the method
+  returns the unavailable error for its own name), or entirely outside
+  the v0 contract, for example extension keybinding registration and
+  most Pi events.
 
 ## Inspected sources
 
@@ -51,39 +66,50 @@ All paths are under the installed Pi 0.84.2 package:
 - `dist/core/compaction/compaction.d.ts`: `CompactionResult` shape.
 - `dist/core/event-bus.d.ts`: the inter-extension event bus.
 
+The P7 rows were verified against the smidja worktree: `sdk/ui_component.go`,
+`sdk/ui_renderers.go`, `internal/extensionui/registry.go`,
+`internal/ui/extension_runtime.go`, `extension_components.go`,
+`extension_editor.go`, `extension_modal.go`, `extension_bound_ui.go`,
+`internal/extensions/api_ui.go` and `context_ui.go`,
+`internal/tui/editor_extensions.go`, `internal/tui/interactive/extensions.go`
+and `frame_sanitize.go`, plus the P7 test files listed in
+[extension UI SDK](sdk-ui.md).
+
 ## Extension API surface (`pi.*`)
 
 From `ExtensionAPI` in `dist/core/extensions/types.d.ts`. The smidja
-contract is the `sdk.API` interface in `sdk/context.go`.
+contract is the `sdk.API` interface in `sdk/context.go`; the P7
+registration methods are reached through the optional
+`sdk.UIRegistrationAPI` interface in `sdk/ui_renderers.go`.
 
 | Pi capability | Disposition | Smidja v0 mapping |
 | --- | --- | --- |
 | `on(event, handler)` | implement now (8 of the events) | typed registries: `LLMHookRegistry`, `ToolHookRegistry`, `SessionHookRegistry`; the full event disposition is in the events table below |
 | `registerTool` | implement now | `API.RegisterTool`; registering an existing name replaces it (Pi tool override) |
 | `registerCommand` | implement now | `API.RegisterCommand`; duplicate names get numeric invocation suffixes |
-| `registerShortcut` | deferred | extension keybinding registration is not in the v0 contract; the TUI keybinding registry is host-only |
-| `registerFlag` | implement now | `API.RegisterFlag` |
-| `getFlag` | implement now | `API.Flags` (map of current values, bool or string) |
-| `registerMessageRenderer` | deferred | P7 extension-facing UI surface |
-| `registerMarkdownTransformer` | deferred | P7 extension-facing UI surface |
-| `registerEntryRenderer` | deferred | P7 extension-facing UI surface |
-| `sendMessage` | implement now | `API.SendMessage`; delivery modes (`steer`, `followUp`, `nextTurn`) modeled, queue ordering semantics land with the loop-detector wave |
-| `sendUserMessage` | implement now | `API.SendUserMessage`; text content only, image content deferred |
-| `appendEntry` | implement now | `API.AppendEntry` (custom session entries, not sent to the model) |
-| `setSessionName` | implement now | `API.SetSessionName` |
+| `registerShortcut` | deferred | no SDK method exists; extension keybinding registration is not in the v0 contract and the TUI keybinding registry is host-only |
+| `registerFlag` | deferred | `API.RegisterFlag` is frozen but returns the unavailable error naming the method; flag registration is next-slice work |
+| `getFlag` | deferred | `API.Flags` returns an empty map placeholder; no flag values are populated |
+| `registerMessageRenderer` | implement now | `UIRegistrationAPI.RegisterMessageRenderer`; backed by `internal/extensionui.Registry` and the runner surface for live and replayed messages |
+| `registerMarkdownTransformer` | implement now | `UIRegistrationAPI.RegisterMarkdownTransformer`; composed in registration order and applied to live and replayed Markdown |
+| `registerEntryRenderer` | implement now | `UIRegistrationAPI.RegisterEntryRenderer`; separate map from message renderers |
+| `sendMessage` | deferred | `API.SendMessage` returns the unavailable error. The host has a delivery seam (`Runner.DeliverCustomMessage`) used by wiring and replay, and renderers draw host-delivered messages, but an extension cannot enqueue a custom message yet; delivery modes and queue ordering land with the next slice |
+| `sendUserMessage` | deferred | `API.SendUserMessage` returns the unavailable error; text and image content both unwired |
+| `appendEntry` | deferred | `API.AppendEntry` returns the unavailable error; extensions cannot append custom session entries yet |
+| `setSessionName` | deferred | `API.SetSessionName` returns the unavailable error; the read side `SessionView.Name` is implemented |
 | `getSessionName` | implement now | read side via `HandlerContext.SessionManager().Name()` |
-| `setLabel` | implement now | `API.LabelEntry`; label entries append to the session file |
-| `exec` | implement now | `API.Exec` with `ExecOptions` timeout |
+| `setLabel` | deferred | `API.LabelEntry` returns the unavailable error; the internal tree browser can append labels, extensions cannot |
+| `exec` | deferred | `API.Exec` returns the unavailable error; `ExecOptions` timeout is modeled |
 | `getActiveTools` | implement now | `API.ActiveTools` |
 | `getAllTools` | implement now | `API.AllTools` (`ToolInfo` with name, description, schema, source) |
-| `setActiveTools` | implement now | `API.SetActiveTools`; unknown names ignored, additive changes supported |
+| `setActiveTools` | deferred | `API.SetActiveTools` returns the unavailable error; unknown-name and additive semantics are documented but unwired |
 | `getCommands` | implement now | `API.Commands` (`CommandInfo` without Pi's `sourceInfo` provenance) |
-| `setModel` | implement now | `API.SetModel`; returns `error` instead of Pi's `Promise<boolean>` |
+| `setModel` | deferred | `API.SetModel` returns the unavailable error |
 | `getThinkingLevel` | implement now | read side via `HandlerContext.ThinkingLevel()` |
-| `setThinkingLevel` | implement now | `API.SetThinkingLevel`; model-capability clamping deferred |
-| `registerProvider` | implement now | `API.RegisterProvider`; OpenRouter-completions dialect only, other dialects deferred |
-| `unregisterProvider` | implement now | `API.RemoveProvider` |
-| `events` bus | implement now (emit) | `API.EmitCustomEvent`; the subscribe side is not in the v0 contract and is deferred |
+| `setThinkingLevel` | deferred | `API.SetThinkingLevel` returns the unavailable error; model-capability clamping is unwired |
+| `registerProvider` | deferred | `API.RegisterProvider` returns the unavailable error; the OpenRouter-completions dialect and other dialects are unwired |
+| `unregisterProvider` | deferred | `API.RemoveProvider` returns the unavailable error |
+| `events` bus | deferred | `API.EmitCustomEvent` returns the unavailable error; the subscribe side is not in the v0 contract |
 
 ## Handler context surface (`ctx.*`)
 
@@ -92,7 +118,7 @@ contract is `sdk.HandlerContext` in `sdk/context.go`.
 
 | Pi capability | Disposition | Smidja v0 mapping |
 | --- | --- | --- |
-| `ctx.ui` | implement now, print-mode | `HandlerContext.UI()`; see the UI table below |
+| `ctx.ui` | implement now, print-mode | `HandlerContext.UI()`; the interactive TUI returns the bound runner UI, which implements `sdk.ExtendedUI`; print mode returns the no-op UI, which also implements `sdk.ExtendedUI` with unsupported, error, or no-op semantics. `LineUI` implements only `sdk.UI`, so callers assert and guard with `HasUI()` |
 | `ctx.mode` | implement now | `Mode` with `ModeInteractive` and `ModePrint`; Pi's `rpc` and `json` modes deferred to the gateway phase |
 | `ctx.hasUI` | implement now | `HandlerContext.HasUI()` |
 | `ctx.cwd` | implement now | `HandlerContext.Cwd()` |
@@ -132,7 +158,8 @@ signatures frozen in the contract so later waves do not rework them.
 ## UI surface (`ctx.ui.*`)
 
 From `ExtensionUIContext` in `dist/core/extensions/types.d.ts`. The smidja
-contract is `sdk.UI` in `sdk/ui.go`.
+contract is `sdk.UI` in `sdk/ui.go` for the base methods and the optional
+`sdk.ExtendedUI` interface in `sdk/ui_component.go` for the P7 methods.
 
 | Pi capability | Disposition | Smidja v0 mapping |
 | --- | --- | --- |
@@ -142,15 +169,15 @@ contract is `sdk.UI` in `sdk/ui.go`.
 | `editor()` | implement now, print-mode | `UI.Editor`; returns `ErrModeUnsupported` in print mode |
 | `notify()` | implement now, print-mode | `UI.Notify`; no-op in print mode |
 | `setStatus()` | implement now, print-mode | `UI.SetStatus`; no-op in print mode |
-| `setWidget()` | implement now, print-mode | `UI.SetWidget`; string-list content only, component factories deferred to P7 |
+| `setWidget()` | implement now, print-mode | `UI.SetWidget` for string lists and `ExtendedUI.SetWidgetComponent` for keyed component widgets; no-op in print mode |
 | `setWorkingMessage()` | implement now, print-mode | `UI.SetWorkingMessage`; no-op in print mode |
 | `setTitle()` | implement now, print-mode | `UI.SetTitle`; no-op in print mode |
-| `onTerminalInput()` | deferred | P7 extension-facing UI surface |
-| `setWorkingVisible()`, `setWorkingIndicator()`, `setHiddenThinkingLabel()` | deferred | P7 extension-facing UI surface |
-| `setFooter()`, `setHeader()` | deferred | P7 extension-facing UI surface |
-| `custom()` components | deferred | P7 extension-facing UI surface |
-| `pasteToEditor()`, `setEditorText()`, `getEditorText()`, `addAutocompleteProvider()`, `setEditorComponent()`, `getEditorComponent()` | deferred | P7 extension-facing UI surface |
-| `theme`, `getAllThemes()`, `getTheme()`, `setTheme()`, `getToolsExpanded()`, `setToolsExpanded()` | deferred | the interactive TUI exposes host-driven theme selection and tools expansion; the SDK surface is P7 |
+| `onTerminalInput()` | implement now, print-mode | `ExtendedUI.OnTerminalInput`; returns an idempotent unsubscribe function; hooks run after protocol filtering and before application keybindings, and host modals that capture input bypass them; returns `ErrModeUnsupported` in print mode |
+| `setWorkingVisible()`, `setWorkingIndicator()`, `setHiddenThinkingLabel()` | implement now, print-mode | `ExtendedUI.SetWorkingVisible`, `SetWorkingIndicator`, `SetHiddenThinkingLabel`; a nil indicator restores defaults, an explicitly empty frame list hides, intervals are milliseconds, and an empty label restores the default; setters are no-ops in print mode |
+| `setFooter()`, `setHeader()` | implement now, print-mode | `ExtendedUI.SetFooter` and `SetHeader`; a nil factory restores the built-in footer or the empty header and disposes the replaced component; no-ops in print mode |
+| `custom()` components | implement now, print-mode | `ExtendedUI.ShowModal` for factory-built modals and `ExtendedUI.ShowComponent` for registered components; placement options are not modeled; factories run outside host locks; returns `ErrModeUnsupported` in print mode |
+| `pasteToEditor()`, `setEditorText()`, `getEditorText()`, `addAutocompleteProvider()`, `setEditorComponent()`, `getEditorComponent()` | implement now, print-mode | `ExtendedUI.PasteToEditor`, `SetEditorText`, `GetEditorText`, `AddAutocompleteProvider`, `SetEditorComponent`, `GetEditorComponent`; the editor factory receives `sdk.EditorContext`, a nil factory restores the built-in editor, and autocomplete returns an idempotent unsubscribe; `SetEditorComponent` and `AddAutocompleteProvider` return `ErrModeUnsupported` in print mode and the getters return zero values |
+| `theme`, `getAllThemes()`, `getTheme()`, `setTheme()`, `getToolsExpanded()`, `setToolsExpanded()` | implement now, print-mode | `ExtendedUI.AllThemes`, `GetTheme`, `ActiveTheme`, `SetTheme`, `ToolsExpanded`, `SetToolsExpanded`; reads do not activate a theme, `SetTheme` applies immediately and retimes the custom-theme watcher without persisting; print mode returns no themes and `ErrModeUnsupported` for `SetTheme` |
 
 ## Events
 
@@ -158,6 +185,10 @@ From `ExtensionEvent` and the agent-session event set in
 `dist/core/extensions/types.d.ts` and `dist/core/agent-session.d.ts`. The
 smidja contract is the handler func types in `sdk/hooks.go` and the event
 structs in `sdk/events.go`.
+
+P7 adds no events. The 27 deferred events below stay outside P7 on
+purpose, one per later runtime wave, and the matrix never counts a typed
+handler signature as runtime dispatch.
 
 | Pi event | Disposition | Smidja v0 mapping |
 | --- | --- | --- |
@@ -203,19 +234,29 @@ modeled in `sdk.CompactionResult`:
 
 ## Disposition counts
 
+The row inventory is fixed at 102 capabilities. Print-mode rows are
+counted in their own column and are not merged into the core count.
+
 | Surface | Implement now | Implement now, print-mode | Deferred | Total |
 | --- | --- | --- | --- | --- |
-| Extension API (`pi.*`) | 22 | 0 | 4 | 26 |
+| Extension API (`pi.*`) | 11 | 0 | 15 | 26 |
 | Handler context (`ctx.*`) | 13 | 1 | 4 | 18 |
 | Command context | 3 | 0 | 5 | 8 |
-| UI (`ctx.ui.*`) | 0 | 9 | 6 | 15 |
+| UI (`ctx.ui.*`) | 0 | 15 | 0 | 15 |
 | Events | 8 | 0 | 27 | 35 |
-| Total | 46 | 10 | 46 | 102 |
+| Total | 35 | 16 | 51 | 102 |
 
-Of the 56 implemented capabilities, 10 carry print-mode semantics: in
-print mode the `ctx.ui` surface exposes 4 blocking dialogs that return
+51 capabilities are implemented: 35 core plus 16 with print-mode
+semantics. The UI table moved from 9 to 15 print-mode rows, because P7
+closes its 6 deferred rows. The Extension API table carries 15 deferred
+rows: the 14 signature-frozen methods listed at the top of this page plus
+`registerShortcut`, which has no method at all.
+
+In print mode the `ctx.ui` surface has 4 blocking dialogs that return
 `sdk.ErrModeUnsupported` and 5 fire-and-forget methods that are no-ops.
-The interactive TUI command context also implements `newSession`,
+The P7 surface follows the same rule: interactive-only operations return
+`sdk.ErrModeUnsupported`, setters are no-ops, and getters return zero
+values. The interactive TUI command context also implements `newSession`,
 `fork`, and `switchSession`; print and line modes return
 `sdk.ErrModeUnsupported` for those three.
 
@@ -255,3 +296,32 @@ The interactive TUI command context also implements `newSession`,
   `sdk/events.go` equal Pi's event type names (`context`, `message_end`,
   `tool_call`, ...); the typed registries are the idiomatic Go
   registration path.
+- **The extended UI surface is an optional interface.** Pi methods such as
+  `setHeader` and `addAutocompleteProvider` do not extend `sdk.UI`.
+  Smidja puts them on `sdk.ExtendedUI`, so the frozen `sdk.UI` interface
+  and the line interface keep compiling. Callers must assert and guard
+  with `HasUI()`.
+- **Registration is an optional interface on `sdk.API`.** The renderer,
+  widget, component, and input hook registrations live on
+  `sdk.UIRegistrationAPI`, which `sdk.API` implementations satisfy but do
+  not declare. Extensions that only know `sdk.API` keep compiling, and
+  registration succeeds into an inert registry when no surface is
+  attached.
+- **Signature-frozen methods are deferred until runtime-backed.**
+  `SetActiveTools`, `SendMessage`, `SendUserMessage`, `AppendEntry`,
+  `SetSessionName`, `LabelEntry`, `SetModel`, `SetThinkingLevel`,
+  `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, `Exec`,
+  and `EmitCustomEvent` are counted as deferred even though their
+  signatures exist, because calling them returns the unavailable error
+  (or, for `Flags`, an empty map placeholder). Counting signatures as
+  runtime would overstate parity.
+- **Host delivery is not `SendMessage`.** The interactive runner can
+  render a custom message or entry the host delivers (`DeliverCustomMessage`,
+  `DeliverCustomEntry`), which is how replay and renderer tests exercise
+  the render path. An extension still cannot send a message through
+  `API.SendMessage`, so the two capabilities are reported separately.
+- **`registerShortcut` stays out.** No SDK method exists, and extension
+  keybinding registration is not planned for the current surface.
+- **P7 adds no events.** Renderer and UI registration does not dispatch
+  any of the deferred Pi events; event parity remains an explicit later
+  wave.

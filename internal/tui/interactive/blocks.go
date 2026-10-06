@@ -102,19 +102,56 @@ func thinkingLevelToken(level string) tui.ThemeColor {
 }
 
 type UserMessage struct {
-	mu       sync.Mutex
-	markdown *Markdown
-	theme    *tui.Theme
+	mu           sync.Mutex
+	markdown     *Markdown
+	theme        *tui.Theme
+	raw          string
+	transformer  MarkdownTransformer
+	preparedText string
+	prepared     bool
 }
 
 func NewUserMessage(text string, theme *tui.Theme, hyperlinks bool) *UserMessage {
 	style := MarkdownStyle{TextColor: func(text string) string { return theme.Fg("userMessageText", text) }}
-	return &UserMessage{markdown: NewMarkdown(text, 0, 0, theme, style, hyperlinks), theme: theme}
+	block := &UserMessage{markdown: NewMarkdown(text, 0, 0, theme, style, hyperlinks), theme: theme, raw: text}
+	return block
 }
 
-func (u *UserMessage) SetText(text string) { u.markdown.SetText(text) }
+func (u *UserMessage) SetText(text string) {
+	u.mu.Lock()
+	u.raw = text
+	u.prepared = false
+	u.mu.Unlock()
+}
 
-func (u *UserMessage) Text() string { return u.markdown.Text() }
+func (u *UserMessage) SetMarkdownTransformer(transformer MarkdownTransformer) {
+	u.mu.Lock()
+	u.transformer = transformer
+	u.prepared = false
+	u.mu.Unlock()
+}
+
+func (u *UserMessage) PrepareExternalFrame(width int) {
+	u.mu.Lock()
+	raw := u.raw
+	transformer := u.transformer
+	u.prepared = false
+	u.mu.Unlock()
+	text := raw
+	if transformer != nil {
+		text = SanitizeDisplayText(transformer(raw, MarkdownTransformContext{Kind: "user", Width: width}))
+	}
+	u.mu.Lock()
+	u.preparedText = text
+	u.prepared = true
+	u.mu.Unlock()
+}
+
+func (u *UserMessage) Text() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.raw
+}
 
 func (u *UserMessage) Invalidate() {
 	u.mu.Lock()
@@ -125,6 +162,11 @@ func (u *UserMessage) Invalidate() {
 func (u *UserMessage) RenderRich(width int) tui.RichRender {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	text := u.raw
+	if u.prepared {
+		text = u.preparedText
+	}
+	u.markdown.SetText(text)
 	contentWidth := blockContentWidth(width, 1)
 	content := u.markdown.RenderRich(contentWidth)
 	if len(content.Lines) == 0 {
@@ -164,11 +206,70 @@ type AssistantMessage struct {
 	thinkingKey      string
 	stopReason       string
 	errorMessage     string
+	transformer      MarkdownTransformer
+	hiddenLabel      string
+	streaming        bool
+	preparedSegments []string
+	preparedValid    bool
+	preparedVersion  int
 	version          int
 	cacheValid       bool
 	cacheWidth       int
 	cacheRender      []string
 	cacheRich        tui.RichRender
+}
+
+func (a *AssistantMessage) SetMarkdownTransformer(transformer MarkdownTransformer) {
+	a.mu.Lock()
+	a.transformer = transformer
+	a.version++
+	a.cacheValid = false
+	a.mu.Unlock()
+}
+
+func (a *AssistantMessage) SetHiddenThinkingLabel(label string) {
+	a.mu.Lock()
+	a.hiddenLabel = label
+	a.version++
+	a.cacheValid = false
+	a.mu.Unlock()
+}
+
+func (a *AssistantMessage) SetStreaming(streaming bool) {
+	a.mu.Lock()
+	a.streaming = streaming
+	a.version++
+	a.cacheValid = false
+	a.mu.Unlock()
+}
+
+func (a *AssistantMessage) PrepareExternalFrame(width int) {
+	a.mu.Lock()
+	segments := append([]assistantSegment(nil), a.segments...)
+	transformer := a.transformer
+	streaming := a.streaming
+	version := a.version
+	a.preparedValid = false
+	a.mu.Unlock()
+	if transformer == nil {
+		return
+	}
+	prepared := make([]string, len(segments))
+	for index, segment := range segments {
+		kind := "assistant"
+		if segment.thinking {
+			kind = "assistant-thinking"
+		}
+		prepared[index] = SanitizeDisplayText(transformer(segment.text, MarkdownTransformContext{Kind: kind, Streaming: streaming, Width: width}))
+	}
+	a.mu.Lock()
+	if a.version == version {
+		a.preparedSegments = prepared
+		a.preparedValid = true
+		a.preparedVersion = version
+		a.cacheValid = false
+	}
+	a.mu.Unlock()
 }
 
 func NewAssistantMessage(theme *tui.Theme, hyperlinks bool) *AssistantMessage {
@@ -307,15 +408,19 @@ func (a *AssistantMessage) renderRich(width int) tui.RichRender {
 	if hasContent {
 		out.Lines = append(out.Lines, "")
 	}
-	for _, segment := range a.segments {
+	for index, segment := range a.segments {
 		if strings.TrimSpace(segment.text) == "" {
 			continue
 		}
+		text := segment.text
+		if a.preparedValid && a.preparedVersion == a.version && index < len(a.preparedSegments) {
+			text = a.preparedSegments[index]
+		}
 		if segment.thinking {
-			out.Lines = append(out.Lines, a.renderThinking(segment.text, safeWidth)...)
+			out.Lines = append(out.Lines, a.renderThinking(text, safeWidth)...)
 			continue
 		}
-		markdown := NewMarkdown(segment.text, 1, 0, a.theme, MarkdownStyle{}, a.hyperlinks)
+		markdown := NewMarkdown(text, 1, 0, a.theme, MarkdownStyle{}, a.hyperlinks)
 		rich := markdown.RenderRich(safeWidth)
 		offset := len(out.Lines)
 		for _, descriptor := range rich.Images {
@@ -331,7 +436,11 @@ func (a *AssistantMessage) renderRich(width int) tui.RichRender {
 func (a *AssistantMessage) renderThinking(text string, width int) []string {
 	if !a.thinkingExpanded {
 		token := thinkingLevelToken(a.thinkingLevel)
-		label := a.theme.Fg(token, a.theme.Italic("Thinking..."))
+		text := a.hiddenLabel
+		if text == "" {
+			text = "Thinking..."
+		}
+		label := a.theme.Fg(token, a.theme.Italic(text))
 		if a.thinkingKey != "" {
 			label += a.theme.Fg("dim", " ("+a.thinkingKey+" to expand)")
 		}
@@ -412,13 +521,48 @@ func (n *Notice) Render(width int) []string {
 }
 
 type SkillBlock struct {
-	mu         sync.Mutex
-	name       string
-	content    string
-	expanded   bool
-	theme      *tui.Theme
-	hyperlinks bool
-	keyDisplay string
+	mu           sync.Mutex
+	name         string
+	content      string
+	expanded     bool
+	theme        *tui.Theme
+	hyperlinks   bool
+	keyDisplay   string
+	transformer  MarkdownTransformer
+	preparedText string
+	prepared     bool
+}
+
+func (s *SkillBlock) SetMarkdownTransformer(transformer MarkdownTransformer) {
+	s.mu.Lock()
+	s.transformer = transformer
+	s.prepared = false
+	s.mu.Unlock()
+}
+
+func (s *SkillBlock) PrepareExternalFrame(width int) {
+	s.mu.Lock()
+	content := s.content
+	transformer := s.transformer
+	s.prepared = false
+	s.mu.Unlock()
+	if transformer == nil {
+		return
+	}
+	text := SanitizeDisplayText(transformer(content, MarkdownTransformContext{Kind: "custom", Width: width}))
+	s.mu.Lock()
+	if s.content == content {
+		s.preparedText = text
+		s.prepared = true
+	}
+	s.mu.Unlock()
+}
+
+func (s *SkillBlock) renderContentLocked(width int) string {
+	if s.prepared {
+		return s.preparedText
+	}
+	return s.content
 }
 
 func NewCustomBlock(label, content string, theme *tui.Theme, hyperlinks bool, keyDisplay string) *SkillBlock {
@@ -467,7 +611,7 @@ func (s *SkillBlock) RenderRich(width int) tui.RichRender {
 	label := theme.Fg("customMessageLabel", theme.Bold("[skill]"))
 	var content tui.RichRender
 	if s.expanded {
-		markdown := NewMarkdown("**"+s.name+"**\n\n"+s.content, 0, 0, theme, MarkdownStyle{
+		markdown := NewMarkdown("**"+s.name+"**\n\n"+s.renderContentLocked(contentWidth), 0, 0, theme, MarkdownStyle{
 			TextColor: func(text string) string { return theme.Fg("customMessageText", text) },
 		}, s.hyperlinks)
 		rich := markdown.RenderRich(contentWidth)

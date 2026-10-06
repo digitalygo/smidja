@@ -111,6 +111,11 @@ func (e *Editor) afterEditLocked() {
 }
 
 func (e *Editor) HandleInput(data string) {
+	e.handleInput(data)
+	e.flushExternalAutocomplete()
+}
+
+func (e *Editor) handleInput(data string) {
 	e.mu.Lock()
 	if e.jumpMode != "" {
 		kb := GlobalKeybindings()

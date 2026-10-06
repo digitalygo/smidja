@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/digitalygo/smidja/internal/extensionui"
 	"github.com/digitalygo/smidja/sdk"
 )
 
@@ -20,8 +21,9 @@ type Runtime struct {
 	ctx      HostContext
 	logger   Logger
 
-	mu        sync.RWMutex
-	decorator ContextDecorator
+	mu         sync.RWMutex
+	decorator  ContextDecorator
+	uiRegistry *extensionui.Registry
 }
 
 func NewRuntime(reg *Registry) *Runtime {
@@ -41,6 +43,19 @@ func (r *Runtime) SetContext(hc HostContext) *Runtime {
 func (r *Runtime) SetLogger(l Logger) *Runtime {
 	r.logger = l
 	return r
+}
+
+func (r *Runtime) SetUIRegistry(registry *extensionui.Registry) *Runtime {
+	r.mu.Lock()
+	r.uiRegistry = registry
+	r.mu.Unlock()
+	return r
+}
+
+func (r *Runtime) UIRegistry() *extensionui.Registry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.uiRegistry
 }
 
 func (r *Runtime) SetContextDecorator(decorator ContextDecorator) {

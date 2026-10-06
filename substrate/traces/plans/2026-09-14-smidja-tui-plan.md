@@ -7,22 +7,22 @@ planner: planner
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-09-15T00:31:24+02:00
-last_updated_at: 2026-10-06
+last_updated_at: 2026-10-07
 ---
 
 # Smidja TUI implementation plan
 
 ## Current execution snapshot
 
-- **Status:** In progress on the explicitly approved `feat/tui` branch. P5 is published and synchronized; P6 is active.
+- **Status:** In progress on the explicitly approved `feat/tui` branch. P5 and P6 are published and installed-runtime verified; corrected P7 is independently accepted and ready for publication.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
 - **Execution baseline:** Current session resumed from `5d15ed0` on approved `feat/tui`, preserving unfinished P5. P6 code and docs are gated against published P5 baseline `1a9f71a83a212105f1c98e433d842f3a03a5a8d9`.
-- **Active phase:** Phase P6: final product wiring, configuration, startup trust/OAuth, documentation and installation.
-- **Last verified checkpoint:** Checkpoint 2026-10-06T21:27:29+02:00, corrected P6 executable artifact accepted with independent tests, race, coverage, four static builds and delegated quality/security PASS.
-- **Last successful checks:** Corrected P6 formatting, vet, build, uncached delta tests, affected race suite, 32 repeated login race runs, explicit real PTY startup/trust and prior smoke tests, Markdown validation, four static release builds, dependency/protected-path checks passed. Fifteen executable delta files reach 88.7-100% instrumented changed-line coverage. Full-suite attempts alternated between a complete pass and known baseline MCP/session flakes; unchanged terminal lock-test race also reproduced on P5.
-- **Open blockers:** P6, P7 and final installed-binary acceptance remain open. Full-suite attempts expose unchanged MCP restart and session timestamp-order flakes, independently reproduced on untouched `origin/alpha`; all P5 delta tests pass. External ecosystem acceptance still requires an independent creator.
+- **Active phase:** Phase P7 publication and final expanded installed-runtime acceptance.
+- **Last verified checkpoint:** Checkpoint 2026-10-07T01:37:44+02:00, corrected P7 code passes complete independent delta verification and repeated quality/security reviews.
+- **Last successful checks:** P7 formatting, diff checks, vet, build, fresh upstream-instrumented tests, complete affected race suite, 10 repeated real-wrapper/editor/OSC8 regression sets, four static release builds and 14 PTY tests passed. All 28 executable delta files reach 83.9-100% changed instrumented-line and 85-100% overlapping-block statement coverage. Full-suite failures remain the independently alpha-reproduced MCP/session flakes.
+- **Open blockers:** No P7 code-review blocker remains. P7 publication, final expanded installed-binary acceptance and additional runtime backlog remain open. Genuine external ecosystem acceptance still requires an independent creator. Full-suite attempts expose unchanged MCP restart and session timestamp-order flakes, independently reproduced on untouched `origin/alpha`; all P5 delta tests pass. External ecosystem acceptance still requires an independent creator.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
-- **Next action:** Publish accepted P6 as one conventional commit with this ledger and operation record, verify local/remote/PR equality, install that committed build and prove real regular/fullscreen PTY behavior. Begin P7 implementation only after that installation gate.
+- **Next action:** Publish `feat(sdk): add extension UI runtime`, verify local/remote/PR equality, reinstall the committed binary and expand real installed-runtime acceptance. Execute remaining `run`, prompt/agent and SDK host-backing work through a separate living plan without rewriting this immutable TUI baseline.
 
 ## Planner baseline
 
@@ -498,9 +498,48 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** Accept P6 executable work and documentation. The operation record `substrate/traces/operations/2026-10-06-smidja-tui-implementation.md` records completed recovery slices while the plan remains in progress. Keep installation and final identity/runtime evidence as explicit unclosed gates. A non-cooperative injected auth callback may outlive the one-second join grace but cannot mutate settled UI or persist credentials; built-in providers honor cancellation.
 - **Next action:** Commit and publish `feat(tui): finish configuration and interactive startup`, then install and verify the exact committed P6 binary before P7.
 
+#### Checkpoint 2026-10-06T21:39:06+02:00: P6 published and installed runtime independently accepted
+
+- **Event:** P6 is published at `b091d74506b4aa98970c3f6f934ca406fd1547a1`, `feat(tui): finish configuration and interactive startup`, and its exact committed static binary is installed.
+- **Planner prediction:** P6 closes only with actual installed-binary identity and regular/fullscreen PTY evidence before P7 starts.
+- **Subagent claims:** A bounded installation worker built release-matrix artifacts, atomically replaced only `/home/luca/.local/bin/smidja`, preserved the older binary in `/tmp`, and reported both installed-runtime scenarios passing with temporary homes and a local model fixture.
+- **Orchestrator finding:** Read the acceptance harness in full and independently reran it against the installed binary. This proves actual executable behavior, not injected internal factory behavior. No live credential was used, no external model was contacted, and the hardcoded catalog connection was intercepted by a local proxy.
+- **Independently verified facts:** Main, origin and OPEN PR 1 match `b091d74`; worktree is clean. Installed identity is version `v0.3.0-tui.1`, origin `github.com/digitalygo/smidja`, commit `b091d74`, SHA-256 `bc9183cc9dc1eeee9deca6ec4cfeb8375da8d69a63ca90102c4e73f41f378d5a`, static ELF with CGO disabled. Independent report `/tmp/smidja-p6-independent-installed-report.json` passes 15 checks in each mode: exact multiline request, streamed text separated in time, tool call and actual read result, quit exit zero and exact termios restoration. Regular has no alternate-screen entry; fullscreen bytes satisfy entry at 0, response at 11049, exit at 17470. All temporary homes and workspaces were removed and no Smidja test process remained.
+- **Decision and impact:** P6 is complete. Installed version remains a local prerelease; `smidja update` can replace it with the public release. Final acceptance still needs the later final head, model switching, session lifecycle and remaining UI surfaces. The quality cursor is `b091d74`.
+- **Next action:** Implement P7; preserve existing SDK signatures and dependency direction.
+
 ### Phase P7 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-10-06T21:39:06+02:00: P7 contract and integration boundary selected
+
+- **Event:** P7 implementation is authorized after the complete P6 gate.
+- **Planner prediction:** Add Go equivalents of custom components, renderers, editor factories/autocomplete, terminal input hooks, header/footer, editor accessors, themes and expanded tools without changing existing method signatures.
+- **Subagent claims:** Analysis identified concrete component, modal, editor, input-listener, theme and surface seams, plus missing host backing for existing non-UI runtime methods. Separate custom-message versus custom-entry renderers require a projection discriminator, not a session-format change.
+- **Orchestrator finding:** Add optional SDK interfaces with SDK-neutral typed components and registration, keeping frozen `UI`, `API` and handler signatures unchanged. Reuse existing internal primitives and modal ownership; public SDK must not import `internal/tui`. Registration ordering must be deterministic, custom resources disposed on replacement/close/stop, and user component frames sanitized while preserving allowed styling. Input hooks must not observe masked modal input or protocol replies. Editor and autocomplete callbacks must run without held host locks. Theme reads must not activate a theme, while selection uses the existing retheme/watcher path. Print/non-TTY extended operations must remain explicit unsupported or harmless no-ops.
+- **Independently verified facts:** Existing `tui.Component`, modal queue, input-listener unsubscribe, editor operations, `ThemeRegistry`, surface tools-expanded state and extension Setup registry provide reusable mechanisms. Existing core `API` action stubs are real and separate from P7; registration alone cannot claim live message delivery until those actions are backed.
+- **Decision and impact:** Implement one coherent P7 adapter slice with one source/test writer and no competing implementation. This follows the accepted recovery source and known primitive contracts; decisions are internal API shape and ownership, not new behavioral requirements. Message and entry renderers must both reach actual host/replay paths; Markdown transforms must reach streaming and replay, with sanitization afterward. Document any unsupported surface honestly rather than mark a placeholder as parity.
+- **Next action:** Delegate P7 code/tests, then docs and complete independent gates.
+
+
+#### Checkpoint 2026-10-06T23:46:10+02:00: P7 reviews block publication despite passing deterministic checks
+
+- **Event:** Complete P7 code and docs were independently tested, but quality returned exact `FAIL` and focused security returned exact `BLOCKED`; no P7 code is committed or published.
+- **Planner prediction:** P7 requires actual runtime adapters, safe callback lifetimes, unchanged SDK signatures and successful applicable reviews, not registration placeholders or test-only claims.
+- **Subagent claims:** The implementer corrected eight initially identified ownership, reentrancy, race and panic defects. Documentation now describes real additive interfaces and honestly marks 14 pre-existing unbacked core runtime methods deferred. The reviewers independently verified the artifact and reported remaining defects.
+- **Orchestrator finding:** Source inspection anticipated that wrapper `externalMu` and registry `refreshMu` could still self-deadlock through raw component self-removal or factory re-registration. Independent quality review reproduced both paths with temporary overlays. Security review found OSC 8 parameters were not validated and the cleaned safe target was discarded while raw input bytes were emitted, allowing nested terminal controls. These findings restore existing agreed callback and sanitization requirements; no product-scope approval change is needed.
+- **Independently verified facts:** Artifact `P7-bbc4e999a0a9`, SHA-256 `bbc4e999a0a9602349a8a40244b45a7b1172df0f26a4ecdb797477e2fe6a1fab`, covers 51 files excluding traces and every file hash verifies. Fresh upstream-instrumented tests for seven affected packages pass, duplicate coverage blocks are OR-merged, and all 28 executable delta files reach 83.9-100% changed instrumented lines and 85-100% overlapping-block statements. Complete affected race tests and 10 repeated initial-blocker tests pass. Four static release builds and 13 explicit PTY regression tests pass without skips. Frozen SDK interface files and `go.mod` are unchanged; `go.sum` is absent. Full suite still reports only independently alpha-reproduced MCP/session baseline flakes. An additional baseline P6 frame-timing probe passed, so unverified worker-reported frame flakes are not classified as proven pre-existing findings.
+- **Decision and impact:** Do not advance the quality cursor from P6. Preserve exact quality findings: raw callbacks under `externalMu` self-deadlock when their slot is cleared/replaced; factories under `refreshMu` deadlock on nested registry notifications. Preserve exact security finding H1: validate OSC 8 parameters and reserialize only validated parameters and cleaned targets, rejecting embedded C0/C1/ESC controls and clipboard/cursor/mode payloads. Also close related hidden-label sanitization and editor accessor panic-containment gaps while touching those adapters.
+- **Next action:** Delegate only these bounded corrections, add regressions on actual SDK wrapper paths, then repeat independent deterministic coverage/race/static/PTY checks and both reviews on the entire P7 delta.
+
+#### Checkpoint 2026-10-07T01:37:44+02:00: corrected P7 accepted by both repeated reviews
+
+- **Event:** P7 correction loops closed every blocking quality and security finding; exact repeated verdicts are quality `PASS` and focused security `PASS`.
+- **Planner prediction:** P7 provides real optional extension UI adapters while preserving all pre-existing SDK signatures and reaching the same deterministic and review gates as earlier phases.
+- **Subagent claims:** Callback leases retire components immediately and defer raw disposal until in-flight calls drain, without locks across raw callbacks. Nested registry notifications coalesce through a bounded pending loop. OSC 8 is validated and canonically serialized from safe parameters and cleaned targets. Default editor restoration handles empty text, reentrant callbacks, generation arbitration and panic containment. Documentation describes source-backed operations and keeps non-UI stubs deferred.
+- **Orchestrator finding:** Direct source/diff/test inspection confirms the corrected wrapper and registry paths, raw-target injection removal, single-line hidden labels and guarded editor accessors. A further leader-identified default-editor lock and stale-empty-draft bug was corrected with actual SDK adapter tests. Quality re-review independently verified the earlier deadlocks are closed; security re-review verified H1 closure and ran adversarial sanitizer, masked-hook and PTY panic/replay tests. The remaining advisories are cohesive file length and documentation of concurrent raw component calls and OSC parameters; those documentation-only clarifications were applied without executable changes.
+- **Independently verified facts:** Accepted package `P7-b2df38c13ae8`, manifest SHA-256 `b2df38c13ae8e6b84d6de7557f8709ee595689fa533f3bcf3857b0ea96714e02`, covers 56 files excluding traces. Fresh profile `/tmp/smidja-p7-independent-gated.cover` instruments seven affected packages; duplicate blocks are max/OR-merged rather than double counted. All 28 production delta files reach 83.9-100% changed instrumented lines and 85-100% overlapping-block statements; SDK type declarations and Markdown are N/A. Formatting, diff checks, vet, build, complete affected uncached tests and sequential race tests, 10 repeated adversarial wrapper/default-editor/refresh/panic/OSC8 sets, all four static release builds and 14 real PTY regression tests passed with no skips. No original test was deleted or weakened. Existing SDK interface files, protected subsystems and `go.mod` are unchanged; `go.sum` remains absent. The complete suite still reports only alpha-reproduced MCP/session baseline flakes.
+- **Decision and impact:** Accept P7 code and documentation; preserve the failed-review checkpoints as history, not current status. Publish only this accepted artifact and trace evidence, without claiming installation or whole-task completion yet. Core API action and handler-context backing gaps discovered in the wider audit remain subsequent work, and the 27 future Pi event waves are not silently claimed as implemented.
+- **Next action:** Commit and push `feat(sdk): add extension UI runtime`, verify exact PR head, then install and exercise the committed binary before final closure.
 
 ## Plan-variation ledger
 

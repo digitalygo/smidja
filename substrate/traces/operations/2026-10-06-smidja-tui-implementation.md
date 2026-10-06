@@ -1,7 +1,8 @@
 ---
 status: completed
 created_at: 2026-10-06
-files_edited: [internal/tui/, internal/tui/interactive/, internal/ui/, internal/cli/, internal/config/, internal/content/, README.md, docs/tui.md, docs/themes.md, docs/keybindings.md, docs/settings.md, docs/auth.md, docs/sdk-parity-matrix.md, docs/tui-handoff.md, docs/transcript-search.md]
+files_edited: [sdk/, internal/extensions/, internal/extensionui/, internal/tui/, internal/tui/interactive/, internal/ui/, internal/cli/, internal/config/, internal/content/, README.md, docs/sdk-ui.md, docs/tui.md, docs/themes.md, docs/keybindings.md, docs/settings.md, docs/auth.md, docs/sdk-parity-matrix.md, docs/tui-handoff.md, docs/transcript-search.md]
+updated_at: 2026-10-07
 rationale: [Resume preserved P5 work without discarding it, Complete P6 configuration and trusted interactive startup, Preserve print and non-TTY contracts]
 supporting_docs: [substrate/traces/plans/2026-09-14-smidja-tui-plan.md, docs/tui-handoff.md, substrate/traces/plans/2026-08-24-smidja-harness-plan.md]
 ---
@@ -59,3 +60,78 @@ Coverage intersects changed source lines with Go instrumented blocks. Statement 
 | `internal/ui/selectors.go` | 100.0% | 100.0% |
 | `internal/ui/tui_runner.go` | 100.0% | 100.0% |
 | `internal/ui/tui_theme.go` | 96.0% | 97.4% |
+
+## Update 2026-10-06: P6 publication and installed-runtime acceptance
+
+### Summary of changes
+
+P6 is committed and published as `b091d74506b4aa98970c3f6f934ca406fd1547a1`, `feat(tui): finish configuration and interactive startup`. Its exact binary is installed at `/home/luca/.local/bin/smidja` with version `v0.3.0-tui.1` and origin `github.com/digitalygo/smidja`.
+
+### Technical reasoning
+
+Installed-runtime acceptance runs the actual binary through a Linux PTY with isolated temporary homes and workspaces, a deterministic local HTTP/SSE fixture and a local egress-blocking proxy. It does not replace live-provider acceptance or external-creator validation with a false claim.
+
+### Impact assessment
+
+P6 is complete and P7 may begin. Nothing is merged or released. `smidja update` can replace this local prerelease with the public release.
+
+### Validation steps
+
+Independent installed-binary rerun passed 15 checks per mode for regular and fullscreen. It proved exact multiline submission, temporally streamed responses, a real workspace read tool and follow-up result, exit zero and exact termios restoration. Regular never entered the alternate screen; fullscreen entry, response and exit occurred in order. Main, origin and PR 1 match the installed commit; installed SHA-256 is `bc9183cc9dc1eeee9deca6ec4cfeb8375da8d69a63ca90102c4e73f41f378d5a`. Report: `/tmp/smidja-p6-independent-installed-report.json`. All temporary test resources were cleaned up and no test process remains.
+
+## Update 2026-10-07: P7 extension UI source accepted
+
+### Summary of changes
+
+P7 adds optional `sdk.ExtendedUI` and `sdk.UIRegistrationAPI` contracts and real per-runner adapters for custom components, modals, widgets, header/footer, distinct message/entry renderers, Markdown transformation, custom editors, autocomplete, terminal hooks, working indicators, themes and expanded tools. All existing SDK signatures remain unchanged. Publication, final installation and expanded acceptance are distinct follow-up gates.
+
+### Technical reasoning
+
+Public types stay independent of internal TUI types. Existing core mechanisms are reused rather than copied. External callbacks execute outside host locks using prepared frames and lifecycle leases. Retirement is immediate; actual disposal waits for in-flight callbacks and runs once. Nested registry notifications coalesce without recursive locks, and unchanged widgets keep their instances.
+
+The first quality and security verdicts blocked publication for real callback deadlocks and OSC 8 control injection. Corrections preserve exact findings and add tests on the SDK wrapper paths. OSC 8 now uses bounded, strict parameter grammar and cleaned-target canonical serialization; arbitrary input slices never reach the terminal. Editor restoration transfers empty text, respects newer replacements and contains callback panics.
+
+### Impact assessment
+
+P7 is runtime-backed rather than a set of declarations or no-op methods. The matrix also corrects older claims: 14 existing core API actions still have no host backing and remain deferred for the broader runtime-completion work, as do the 27 later Pi event waves. Components must protect their own mutable state because raw rendering and input can be concurrent; host leases guarantee safe retirement and disposal, not arbitrary extension-code thread safety.
+
+### Validation steps
+
+The accepted artifact is `P7-b2df38c13ae8`, SHA-256 `b2df38c13ae8e6b84d6de7557f8709ee595689fa533f3bcf3857b0ea96714e02`, 56 files excluding traces. Final independent quality and focused security verdicts are both `PASS`. A documentation-only clarification follows those reviews; executable hashes are unchanged.
+
+Leader reran formatting, whitespace checks, vet, build, fresh upstream-instrumented tests across seven affected packages, complete sequential race tests, 10 repeated actual-wrapper/editor/refresh/panic/OSC 8 regression sets, four static Linux/Darwin amd64/arm64 builds, and 14 explicit PTY tests without skips. Full-suite failures remain the independently alpha-reproduced MCP restart and session timestamp-order flakes. SDK interfaces are source-compatible, dependencies remain stdlib-only, `go.mod` is unchanged and `go.sum` absent.
+
+### P7 per-file delta coverage
+
+Profile `/tmp/smidja-p7-independent-gated.cover` instruments upstream dependencies; duplicate coverage blocks are merged with max/OR before intersecting changed lines. Declarations in the two new SDK type files and Markdown have coverage N/A.
+
+| File | Changed instrumented lines | Overlapping-block statements |
+| --- | --- | --- |
+| `internal/cli/chat.go` | 100.0% | 100.0% |
+| `internal/cli/session_projection.go` | 100.0% | 100.0% |
+| `internal/cli/tui_bridge.go` | 100.0% | 100.0% |
+| `internal/extensions/api.go` | 100.0% | 100.0% |
+| `internal/extensions/api_ui.go` | 100.0% | 100.0% |
+| `internal/extensions/context_ui.go` | 100.0% | 100.0% |
+| `internal/extensions/runtime.go` | 100.0% | 100.0% |
+| `internal/extensionui/registry.go` | 91.5% | 93.9% |
+| `internal/tui/editor.go` | 100.0% | 100.0% |
+| `internal/tui/editor_autocomplete.go` | 84.8% | 86.8% |
+| `internal/tui/editor_extensions.go` | 83.9% | 88.7% |
+| `internal/tui/editor_input.go` | 100.0% | 100.0% |
+| `internal/tui/editor_mouse.go` | 100.0% | 100.0% |
+| `internal/tui/external_frames.go` | 100.0% | 100.0% |
+| `internal/tui/interactive/blocks.go` | 100.0% | 100.0% |
+| `internal/tui/interactive/extensions.go` | 85.0% | 89.4% |
+| `internal/tui/interactive/frame_sanitize.go` | 90.1% | 91.7% |
+| `internal/tui/interactive/status.go` | 100.0% | 100.0% |
+| `internal/tui/interactive/status_extensions.go` | 85.2% | 85.0% |
+| `internal/tui/interactive/surface.go` | 100.0% | 100.0% |
+| `internal/tui/interactive/transcript.go` | 90.9% | 96.4% |
+| `internal/tui/theme_loader.go` | 100.0% | 100.0% |
+| `internal/ui/extension_bound_ui.go` | 96.4% | 95.2% |
+| `internal/ui/extension_components.go` | 83.9% | 88.3% |
+| `internal/ui/extension_editor.go` | 87.6% | 91.6% |
+| `internal/ui/extension_modal.go` | 97.8% | 98.6% |
+| `internal/ui/extension_runtime.go` | 86.4% | 89.5% |
+| `internal/ui/tui_runner.go` | 100.0% | 100.0% |

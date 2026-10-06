@@ -167,6 +167,12 @@ func (r *ThemeRegistry) SetTheme(name string) (*Theme, error) {
 	return theme, nil
 }
 
+func (r *ThemeRegistry) Load(name string) (*Theme, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.loadByName(name)
+}
+
 func (r *ThemeRegistry) Active() *Theme {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -160,6 +160,28 @@ A single name is used as given. A pair follows the terminal background: smidja a
 
 The `/theme` selector applies a theme immediately for the session, and a theme that is syntactically valid but missing leaves the current theme in place with a notice. Neither path writes the settings file. See the [settings documentation](settings.md) for the full configuration precedence.
 
+## SDK access
+
+Extensions reach the same theme registry through `sdk.ExtendedUI`:
+
+- `AllThemes` lists available themes as `sdk.ThemeInfo` values with `Name` and `Path`, sorted by name.
+- `GetTheme` loads a theme by name without activating it.
+- `ActiveTheme` returns a handle for the active theme with `Name`, `Fg`, and `Bg`.
+- `SetTheme` validates and applies a theme immediately, retimes the custom-theme watcher, and does not write settings.
+
+```go
+func themeNames(ui sdk.ExtendedUI) []string {
+	infos := ui.AllThemes()
+	names := make([]string, 0, len(infos))
+	for _, info := range infos {
+		names = append(names, info.Name)
+	}
+	return names
+}
+```
+
+In print mode the whole surface is the no-op UI: `AllThemes` returns nil, `GetTheme` returns false, `ActiveTheme` returns nil, and `SetTheme` returns `sdk.ErrModeUnsupported`. The [extension UI SDK documentation](sdk-ui.md) covers the full surface.
+
 ## Hot reload
 
 Smidja watches the file of the active custom theme and reloads it when its modification time changes. The default polling interval is two seconds. Invalid updates are ignored and the previous theme stays active, and the watcher stops when the TUI stops. Built-in themes are not watched.

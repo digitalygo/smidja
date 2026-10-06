@@ -1,8 +1,8 @@
 # TUI implementation handoff
 
-## Current state (2026-10-06)
+## Current state (2026-10-07)
 
-P5 is published at `1a9f71a` (`feat(tui): complete fullscreen extras`). P6 is in progress: the flags, settings, startup trust, OAuth startup, and product documentation are implemented in the main worktree but are not committed, published, installed, or through their final acceptance gates. P7, the extension-facing UI surface, is not implemented. Follow the [living TUI plan](../substrate/traces/plans/2026-09-14-smidja-tui-plan.md) for the current SHA, state, and next action.
+P5 landed in `1a9f71a` (`feat(tui): complete fullscreen extras`). P6 landed in `b091d74` (`feat(tui): finish configuration and interactive startup`) and its installed binary passed regular/fullscreen checks with exact terminal restoration. P7's additive extension UI source and adapters now pass independent tests and quality/security review. Final installation and expanded runtime acceptance remain separate gates; the prior P6 installed binary is not evidence for P7 behavior. Follow the [living TUI plan](../substrate/traces/plans/2026-09-14-smidja-tui-plan.md) for the current SHA, state, and next action.
 
 Everything after this note is the September 2026 historical record. Its published SHAs, phase status, installed-binary identity, and process, provider, and quota notes describe that moment. They are preserved as history and are superseded by the current state above and the living plan.
 

@@ -623,6 +623,8 @@ func projectTranscript(loader *session.Loader) ([]interactive.TranscriptEntry, [
 				Kind:        interactive.ReplayCustom,
 				CustomType:  typed.CustomType,
 				CustomLabel: typed.CustomType,
+				CustomKind:  interactive.CustomKindEntry,
+				CustomData:  typed.Data,
 				Text:        string(typed.Data),
 				Timestamp:   typed.Timestamp,
 			})
@@ -634,6 +636,8 @@ func projectTranscript(loader *session.Loader) ([]interactive.TranscriptEntry, [
 				Kind:        interactive.ReplayCustom,
 				CustomType:  typed.CustomType,
 				CustomLabel: "custom message",
+				CustomKind:  interactive.CustomKindMessage,
+				CustomData:  typed.Details,
 				Text:        rawContentText(typed.Content),
 				Timestamp:   typed.Timestamp,
 			})

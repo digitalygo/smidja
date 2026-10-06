@@ -1,6 +1,12 @@
 package tui
 
 func (e *Editor) HandleMouse(event MouseEvent) *MouseEventResult {
+	result := e.handleMouse(event)
+	e.flushExternalAutocomplete()
+	return result
+}
+
+func (e *Editor) handleMouse(event MouseEvent) *MouseEventResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.autocompleteActive && e.autocompleteList != nil {

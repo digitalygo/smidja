@@ -4,7 +4,7 @@ Smidja has two interactive frontends. The TUI renders the transcript, editor, di
 
 ## Status
 
-Phases P0 to P5 of the TUI workstream are published on the `feat/tui` branch, P5 at `1a9f71a`. The P6 behavior described on this page (TTY selection, flags, settings, startup trust, and startup sign-in) is implemented and available on the branch, but its publication and final acceptance gates are still pending. P7, the extension-facing UI surface, is not implemented: extensions cannot yet register custom components, renderers, or editor hooks, and cannot enumerate or set themes through the SDK. The [SDK parity matrix](sdk-parity-matrix.md) tracks each deferred row.
+Phases P0 to P7 of the TUI workstream are implemented on `feat/tui`. P6 at `b091d74` passed installed-binary checks in regular and fullscreen modes. P7's additive SDK adapters have passed independent tests and quality/security review; final installation and expanded runtime acceptance are tracked in the living TUI plan. The [SDK parity matrix](sdk-parity-matrix.md) tracks each row, and the [extension UI SDK documentation](sdk-ui.md) documents the surface.
 
 ## Starting the TUI
 
@@ -132,10 +132,22 @@ When the TUI starts with a provider that supports OAuth, and no credential is fo
 
 The `openrouter` provider name resolves through the API-key client and does not trigger the OAuth startup flow; use `openrouter-oauth` for the stored OAuth credential. See the [auth documentation](auth.md) for provider names and credential precedence.
 
+## Extension UI
+
+The P7 surface attaches the extension UI registry to the runner when the TUI starts. Extensions registered in the same run can then add message, entry, and Markdown renderers, component widgets, header and footer components, a custom editor, autocomplete providers, and terminal input hooks through the optional `sdk.ExtendedUI` and `sdk.UIRegistrationAPI` interfaces.
+
+- Component render, input, and dispose callbacks run outside the host surface lock, so they may call back into the UI. Frames are sanitized before display.
+- A recovered callback panic is reported once as an `extensions: ...` warning notice, and the host keeps running with a fallback or the previous component.
+- Replacing or clearing a component disposes the old one exactly once. Runner stop clears every slot, restores the built-in editor and footer, disposes owned components, and releases the registry.
+- Registration succeeds in every mode, but only an attached TUI surface renders it, so print mode and non-TTY sessions accept registrations into an inert registry.
+- The line interface does not implement the extended surface. Extensions check `HasUI()` and assert to `sdk.ExtendedUI` before using it.
+
+The full contract is in the [extension UI SDK documentation](sdk-ui.md).
+
 ## Platform support
 
 The terminal framework implements raw mode, size handling, and resize for Linux and Darwin, behind build tags. Release builds are static `CGO_ENABLED=0` binaries for Linux and Darwin on amd64 and arm64, with zero module dependencies and no `go.sum`. On other platforms the TUI fails closed: TTY detection reports false, so smidja stays on the line interface, and any direct raw-mode attempt returns a clear unsupported-platform error instead of panicking.
 
 ## What remains
 
-P7 is the extension-facing UI surface: custom components, message, Markdown, and entry renderers, an editor component factory, autocomplete providers, a terminal input hook, footer and header hooks, paste-to-editor and editor text accessors, theme enumeration and selection, and tools-expanded state. Those rows stay deferred in the [SDK parity matrix](sdk-parity-matrix.md) until P7 lands.
+P7 is implemented in the worktree and still needs its final validation gates, publication, and reinstall; the installed binary predates it. The broader completion request additionally covers the 14 Extension API methods whose signatures are frozen but are not runtime-backed yet: `SetActiveTools`, `SendMessage`, `SendUserMessage`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, `Exec`, and `EmitCustomEvent`. Thirteen return an unavailable error and `Flags` returns an empty map. Extension keybinding registration stays outside the contract, and the deferred Pi events stay with their runtime waves. The [SDK parity matrix](sdk-parity-matrix.md) records each row.

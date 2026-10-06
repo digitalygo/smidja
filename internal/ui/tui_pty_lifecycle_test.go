@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/digitalygo/smidja/internal/tui"
+	"github.com/digitalygo/smidja/sdk"
 )
 
 func ptyWrite(t *testing.T, file *os.File, data string) {
@@ -142,5 +144,45 @@ func TestRealPTYCtrlGEditorSuspendsAndResumes(t *testing.T) {
 	after := ptyTermios(t, pair.slave)
 	if after != before {
 		t.Fatal("terminal attributes were not restored after the external editor round trip")
+	}
+}
+
+func TestRealPTYPanickingEditorTextExitsAndRestores(t *testing.T) {
+	pair, ok := openPTY(t)
+	if !ok {
+		return
+	}
+	before := ptyTermios(t, pair.slave)
+	terminal := tui.NewProcessTerminal(pair.slave, pair.slave)
+	runner := NewRunner(RunnerOptions{
+		Stdin:  pair.slave,
+		Stdout: pair.slave,
+		Mode:   TUIModeRegular,
+		Home:   t.TempDir(),
+		NewTerminal: func(io.Reader, io.Writer) tui.Terminal {
+			return terminal
+		},
+	})
+	if err := runner.Start(); err != nil {
+		t.Fatalf("Start() on a real PTY: %v", err)
+	}
+	attachExtensionRegistry(t, runner)
+	ui := runner.BoundUI(context.Background()).(sdk.ExtendedUI)
+	component := &panickingEditorComponent{}
+	if err := ui.SetEditorComponent(func(ctx sdk.EditorContext) sdk.EditorComponent { return component }); err != nil {
+		t.Fatalf("SetEditorComponent: %v", err)
+	}
+	component.setPanic(func(e *panickingEditorComponent) { e.panicText = true })
+	ptyReadUntil(t, pair.master, tui.OSCTitle("smidja"), 5*time.Second)
+	ptyWrite(t, pair.master, "\x04")
+	select {
+	case <-runner.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("ctrl+d with a panicking editor Text did not exit")
+	}
+	runner.Stop()
+	after := ptyTermios(t, pair.slave)
+	if after != before {
+		t.Fatal("terminal attributes were not restored after the panicking editor exit")
 	}
 }

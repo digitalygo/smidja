@@ -56,27 +56,41 @@ func (e *Editor) dismissAutocompleteLocked() {
 }
 
 func (e *Editor) triggerAutocompleteLocked(force bool) {
-	if e.provider == nil {
+	if len(e.externalProviders) == 0 {
+		e.triggerBuiltinAutocompleteLocked(force)
 		return
+	}
+	e.autocompleteDirty = true
+	e.autocompleteForce = e.autocompleteForce || force
+}
+
+func (e *Editor) triggerBuiltinAutocompleteLocked(force bool) {
+	prefix, items, kind, ok := e.builtinAutocompleteSuggestionsLocked(force)
+	if !ok {
+		e.dismissAutocompleteLocked()
+		return
+	}
+	e.showAutocompleteLocked(prefix, items, kind)
+}
+
+func (e *Editor) builtinAutocompleteSuggestionsLocked(force bool) (string, []AutocompleteItem, string, bool) {
+	if e.provider == nil {
+		return "", nil, "", false
 	}
 	before := e.currentLineBeforeCursorLocked()
 	if prefix, ok := slashPrefixOf(before); ok && e.buffer.cursorLine == 0 {
 		items := e.provider.SlashSuggestions(prefix)
 		if len(items) == 0 {
-			e.dismissAutocompleteLocked()
-			return
+			return "", nil, "", false
 		}
-		e.showAutocompleteLocked(prefix, items, "slash")
-		return
+		return prefix, items, "slash", true
 	}
 	if token, ok := extractAtToken(before); ok {
 		items := e.provider.PathSuggestions(token)
 		if len(items) == 0 {
-			e.dismissAutocompleteLocked()
-			return
+			return "", nil, "", false
 		}
-		e.showAutocompleteLocked(token, items, "path")
-		return
+		return token, items, "path", true
 	}
 	if force {
 		fallback := before
@@ -87,16 +101,13 @@ func (e *Editor) triggerAutocompleteLocked(force bool) {
 		if len(items) == 0 {
 			items = e.provider.SlashSuggestions(before)
 			if len(items) == 0 {
-				e.dismissAutocompleteLocked()
-				return
+				return "", nil, "", false
 			}
-			e.showAutocompleteLocked(before, items, "slash")
-			return
+			return before, items, "slash", true
 		}
-		e.showAutocompleteLocked("@"+fallback, items, "path")
-		return
+		return "@" + fallback, items, "path", true
 	}
-	e.dismissAutocompleteLocked()
+	return "", nil, "", false
 }
 
 func (e *Editor) showAutocompleteLocked(prefix string, items []AutocompleteItem, kind string) {
@@ -131,6 +142,16 @@ func (e *Editor) showAutocompleteLocked(prefix string, items []AutocompleteItem,
 }
 
 func (e *Editor) updateAutocompleteLocked() {
+	if len(e.externalProviders) == 0 {
+		e.updateBuiltinAutocompleteLocked()
+		return
+	}
+	if e.autocompleteActive {
+		e.autocompleteDirty = true
+	}
+}
+
+func (e *Editor) updateBuiltinAutocompleteLocked() {
 	if !e.autocompleteActive {
 		return
 	}
@@ -180,7 +201,7 @@ func (e *Editor) updateAutocompleteLocked() {
 }
 
 func (e *Editor) acceptAutocompleteLocked() bool {
-	if !e.autocompleteActive || e.autocompleteList == nil || e.provider == nil {
+	if !e.autocompleteActive || e.autocompleteList == nil {
 		return false
 	}
 	selected, ok := e.autocompleteList.SelectedItem()
@@ -195,10 +216,16 @@ func (e *Editor) acceptAutocompleteLocked() bool {
 	e.buffer.pushUndo()
 	var completed string
 	var newCol int
-	if kind == "slash" {
+	switch {
+	case kind == "external":
+		completed, newCol = externalAutocompleteCompletion(line, e.buffer.cursorCol, item.Value, e.autocompleteTokenStart)
+	case kind == "slash":
 		completed, newCol = e.provider.ApplySlashCompletion(line, e.buffer.cursorCol, item, prefix)
-	} else {
+	case kind == "path":
 		completed, newCol = e.provider.ApplyPathCompletion(line, e.buffer.cursorCol, item, prefix)
+	default:
+		e.dismissAutocompleteLocked()
+		return false
 	}
 	e.buffer.lines[lineIdx] = completed
 	e.buffer.cursorCol = newCol

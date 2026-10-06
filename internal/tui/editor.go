@@ -49,6 +49,12 @@ type Editor struct {
 	autocompleteActive         bool
 	autocompleteItems          []AutocompleteItem
 	autocompleteMaxVisible     int
+	autocompleteDirty          bool
+	autocompleteForce          bool
+	autocompleteTokenStart     int
+	autocompleteFlushing       bool
+	externalProviders          []externalAutocompleteProvider
+	nextExternalProviderID     int
 	paddingX                   int
 	focused                    bool
 	theme                      *Theme
@@ -124,6 +130,18 @@ func NewEditor(opts EditorOptions) *Editor {
 	}
 	e.updateBorderLocked()
 	return e
+}
+
+func (e *Editor) OnSubmitCallback() func(string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.onSubmit
+}
+
+func (e *Editor) OnChangeCallback() func(string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.onChange
 }
 
 func (e *Editor) SetOnSubmit(fn func(string)) {

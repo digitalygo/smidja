@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/digitalygo/smidja/internal/agent"
+	"github.com/digitalygo/smidja/internal/extensionui"
 	"github.com/digitalygo/smidja/sdk"
 )
 
@@ -182,12 +183,14 @@ type APIOptions struct {
 	Catalog       *ToolCatalog
 	Commands      *CommandCatalog
 	ResolveConfig func(key string) string
+	UI            *extensionui.Registry
 }
 
 type api struct {
 	catalog  *ToolCatalog
 	commands *CommandCatalog
 	resolve  func(key string) string
+	ui       *extensionui.Registry
 }
 
 var _ sdk.API = (*api)(nil)
@@ -199,7 +202,10 @@ func NewAPI(opts APIOptions) sdk.API {
 	if opts.Commands == nil {
 		opts.Commands = NewCommandCatalog()
 	}
-	return &api{catalog: opts.Catalog, commands: opts.Commands, resolve: opts.ResolveConfig}
+	if opts.UI == nil {
+		opts.UI = extensionui.NewRegistry()
+	}
+	return &api{catalog: opts.Catalog, commands: opts.Commands, resolve: opts.ResolveConfig, ui: opts.UI}
 }
 
 func (a *api) RegisterTool(t sdk.Tool) error {
