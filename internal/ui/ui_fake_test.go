@@ -2,10 +2,13 @@ package ui
 
 import (
 	"bytes"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"strings"
 	"sync"
+	"testing"
 
 	"github.com/digitalygo/smidja/internal/tui"
 )
@@ -246,5 +249,18 @@ func fakeUIRunnerOptions(terminal *fakeUITerminal) RunnerOptions {
 		NewTerminal: func(stdin io.Reader, stdout io.Writer) tui.Terminal {
 			return terminal
 		},
+	}
+}
+
+func writeRunnerPNG(t *testing.T, path string) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create png: %v", err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("encode png: %v", err)
 	}
 }

@@ -45,6 +45,25 @@ func TestSurfaceRenderDocumentLongTranscript(t *testing.T) {
 	}
 }
 
+func TestSurfaceRenderRichDocumentAggregatesImages(t *testing.T) {
+	theme := mustTheme(t)
+	SetDefaultImageResolver(imageBlockResolver(16, 2, "[image: doc]"))
+	t.Cleanup(func() { SetDefaultImageResolver(nil) })
+	surface, _ := newTestSurface(t, SurfaceOptions{Theme: theme, Home: "/home/tester"})
+	surface.AddUserMessage("before ![doc](pic.png) after")
+	rich := surface.RenderRichDocument(80)
+	if len(rich.Images) != 1 {
+		t.Fatalf("document images = %d, want 1", len(rich.Images))
+	}
+	descriptor := rich.Images[0]
+	if descriptor.Row < 0 || descriptor.Row+descriptor.RowSpan > len(rich.Lines) {
+		t.Fatalf("document image out of range: %+v over %d lines", descriptor, len(rich.Lines))
+	}
+	if !strings.Contains(documentText(rich.Lines), "[image: doc]") {
+		t.Fatal("document lost the image placeholder")
+	}
+}
+
 func TestSurfaceRenderDocumentDockOrder(t *testing.T) {
 	theme := mustTheme(t)
 	surface, _ := newTestSurface(t, SurfaceOptions{Theme: theme, Home: "/home/tester"})

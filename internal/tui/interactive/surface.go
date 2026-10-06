@@ -210,6 +210,9 @@ func (s *Surface) SetTheme(theme *tui.Theme) {
 		s.status.SetTheme(theme)
 		s.widgets.SetTheme(theme)
 	})
+	if s.transcript != nil {
+		s.transcript.SetScrollbarStyles(func(text string) string { return s.theme.Fg("scrollbarTrack", text) }, func(text string) string { return s.theme.Fg("scrollbarThumb", text) })
+	}
 	s.invalidateChat()
 	s.requestRender()
 }
@@ -238,16 +241,23 @@ func (s *Surface) RequestRender() {
 }
 
 func (s *Surface) RenderDocument(width int) []string {
-	var lines []string
+	return s.RenderRichDocument(width).Lines
+}
+
+func (s *Surface) RenderRichDocument(width int) tui.RichRender {
+	var rich tui.RichRender
 	s.runtime.Run(func() {
-		lines = append(lines, s.chat.Render(width)...)
-		lines = append(lines, s.editor.Render(width)...)
-		lines = append(lines, s.pending.Render(width)...)
-		lines = append(lines, s.statusRegion.Render(width)...)
-		lines = append(lines, s.widgets.Render(width)...)
-		lines = append(lines, s.footer.Render(width)...)
+		for _, component := range []tui.Component{s.chat, s.editor, s.pending, s.statusRegion, s.widgets, s.footer} {
+			part := tui.RenderRichFrom(component, width)
+			offset := len(rich.Lines)
+			for _, descriptor := range part.Images {
+				descriptor.Row += offset
+				rich.Images = append(rich.Images, descriptor)
+			}
+			rich.Lines = append(rich.Lines, part.Lines...)
+		}
 	})
-	return lines
+	return rich
 }
 
 func (s *Surface) RenderFrame(width, height int) *tui.LayoutFrame {

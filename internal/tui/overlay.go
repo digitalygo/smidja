@@ -103,6 +103,57 @@ func (b *Base) topmostVisibleOverlayLocked() *overlayEntry {
 	return topmost
 }
 
+func (b *Base) findOverlayEntryLocked(component Component) *overlayEntry {
+	for _, entry := range b.overlayStack {
+		if entry.component == component {
+			return entry
+		}
+	}
+	return nil
+}
+
+func (b *Base) validFocusTargetLocked(candidate Component) Component {
+	visited := make(map[Component]struct{})
+	for candidate != nil {
+		if _, seen := visited[candidate]; seen {
+			return nil
+		}
+		visited[candidate] = struct{}{}
+		entry := b.findOverlayEntryLocked(candidate)
+		if entry == nil {
+			return candidate
+		}
+		if b.isOverlayVisibleLocked(entry) {
+			return candidate
+		}
+		candidate = entry.preFocus
+	}
+	return nil
+}
+
+func (b *Base) repairFocusReferencesLocked(removed Component, replacement Component) {
+	if removed == nil {
+		return
+	}
+	resolved := b.validFocusTargetLocked(replacement)
+	for _, entry := range b.overlayStack {
+		if entry.preFocus == nil {
+			continue
+		}
+		if entry.preFocus == removed || containsComponent(removed, entry.preFocus) {
+			entry.preFocus = resolved
+		}
+	}
+	if b.focused != nil && (b.focused == removed || containsComponent(removed, b.focused)) {
+		top := b.topmostVisibleOverlayLocked()
+		if top != nil {
+			b.setFocusLocked(top.component)
+		} else {
+			b.setFocusLocked(resolved)
+		}
+	}
+}
+
 func (b *Base) HasOverlay() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -152,14 +203,7 @@ func (b *Base) HideOverlay() {
 	}
 	overlay := b.overlayStack[len(b.overlayStack)-1]
 	b.overlayStack = b.overlayStack[:len(b.overlayStack)-1]
-	if b.focused == overlay.component {
-		top := b.topmostVisibleOverlayLocked()
-		if top != nil {
-			b.setFocusLocked(top.component)
-		} else {
-			b.setFocusLocked(overlay.preFocus)
-		}
-	}
+	b.repairFocusReferencesLocked(overlay.component, overlay.preFocus)
 	empty := len(b.overlayStack) == 0
 	b.mu.Unlock()
 	if empty {
@@ -176,14 +220,7 @@ func (b *Base) removeOverlayEntry(entry *overlayEntry) bool {
 			continue
 		}
 		b.overlayStack = append(b.overlayStack[:index], b.overlayStack[index+1:]...)
-		if b.focused == entry.component {
-			top := b.topmostVisibleOverlayLocked()
-			if top != nil {
-				b.setFocusLocked(top.component)
-			} else {
-				b.setFocusLocked(entry.preFocus)
-			}
-		}
+		b.repairFocusReferencesLocked(entry.component, entry.preFocus)
 		return true
 	}
 	return false
@@ -222,6 +259,9 @@ func (b *Base) dispatchMouseToOverlay(event MouseEvent) (hit bool, result *mouse
 				dispatch.focusTarget = layout.entry.component
 			}
 			return true, dispatch
+		}
+		if layout.entry.options.NonCapturing {
+			continue
 		}
 		return true, nil
 	}
@@ -402,12 +442,12 @@ func (h *overlayHandle) SetHidden(hidden bool) {
 	}
 	h.entry.hidden = hidden
 	if hidden {
-		if h.base.focused == h.entry.component {
+		if h.base.focused == h.entry.component || (h.base.focused != nil && containsComponent(h.entry.component, h.base.focused)) {
 			top := h.base.topmostVisibleOverlayLocked()
 			if top != nil {
 				h.base.setFocusLocked(top.component)
 			} else {
-				h.base.setFocusLocked(h.entry.preFocus)
+				h.base.setFocusLocked(h.base.validFocusTargetLocked(h.entry.preFocus))
 			}
 		}
 	} else if !h.entry.options.NonCapturing && h.base.isOverlayVisibleLocked(h.entry) {
@@ -447,7 +487,7 @@ func (h *overlayHandle) Focus() {
 
 func (h *overlayHandle) Unfocus(target Component) {
 	h.base.mu.Lock()
-	isFocused := h.base.focused == h.entry.component
+	isFocused := h.base.focused == h.entry.component || (h.base.focused != nil && containsComponent(h.entry.component, h.base.focused))
 	if !isFocused {
 		h.base.mu.Unlock()
 		return
@@ -459,7 +499,7 @@ func (h *overlayHandle) Unfocus(target Component) {
 		if top != nil && top != h.entry {
 			h.base.setFocusLocked(top.component)
 		} else {
-			h.base.setFocusLocked(h.entry.preFocus)
+			h.base.setFocusLocked(h.base.validFocusTargetLocked(h.entry.preFocus))
 		}
 	}
 	h.base.mu.Unlock()

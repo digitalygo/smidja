@@ -661,6 +661,10 @@ func (t *ProcessTerminal) dispatchSequenceTagged(sequence string, generation int
 		close(waiter.reply)
 		return
 	}
+	if isKittyGraphicsSequence(sequence) {
+		t.mu.Unlock()
+		return
+	}
 	if t.consumeNegotiationLocked(sequence) {
 		t.mu.Unlock()
 		return
@@ -768,6 +772,22 @@ func (t *ProcessTerminal) runQuery(query string, matcher func(string) bool, time
 		t.mu.Unlock()
 		return "", false
 	}
+}
+
+func (t *ProcessTerminal) QueryKittyGraphics(timeout time.Duration) bool {
+	response, found := t.runQuery(
+		KittyGraphicsProbe,
+		func(sequence string) bool {
+			_, matched := parseKittyGraphicsReply(sequence, 31)
+			return matched
+		},
+		timeout,
+	)
+	if !found {
+		return false
+	}
+	ok, _ := parseKittyGraphicsReply(response, 31)
+	return ok
 }
 
 func (t *ProcessTerminal) QueryDeviceAttributes(timeout time.Duration) bool {

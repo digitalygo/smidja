@@ -13,6 +13,7 @@ var envLookup = os.Getenv
 const pageScrollOverlap = 4
 const altWheelScrollMultiplier = 5
 const doubleClickInterval = 500 * time.Millisecond
+const searchModalCaptureSource = "search"
 
 type AltScreenOptions struct {
 	WheelScrollLines int
@@ -49,6 +50,30 @@ type AltScreen struct {
 	removeInputListener func()
 	activeKeybindings   *KeybindingsManager
 
+	search        *TranscriptSearch
+	searchOverlay *SearchOverlay
+	searchHandle  OverlayHandle
+	searchActive  atomic.Bool
+	searchStyle   func(selected bool, text string) string
+	theme         *Theme
+
+	searchFrameScrollTop int
+
+	selection      *Selection
+	selectionStyle func(text string) string
+	linkOpener     LinkOpener
+
+	pointerMu          sync.Mutex
+	selectionCapture   *transcriptPointerCapture
+	scrollbarDrag      *scrollbarDragState
+	autoscroll         autoscrollController
+	autoscrollInterval time.Duration
+	layoutEpoch        uint64
+
+	graphics   GraphicsCapability
+	placements *ImagePlacements
+	imageBytes func(source, cacheKey string) (*LoadedImage, bool)
+
 	mouseCapture     *mouseDispatchTarget
 	mousePressTarget *mouseDispatchTarget
 	mousePressPoint  *struct{ x, y int }
@@ -70,7 +95,12 @@ func NewAltScreen(terminal Terminal, showHardwareCursor bool, options AltScreenO
 		Base:             NewBase(terminal, showHardwareCursor, "fullscreen"),
 		wheelScrollLines: wheelLines,
 		mouseEnabled:     !options.MouseDisabled,
+		search:           NewTranscriptSearch(),
+		selection:        NewSelection(),
 	}
+	screen.placements = NewImagePlacements(GraphicsNone)
+	screen.searchStyle = func(selected bool, text string) string { return SGRInverse + text + SGRInverseOff }
+	screen.selectionStyle = func(text string) string { return SGRInverse + text + SGRInverseOff }
 	screen.implicitDocument = &screen.Container
 	screen.implicitScrollView = NewScrollView(screen.implicitDocument, ScrollViewOptions{
 		Follow:  "end",
@@ -80,14 +110,15 @@ func NewAltScreen(terminal Terminal, showHardwareCursor bool, options AltScreenO
 	screen.removeInputListener = remove
 	screen.SetModalProtocolRouter(screen.routeModalProtocol)
 	screen.SetHooks(tuiHooks{
-		resetRenderState: screen.resetRenderState,
-		doRender:         func() { screen.doRender() },
-		beforeStart:      screen.beforeTerminalStart,
-		beforeStop:       screen.beforeTerminalStop,
-		afterStop:        screen.afterTerminalStop,
-		suspendProtocols: screen.suspendTerminalProtocols,
-		resumeProtocols:  screen.resumeTerminalProtocols,
-		mountedRoots:     screen.mountedRoots,
+		resetRenderState:    screen.resetRenderState,
+		doRender:            func() { screen.doRender() },
+		beforeStart:         screen.beforeTerminalStart,
+		beforeStop:          screen.beforeTerminalStop,
+		afterStop:           screen.afterTerminalStop,
+		suspendProtocols:    screen.suspendTerminalProtocols,
+		resumeProtocols:     screen.resumeTerminalProtocols,
+		mountedRoots:        screen.mountedRoots,
+		modalCaptureChanged: screen.handleModalCaptureChanged,
 	})
 	return screen
 }
@@ -96,9 +127,245 @@ func (s *AltScreen) SetKeybindings(manager *KeybindingsManager) {
 	s.activeKeybindings = manager
 }
 
+func (s *AltScreen) Search() *TranscriptSearch { return s.search }
+
+func (s *AltScreen) SearchActive() bool { return s.searchActive.Load() }
+
+func (s *AltScreen) Selection() *Selection { return s.selection }
+
+func (s *AltScreen) SetLinkOpener(opener LinkOpener) {
+	s.frameMu.Lock()
+	s.linkOpener = opener
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) SetSelectionStyle(style func(text string) string) {
+	if style == nil {
+		return
+	}
+	s.frameMu.Lock()
+	s.selectionStyle = style
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) Theme() *Theme {
+	s.frameMu.RLock()
+	defer s.frameMu.RUnlock()
+	return s.theme
+}
+
+func (s *AltScreen) currentTheme() *Theme {
+	s.frameMu.RLock()
+	defer s.frameMu.RUnlock()
+	return s.theme
+}
+
+func (s *AltScreen) SetTheme(theme *Theme) {
+	if theme == nil {
+		return
+	}
+	s.frameMu.Lock()
+	s.theme = theme
+	s.searchStyle = func(selected bool, text string) string {
+		current := s.currentTheme()
+		if current == nil {
+			return SGRInverse + text + SGRInverseOff
+		}
+		return current.Bg("searchMatchBg", current.Fg("searchMatchText", text))
+	}
+	s.selectionStyle = func(text string) string {
+		current := s.currentTheme()
+		if current == nil {
+			return SGRInverse + text + SGRInverseOff
+		}
+		return current.Bg("selectedBg", text)
+	}
+	overlay := s.searchOverlay
+	implicit := s.implicitScrollView
+	s.frameMu.Unlock()
+	if overlay != nil {
+		overlay.SetPromptStyle(func(text string) string {
+			current := s.currentTheme()
+			if current == nil {
+				return text
+			}
+			return current.Fg("accent", text)
+		})
+	}
+	if implicit != nil {
+		implicit.SetScrollbarStyles(func(text string) string {
+			current := s.currentTheme()
+			if current == nil {
+				return text
+			}
+			return current.Fg("scrollbarTrack", text)
+		}, func(text string) string {
+			current := s.currentTheme()
+			if current == nil {
+				return text
+			}
+			return current.Fg("scrollbarThumb", text)
+		})
+	}
+	s.Invalidate()
+	s.RequestRender(false)
+}
+
+func (s *AltScreen) SetGraphics(capability GraphicsCapability) {
+	s.frameMu.Lock()
+	previous := s.graphics
+	s.graphics = capability
+	s.frameMu.Unlock()
+	if previous.Protocol != capability.Protocol {
+		s.freeGraphics()
+		s.placements.SetProtocol(capability.Protocol)
+	}
+	if !capability.Available() {
+		s.ReleaseGraphics()
+	}
+}
+
+func (s *AltScreen) Graphics() GraphicsCapability {
+	s.frameMu.RLock()
+	defer s.frameMu.RUnlock()
+	return s.graphics
+}
+
+func (s *AltScreen) ImagePlacements() *ImagePlacements { return s.placements }
+
+func (s *AltScreen) SetImageBytesProvider(provider func(source, cacheKey string) (*LoadedImage, bool)) {
+	s.frameMu.Lock()
+	s.imageBytes = provider
+	s.frameMu.Unlock()
+}
+
+func (s *AltScreen) layoutImageRequests(layout *LayoutFrame) []PlacementRequest {
+	if layout == nil {
+		return nil
+	}
+	s.frameMu.RLock()
+	provider := s.imageBytes
+	capability := s.graphics
+	s.frameMu.RUnlock()
+	if provider == nil || !capability.Available() {
+		return nil
+	}
+	generation := uint64(0)
+	if layout.PrimaryScrollView != nil {
+		if box := GetScrollViewBox(layout, layout.PrimaryScrollView); box != nil {
+			generation = searchGeneration(box.scrollContentLines, box.Rect.Width)
+		}
+	}
+	requests := make([]PlacementRequest, 0, len(layout.Images))
+	for _, image := range layout.Images {
+		if image.Protocol == GraphicsNone || image.Protocol != capability.Protocol {
+			continue
+		}
+		if !imageFullyVisible(image.X, image.Y, image.Columns, image.Rows, layout.Width, layout.Height) {
+			continue
+		}
+		loaded, ok := provider(image.Source, image.CacheKey)
+		if !ok {
+			continue
+		}
+		requests = append(requests, PlacementRequest{
+			CacheKey:   image.CacheKey,
+			Source:     image.Source,
+			X:          image.X,
+			Y:          image.Y,
+			Rows:       image.Rows,
+			Columns:    image.Columns,
+			Generation: generation,
+			Image:      loaded,
+			Fullscreen: true,
+		})
+	}
+	return requests
+}
+
+func (s *AltScreen) suppressOverlayPlacements(requests []PlacementRequest) []PlacementRequest {
+	s.mu.Lock()
+	overlays := append([]overlayLayout(nil), s.renderedOverlays...)
+	s.mu.Unlock()
+	if len(overlays) == 0 || len(requests) == 0 {
+		return requests
+	}
+	filtered := requests[:0]
+	for _, request := range requests {
+		suppressed := false
+		for _, overlay := range overlays {
+			if rectanglesOverlap(request.X, request.Y, request.Columns, request.Rows, overlay.col, overlay.row, overlay.width, overlay.height) {
+				suppressed = true
+				break
+			}
+		}
+		if suppressed {
+			continue
+		}
+		filtered = append(filtered, request)
+	}
+	return filtered
+}
+
+func rectanglesOverlap(ax, ay, aw, ah, bx, by, bw, bh int) bool {
+	return ax < bx+bw && bx < ax+aw && ay < by+bh && by < ay+ah
+}
+
+func overlayIntersectsPlacement(overlays []overlayLayout, x, y, columns, rows int) bool {
+	for _, overlay := range overlays {
+		if rectanglesOverlap(x, y, columns, rows, overlay.col, overlay.row, overlay.width, overlay.height) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *AltScreen) placementPass(layout *LayoutFrame, height int) string {
+	requests := s.suppressOverlayPlacements(s.layoutImageRequests(layout))
+	result := s.placements.Reconcile(requests)
+	if len(result.Deletions) == 0 && len(result.Renders) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for _, deletion := range result.Deletions {
+		builder.WriteString(deletion)
+	}
+	for _, render := range result.Renders {
+		if render.Y < 0 || render.Y >= height {
+			continue
+		}
+		builder.WriteString(CursorTo(render.Y, render.X))
+		builder.WriteString(render.Sequence)
+	}
+	return builder.String()
+}
+
+func (s *AltScreen) freeGraphics() {
+	if s.placements == nil {
+		return
+	}
+	if sequence := s.placements.ReleaseAll(); sequence != "" {
+		s.Terminal().Write(sequence)
+	}
+}
+
+func (s *AltScreen) ReleaseGraphics() {
+	s.freeGraphics()
+}
+
+func (s *AltScreen) SetSearchStyle(style func(selected bool, text string) string) {
+	if style == nil {
+		return
+	}
+	s.frameMu.Lock()
+	s.searchStyle = style
+	s.frameMu.Unlock()
+}
+
 func (s *AltScreen) SetLayoutRoot(component Component) {
 	s.frameMu.Lock()
-	if s.layoutRoot == component {
+	previous := s.layoutRoot
+	if previous == component {
 		s.frameMu.Unlock()
 		return
 	}
@@ -107,7 +374,12 @@ func (s *AltScreen) SetLayoutRoot(component Component) {
 	s.navFrame = nil
 	s.navCursor = 0
 	s.navRevision++
+	s.layoutEpoch++
 	s.frameMu.Unlock()
+	s.cancelPointerGestures()
+	if previous != nil {
+		s.CloseSearch()
+	}
 	if s.altScreenActive.Load() {
 		s.RequestRender(false)
 	}
@@ -220,6 +492,7 @@ func (s *AltScreen) hasMousePressTarget() bool {
 }
 
 func (s *AltScreen) beforeTerminalStart() {
+	s.cancelPointerGestures()
 	s.altScreenActive.Store(true)
 	s.frameMu.Lock()
 	s.lastDocument = nil
@@ -235,6 +508,7 @@ func (s *AltScreen) beforeTerminalStart() {
 	s.navFrame = nil
 	s.navCursor = 0
 	s.navRevision++
+	s.layoutEpoch++
 	s.frameMu.Unlock()
 	term := strings.ToLower(envLookup("TERM"))
 	multiplexed := envLookup("TMUX") != "" || envLookup("ZELLIJ") != "" || envLookup("STY") != "" ||
@@ -251,6 +525,8 @@ func (s *AltScreen) suspendTerminalProtocols() {
 	if !s.altScreenActive.Load() {
 		return
 	}
+	s.cancelPointerGestures()
+	s.ReleaseGraphics()
 	s.Terminal().Write(SyncOutputBegin + MouseDisable() + AutowrapEnable + AltScreenExit + CursorShow + SyncOutputEnd)
 }
 
@@ -265,6 +541,9 @@ func (s *AltScreen) beforeTerminalStop(StopOptions) {
 	if !s.altScreenActive.Load() {
 		return
 	}
+	s.CloseSearch()
+	s.cancelPointerGestures()
+	s.ReleaseGraphics()
 	s.Terminal().Write(SyncOutputBegin + MouseDisable() + AutowrapEnable + SyncOutputEnd)
 }
 
@@ -346,6 +625,15 @@ func (s *AltScreen) doRender() {
 	for i, line := range layout.Lines {
 		screen[i] = trimOSC133Zone(line)
 	}
+	if s.searchActive.Load() {
+		s.updateSearch(layout)
+		s.paintSearchHighlights(screen, layout)
+	} else if s.selection != nil {
+		s.updateSelectionGeneration(layout)
+	}
+	if s.selection != nil {
+		s.paintSelection(screen, layout)
+	}
 	screen = s.compositeOverlays(screen, width, height)
 	if len(screen) > height {
 		screen = screen[len(screen)-height:]
@@ -380,18 +668,17 @@ func (s *AltScreen) doRender() {
 		buffer.WriteString(CursorEraseLine)
 		buffer.WriteString(screen[row])
 	}
+	cursor := CursorHide
 	if cursorFound {
-		buffer.WriteString(CursorTo(cursorRow, minInt(width, cursorCol)))
+		cursor = CursorTo(cursorRow, minInt(width, cursorCol))
 		if s.ShowHardwareCursor() {
-			buffer.WriteString(CursorShow)
+			cursor += CursorShow
 		} else {
-			buffer.WriteString(CursorHide)
+			cursor += CursorHide
 		}
-	} else {
-		buffer.WriteString(CursorHide)
 	}
 	buffer.WriteString(SyncOutputEnd)
-	s.Terminal().Write(buffer.String())
+	s.Terminal().Write(buffer.String() + s.placementPass(layout, height) + cursor)
 
 	s.enterLayoutPublishGate()
 	s.frameMu.Lock()
@@ -419,6 +706,7 @@ func (s *AltScreen) handleViewportInput(data string) InputListenerResult {
 		return InputListenerResult{Consume: true}
 	}
 	if data == FocusOut {
+		s.cancelPointerGestures()
 		s.clearMousePress()
 		return InputListenerResult{Consume: true}
 	}
@@ -440,6 +728,13 @@ func (s *AltScreen) handleViewportInput(data string) InputListenerResult {
 		keybindings = NewDefaultKeybindingsManager(nil)
 	}
 	isRelease := IsKeyRelease(data)
+
+	if keybindings.Matches(data, "tui.altScreen.search") {
+		if !isRelease {
+			s.openSearch()
+		}
+		return InputListenerResult{Consume: true}
+	}
 
 	if keybindings.Matches(data, "tui.altScreen.pageUp") {
 		if !isRelease {
@@ -681,14 +976,16 @@ func (s *AltScreen) handleWheelEvent(event parsedWheelEvent) {
 		}
 		return
 	}
-	var dispatched *mouseDispatchResult
 	if result != nil {
-		dispatched = result
-	} else if !hit {
-		dispatched = s.dispatchMouseToLayout(mouseEvent)
+		s.applyMouseDispatchResult(mouseEvent, result)
+		return
 	}
-	if dispatched != nil {
-		s.applyMouseDispatchResult(mouseEvent, dispatched)
+	if hit {
+		s.RequestRender(false)
+		return
+	}
+	if layoutResult := s.dispatchMouseToLayout(mouseEvent); layoutResult != nil {
+		s.applyMouseDispatchResult(mouseEvent, layoutResult)
 		return
 	}
 	s.routeWheel(event, delta)
@@ -699,6 +996,7 @@ func (s *AltScreen) routeModalProtocol(data string) bool {
 		return true
 	}
 	if data == FocusOut {
+		s.cancelPointerGestures()
 		s.clearMousePress()
 		return true
 	}
@@ -729,6 +1027,7 @@ func (s *AltScreen) routeWheel(event parsedWheelEvent, delta int) {
 	cursor := position.cursor
 	primaryConsumed := 0
 	seen := make(map[*ScrollView]struct{})
+	contained := false
 	if position.layout != nil {
 		for _, scrollView := range getScrollViewsAt(position.layout, event.x, event.y) {
 			seen[scrollView] = struct{}{}
@@ -744,12 +1043,16 @@ func (s *AltScreen) routeWheel(event parsedWheelEvent, delta int) {
 				scrollView.ScrollTo(before+remaining, ScrollToOptions{})
 				remaining -= scrollView.ScrollTop() - before
 			}
-			if remaining == 0 || scrollView.overscroll == "contain" {
+			if remaining == 0 {
+				break
+			}
+			if scrollView.overscroll == "contain" {
+				contained = true
 				break
 			}
 		}
 	}
-	if primary != nil {
+	if primary != nil && !contained {
 		if _, wasSeen := seen[primary]; remaining != 0 && !wasSeen {
 			if position.hasBounds {
 				target := maxInt(0, minInt(position.maxScrollTop, cursor+remaining))
@@ -942,6 +1245,15 @@ func (s *AltScreen) handleMouseEvent(raw parsedMouseEvent) {
 		return
 	}
 
+	if s.scrollbarDrag != nil {
+		s.handleScrollbarDragEvent(event)
+		return
+	}
+	if s.hasSelectionCapture() && (event.Button == MouseButtonLeft || event.Type == MouseMove || event.Type == MouseRelease) {
+		s.handleSelectionMouse(event)
+		return
+	}
+
 	target := s.mouseTarget()
 	if target != nil {
 		s.noteMouseMovement(raw.x, raw.y)
@@ -969,12 +1281,29 @@ func (s *AltScreen) handleMouseEvent(raw parsedMouseEvent) {
 	}
 
 	hit, overlayResult := s.dispatchMouseToOverlay(event)
-	var result *mouseDispatchResult
 	if overlayResult != nil {
-		result = overlayResult
-	} else if !hit {
-		result = s.dispatchMouseToLayout(event)
+		render := s.applyMouseDispatchResult(event, overlayResult)
+		if eventType == MousePress {
+			s.setMousePress(&overlayResult.target, raw.x, raw.y)
+		}
+		if overlayResult.result.Capture {
+			s.setMouseCapture(&overlayResult.target)
+		}
+		if render {
+			s.RequestRender(false)
+		}
+		return
 	}
+	if hit {
+		s.RequestRender(false)
+		return
+	}
+
+	if s.handleScrollbarPress(event) {
+		return
+	}
+
+	result := s.dispatchMouseToLayout(event)
 	if result != nil {
 		render := s.applyMouseDispatchResult(event, result)
 		if eventType == MousePress {
@@ -988,8 +1317,142 @@ func (s *AltScreen) handleMouseEvent(raw parsedMouseEvent) {
 		}
 		return
 	}
+
+	if s.handleSelectionMouse(event) {
+		return
+	}
 	if raw.release && !s.hasMousePressTarget() {
 		s.RequestRender(false)
+	}
+}
+
+func (s *AltScreen) scrollToCurrentSearchMatch() {
+	match, ok := s.search.CurrentMatch()
+	if !ok || len(match.Segments) == 0 {
+		return
+	}
+	line := match.Segments[0].Line
+	s.frameMu.Lock()
+	position := s.navPositionLocked()
+	s.frameMu.Unlock()
+	if position.scrollView == nil || !position.hasBounds {
+		return
+	}
+	target := position.cursor
+	if line < target {
+		target = line
+	}
+	if line >= target+position.viewport {
+		target = line - position.viewport + 1
+	}
+	target = maxInt(0, minInt(position.maxScrollTop, target))
+	s.publishNavCursor(position.layout, target)
+	position.scrollView.ScrollTo(target, ScrollToOptions{DisableFollow: true})
+	s.RequestRender(false)
+}
+
+func (s *AltScreen) openSearch() {
+	if s.ModalCapture() || s.searchActive.Load() {
+		return
+	}
+	s.cancelPointerGestures()
+	if s.searchOverlay == nil {
+		keybindings := s.activeKeybindings
+		if keybindings == nil {
+			keybindings = NewDefaultKeybindingsManager(nil)
+		}
+		s.searchOverlay = NewSearchOverlay(SearchOverlayOptions{
+			Keybindings: keybindings,
+			Search:      s.search,
+			OnChange:    func() { s.RequestRender(false) },
+			OnSelect:    func() { s.scrollToCurrentSearchMatch() },
+			OnClose:     func() { s.closeSearch() },
+			PromptStyle: func(text string) string {
+				current := s.currentTheme()
+				if current == nil {
+					return text
+				}
+				return current.Fg("accent", text)
+			},
+		})
+	}
+	s.searchOverlay.Reset()
+	s.searchActive.Store(true)
+	s.SetModalCaptureSource(searchModalCaptureSource, true)
+	s.searchHandle = s.ShowOverlay(s.searchOverlay, OverlayOptions{Anchor: AnchorBottomCenter, Width: "100%"})
+	s.RequestRender(false)
+}
+
+func (s *AltScreen) CloseSearch() { s.closeSearch() }
+
+func (s *AltScreen) closeSearch() {
+	if !s.searchActive.Swap(false) {
+		return
+	}
+	if s.searchOverlay != nil {
+		s.searchOverlay.Reset()
+	}
+	if s.searchHandle != nil {
+		s.searchHandle.Hide()
+		s.searchHandle = nil
+	}
+	s.SetModalCaptureSource(searchModalCaptureSource, false)
+	s.frameMu.Lock()
+	s.searchFrameScrollTop = 0
+	s.frameMu.Unlock()
+	s.RequestRender(false)
+}
+
+func (s *AltScreen) updateSearch(layout *LayoutFrame) {
+	if layout == nil || layout.PrimaryScrollView == nil {
+		return
+	}
+	box := GetScrollViewBox(layout, layout.PrimaryScrollView)
+	if box == nil {
+		return
+	}
+	lines := append([]string(nil), box.scrollContentLines...)
+	width := box.Rect.Width
+	s.frameMu.Lock()
+	s.searchFrameScrollTop = layout.PrimaryScrollTop
+	s.frameMu.Unlock()
+	s.search.Update(SearchSource{
+		Lines:      lines,
+		Width:      width,
+		Generation: searchGeneration(lines, width),
+	})
+}
+
+func (s *AltScreen) paintSearchHighlights(screen []string, layout *LayoutFrame) {
+	if layout == nil || layout.PrimaryScrollView == nil {
+		return
+	}
+	box := GetScrollViewBox(layout, layout.PrimaryScrollView)
+	if box == nil {
+		return
+	}
+	s.frameMu.RLock()
+	style := s.searchStyle
+	scrollTop := s.searchFrameScrollTop
+	s.frameMu.RUnlock()
+	if style == nil {
+		style = func(selected bool, text string) string { return SGRInverse + text + SGRInverseOff }
+	}
+	matches := s.search.Matches()
+	current := s.search.Current()
+	for index, match := range matches {
+		selected := index == current
+		for _, segment := range match.Segments {
+			row := box.Rect.Y + (segment.Line - scrollTop)
+			if row < box.Rect.Y || row >= box.Rect.Y+box.Rect.Height || row < 0 || row >= len(screen) {
+				continue
+			}
+			start := box.Rect.X + segment.Start
+			end := box.Rect.X + segment.End
+			screen[row] = applySearchCellStyle(screen[row], start, end, func(text string) string {
+				return style(selected, text)
+			})
+		}
 	}
 }
 

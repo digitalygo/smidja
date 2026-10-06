@@ -42,6 +42,27 @@ func TestReplaceTranscriptResetsAndRebuilds(t *testing.T) {
 	}
 }
 
+type recordingCloseSearchController struct {
+	closed int
+}
+
+func (c *recordingCloseSearchController) RequestRender(force bool) {}
+
+func (c *recordingCloseSearchController) CloseSearch() {
+	c.closed++
+}
+
+func TestReplaceTranscriptClosesControllerSearch(t *testing.T) {
+	surface, _ := newTestSurface(t, SurfaceOptions{})
+	controller := &recordingCloseSearchController{}
+	surface.SetController(controller)
+	surface.AddUserMessage("stale question")
+	surface.ReplaceTranscript(nil)
+	if controller.closed != 1 {
+		t.Fatalf("CloseSearch calls = %d, want 1", controller.closed)
+	}
+}
+
 func TestReplaceTranscriptIsSafeWithEmptyInput(t *testing.T) {
 	surface, _ := newTestSurface(t, SurfaceOptions{})
 	surface.AddUserMessage("something")

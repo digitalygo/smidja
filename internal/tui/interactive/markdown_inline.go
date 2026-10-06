@@ -18,7 +18,7 @@ func renderInlineDepth(text string, context inlineContext, theme *tui.Theme, hyp
 		return context.apply(text)
 	}
 	hyper := context.hyper || hyperlinks
-	renderer := &mdInline{source: text, theme: theme, hyperlinks: hyper, depth: depth}
+	renderer := &mdInline{source: text, theme: theme, hyperlinks: hyper, depth: depth, resolver: context.resolver, images: context.images, width: context.width}
 	return renderer.run(context)
 }
 
@@ -28,6 +28,9 @@ type mdInline struct {
 	theme      *tui.Theme
 	hyperlinks bool
 	depth      int
+	width      int
+	resolver   tui.ImageResolver
+	images     *mdImageCollector
 	out        strings.Builder
 }
 
@@ -88,6 +91,14 @@ func (r *mdInline) run(context inlineContext) string {
 				plain.WriteByte(char)
 				r.pos++
 			}
+		case char == '!' && r.pos+1 < len(r.source) && r.source[r.pos+1] == '[':
+			if alt, source, ok := r.consumeImage(); ok {
+				flush()
+				r.out.WriteString(r.renderImage(alt, source, context))
+			} else {
+				plain.WriteByte(char)
+				r.pos++
+			}
 		case char == '[':
 			if label, target, ok := r.consumeLink(); ok {
 				flush()
@@ -100,6 +111,23 @@ func (r *mdInline) run(context inlineContext) string {
 			url := r.consumeAutolink()
 			flush()
 			r.out.WriteString(r.renderLink(url, url, context))
+		case char == '$':
+			span, ok := findMathSpan(r.source, r.pos)
+			if !ok {
+				plain.WriteByte(char)
+				r.pos++
+				continue
+			}
+			flush()
+			if rendered, parsed := parseMathExpression(span.content); parsed {
+				r.out.WriteString(r.theme.Fg("mdCode", rendered) + context.prefix)
+			} else {
+				if context.mathFallback != nil {
+					*context.mathFallback = true
+				}
+				r.out.WriteString(context.apply(r.source[r.pos:span.end]) + context.prefix)
+			}
+			r.pos = span.end
 		case strings.HasPrefix(r.source[r.pos:], "http://") || strings.HasPrefix(r.source[r.pos:], "https://"):
 			url := r.consumeBareURL()
 			flush()
@@ -160,6 +188,36 @@ func (r *mdInline) consumeDelimiter(delimiter string) (string, bool) {
 
 func isWordRune(char byte) bool {
 	return char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char >= 0x80
+}
+
+func (r *mdInline) consumeImage() (string, string, bool) {
+	if !strings.HasPrefix(r.source[r.pos:], "![") {
+		return "", "", false
+	}
+	saved := r.pos
+	r.pos++
+	label, target, ok := r.consumeLink()
+	if !ok {
+		r.pos = saved
+		return "", "", false
+	}
+	return label, target, true
+}
+
+func (r *mdInline) renderImage(alt, source string, context inlineContext) string {
+	if r.resolver != nil {
+		if resolved, ok := r.resolver(source, alt, r.width); ok {
+			if r.images != nil {
+				return r.images.register(resolved, source, alt)
+			}
+			label := resolved.Label
+			if label == "" {
+				label = imageFallbackLabel(alt, source)
+			}
+			return r.theme.Fg("mdLink", label) + context.prefix
+		}
+	}
+	return r.theme.Fg("mdLink", imageFallbackLabel(alt, source)) + context.prefix
 }
 
 func (r *mdInline) consumeLink() (string, string, bool) {

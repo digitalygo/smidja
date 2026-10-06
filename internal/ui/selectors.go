@@ -107,6 +107,12 @@ func (r *Runner) ApplyTheme(name string) error {
 	if r.dialogs != nil {
 		r.dialogs.SetTheme(theme)
 	}
+	if alt, ok := r.view.(*tui.AltScreen); ok && alt != nil {
+		alt.SetTheme(theme)
+		alt.Search().Rebuild()
+	}
+	r.view.Invalidate()
+	r.view.RequestRender(true)
 	return nil
 }
 

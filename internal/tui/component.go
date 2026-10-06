@@ -31,15 +31,16 @@ type StopOptions struct {
 }
 
 type tuiHooks struct {
-	beforeStart      func()
-	afterStart       func()
-	beforeStop       func(options StopOptions)
-	afterStop        func(options StopOptions)
-	resetRenderState func()
-	doRender         func()
-	suspendProtocols func()
-	resumeProtocols  func()
-	mountedRoots     func() []Component
+	beforeStart         func()
+	afterStart          func()
+	beforeStop          func(options StopOptions)
+	afterStop           func(options StopOptions)
+	resetRenderState    func()
+	doRender            func()
+	suspendProtocols    func()
+	resumeProtocols     func()
+	mountedRoots        func() []Component
+	modalCaptureChanged func(active bool)
 }
 
 type Base struct {
@@ -77,11 +78,14 @@ type Base struct {
 
 	mode string
 
-	modalCapture  bool
-	modalProtocol func(string) bool
+	modalCapture        bool
+	modalCaptureSources map[string]bool
+	modalProtocol       func(string) bool
 }
 
 const defaultMinRenderInterval = 16 * time.Millisecond
+
+const modalCaptureDialogsSource = "dialogs"
 
 func NewBase(terminal Terminal, showHardwareCursor bool, mode string) *Base {
 	return &Base{
@@ -135,9 +139,30 @@ func (b *Base) SetClearOnShrink(enabled bool) { b.clearOnShrink = enabled }
 func (b *Base) SetOnDebug(callback func()) { b.onDebug = callback }
 
 func (b *Base) SetModalCapture(enabled bool) {
+	b.SetModalCaptureSource(modalCaptureDialogsSource, enabled)
+}
+
+func (b *Base) SetModalCaptureSource(source string, enabled bool) {
+	if source == "" {
+		return
+	}
 	b.mu.Lock()
-	b.modalCapture = enabled
+	if b.modalCaptureSources == nil {
+		b.modalCaptureSources = make(map[string]bool)
+	}
+	if enabled {
+		b.modalCaptureSources[source] = true
+	} else {
+		delete(b.modalCaptureSources, source)
+	}
+	active := len(b.modalCaptureSources) > 0
+	changed := b.modalCapture != active
+	b.modalCapture = active
+	hook := b.hooks.modalCaptureChanged
 	b.mu.Unlock()
+	if changed && hook != nil {
+		hook(active)
+	}
 }
 
 func (b *Base) ModalCapture() bool {
@@ -181,12 +206,17 @@ func (b *Base) setFocusLocked(component Component) {
 func (b *Base) RemoveChild(component Component) {
 	b.mu.Lock()
 	b.Container.RemoveChild(component)
+	b.repairFocusReferencesLocked(component, nil)
 	b.mu.Unlock()
 }
 
 func (b *Base) Clear() {
 	b.mu.Lock()
+	removed := b.Container.snapshot()
 	b.Container.Clear()
+	for _, component := range removed {
+		b.repairFocusReferencesLocked(component, nil)
+	}
 	b.mu.Unlock()
 }
 

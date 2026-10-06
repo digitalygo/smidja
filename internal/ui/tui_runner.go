@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/digitalygo/smidja/internal/tui"
 	"github.com/digitalygo/smidja/internal/tui/interactive"
@@ -18,6 +19,8 @@ import (
 )
 
 var errRunnerStopped = errors.New("ui: tui runner is stopped")
+
+const graphicsProbeTimeout = 150 * time.Millisecond
 
 var (
 	notifySignals = signal.Notify
@@ -30,6 +33,10 @@ type documentComponent struct {
 
 func (d *documentComponent) Render(width int) []string {
 	return d.surface.RenderDocument(width)
+}
+
+func (d *documentComponent) RenderRich(width int) tui.RichRender {
+	return d.surface.RenderRichDocument(width)
 }
 
 func (d *documentComponent) Invalidate() {
@@ -106,6 +113,10 @@ type RunnerOptions struct {
 
 	NewTerminal func(stdin io.Reader, stdout io.Writer) tui.Terminal
 
+	Env           func(string) string
+	ImagesEnabled bool
+	LinkOpener    tui.LinkOpener
+
 	OnSubmit    func(string)
 	OnInterrupt func()
 }
@@ -151,6 +162,17 @@ type Runner struct {
 	mu          sync.Mutex
 	onSubmit    func(string)
 	onInterrupt func()
+
+	env                     func(string) string
+	hyperlinks              bool
+	imagesEnabled           bool
+	imageLoader             *tui.ImageLoader
+	graphics                tui.GraphicsCapability
+	graphicsTracker         *tui.GraphicsReplyTracker
+	linkOpener              tui.LinkOpener
+	graphicsProber          tui.GraphicsProber
+	graphicsProbeProtocol   tui.GraphicsProtocol
+	graphicsProbeGeneration uint64
 }
 
 var _ tui.TUIController = (*Runner)(nil)
@@ -173,6 +195,10 @@ func NewRunner(opts RunnerOptions) *Runner {
 		}
 	}
 	terminal := newTerminal(stdin, stdout)
+	var graphicsProber tui.GraphicsProber
+	if prober, ok := terminal.(tui.GraphicsProber); ok {
+		graphicsProber = prober
+	}
 	keys := tui.NewDefaultKeybindingsManager(nil)
 	themes := tui.NewThemeRegistry("", "", tui.ColorModeUnset)
 	theme := themes.Active()
@@ -199,12 +225,21 @@ func NewRunner(opts RunnerOptions) *Runner {
 		Editor:      editor,
 		Keybindings: keys,
 		Home:        opts.Home,
+		Hyperlinks:  true,
 	})
 	title := opts.Title
 	if strings.TrimSpace(title) == "" {
 		title = "smidja"
 	}
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	env := opts.Env
+	if env == nil {
+		env = os.Getenv
+	}
+	linkOpener := opts.LinkOpener
+	if linkOpener == nil {
+		linkOpener = &tui.CommandLinkOpener{}
+	}
 	runner := &Runner{
 		terminal:        terminal,
 		keys:            keys,
@@ -220,7 +255,15 @@ func NewRunner(opts RunnerOptions) *Runner {
 		mode:            opts.Mode,
 		lifecycleCtx:    lifecycleCtx,
 		lifecycleCancel: lifecycleCancel,
+		env:             env,
+		hyperlinks:      true,
+		imagesEnabled:   opts.ImagesEnabled,
+		graphicsTracker: tui.NewGraphicsReplyTracker(0),
+		linkOpener:      linkOpener,
+		imageLoader:     tui.NewImageLoader(opts.WorkspaceRoot, opts.ImagesEnabled),
+		graphicsProber:  graphicsProber,
 	}
+	interactive.SetDefaultImageResolver(runner.resolveImage)
 	rawTerminal := terminal
 	wrapped := &resizeNotifyingTerminal{Terminal: rawTerminal, onResize: func() { editor.SetTerminalRows(rawTerminal.Rows()) }}
 	terminal = wrapped
@@ -238,6 +281,7 @@ func NewRunner(opts RunnerOptions) *Runner {
 	}
 	runner.view = view
 	runner.dialogs = newModalService(view)
+	runner.configureScreen(view, theme)
 	surface.SetController(runner)
 	surface.SetOnSubmit(runner.handleSubmit)
 	view.SetFocus(editor)
@@ -247,6 +291,170 @@ func NewRunner(opts RunnerOptions) *Runner {
 }
 
 func (r *Runner) ThemeRegistry() *tui.ThemeRegistry { return r.themes }
+
+func (r *Runner) configureScreen(view screen, theme *tui.Theme) {
+	switch typed := view.(type) {
+	case *tui.AltScreen:
+		typed.SetLinkOpener(r.linkOpener)
+		typed.SetImageBytesProvider(r.loadImage)
+		if theme != nil {
+			typed.SetTheme(theme)
+		}
+	case *tui.MainScreen:
+		typed.SetImageBytesProvider(r.loadImage)
+	}
+	if r.imageLoader != nil {
+		r.imageLoader.SetOnEvict(func(cacheKey string) {
+			switch typed := view.(type) {
+			case *tui.AltScreen:
+				if sequence := typed.ImagePlacements().FreeCacheKey(cacheKey); sequence != "" {
+					typed.Terminal().Write(sequence)
+				}
+			case *tui.MainScreen:
+				if sequence := typed.ImagePlacements().FreeCacheKey(cacheKey); sequence != "" {
+					typed.Terminal().Write(sequence)
+				}
+			}
+		})
+	}
+}
+
+func (r *Runner) loadImage(source, cacheKey string) (*tui.LoadedImage, bool) {
+	r.mu.Lock()
+	loader := r.imageLoader
+	enabled := r.imagesEnabled
+	r.mu.Unlock()
+	if !enabled || loader == nil {
+		return nil, false
+	}
+	loaded, err := loader.Load(source)
+	if err != nil {
+		return nil, false
+	}
+	return loaded, true
+}
+
+func (r *Runner) applyGraphics(view screen) {
+	r.mu.Lock()
+	enabled := r.imagesEnabled
+	loader := r.imageLoader
+	started := r.started.Load()
+	prober := r.graphicsProber
+	probeGeneration := r.graphicsProbeGeneration
+	probeProtocol := r.graphicsProbeProtocol
+	r.mu.Unlock()
+	detected := tui.DetectGraphicsProtocol(r.env)
+	protocol := detected
+	if detected == tui.GraphicsKitty && started && prober != nil {
+		if probeGeneration == 0 {
+			ok := prober.QueryKittyGraphics(graphicsProbeTimeout)
+			r.mu.Lock()
+			if r.graphicsProbeGeneration == 0 {
+				r.graphicsProbeGeneration = 1
+				if ok {
+					r.graphicsProbeProtocol = tui.GraphicsKitty
+				} else {
+					r.graphicsProbeProtocol = tui.GraphicsNone
+				}
+			}
+			probeProtocol = r.graphicsProbeProtocol
+			r.mu.Unlock()
+		}
+		protocol = probeProtocol
+	}
+	capability := tui.GraphicsCapability{
+		Protocol: protocol,
+		Enabled:  enabled && loader != nil && loader.Enabled(),
+	}
+	r.mu.Lock()
+	r.graphics = capability
+	r.mu.Unlock()
+	switch typed := view.(type) {
+	case *tui.AltScreen:
+		typed.SetGraphics(capability)
+	case *tui.MainScreen:
+		typed.SetGraphics(capability)
+	}
+}
+
+func (r *Runner) SetImagesEnabled(enabled bool) {
+	r.mu.Lock()
+	r.imagesEnabled = enabled
+	loader := r.imageLoader
+	r.mu.Unlock()
+	if loader != nil {
+		loader.SetEnabled(enabled)
+	}
+	r.applyGraphics(r.view)
+	r.view.Invalidate()
+	r.view.RequestRender(true)
+}
+
+func (r *Runner) resolveImage(source, alt string, maxColumns int) (tui.ResolvedImage, bool) {
+	trimmed := strings.TrimSpace(source)
+	if trimmed == "" {
+		return tui.ResolvedImage{}, false
+	}
+	r.mu.Lock()
+	loader := r.imageLoader
+	enabled := r.imagesEnabled
+	capability := r.graphics
+	r.mu.Unlock()
+	if !enabled || loader == nil || capability.Protocol == tui.GraphicsNone {
+		return tui.ResolvedImage{}, false
+	}
+	if capability.Protocol == tui.GraphicsITerm2 && r.mode.Fullscreen() {
+		return tui.ResolvedImage{}, false
+	}
+	loaded, err := loader.Load(trimmed)
+	if err != nil {
+		return tui.ResolvedImage{}, false
+	}
+	if loaded.WebPPassthrough && capability.Protocol == tui.GraphicsKitty {
+		return tui.ResolvedImage{}, false
+	}
+	columns := maxColumns
+	if columns > 40 {
+		columns = 40
+	}
+	if columns < 1 {
+		columns = 1
+	}
+	denominator := loaded.Width
+	if denominator < 1 {
+		denominator = 1
+	}
+	rows := columns * loaded.Height / denominator / 2
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > 20 {
+		rows = 20
+	}
+	cacheKey, err := loader.ResolvePath(trimmed)
+	if err != nil {
+		return tui.ResolvedImage{}, false
+	}
+	return tui.ResolvedImage{
+		CacheKey: cacheKey,
+		Columns:  columns,
+		Rows:     rows,
+		Label:    "[image: " + interactive.SanitizeSingleLine(alt) + "]",
+		Protocol: capability.Protocol,
+	}, true
+}
+
+func (r *Runner) ImagesEnabled() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.imagesEnabled
+}
+
+func (r *Runner) GraphicsCapability() tui.GraphicsCapability {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.graphics
+}
 
 func (r *Runner) Surface() *interactive.Surface { return r.surface }
 
@@ -263,10 +471,17 @@ func (r *Runner) Done() <-chan struct{} { return r.exitC }
 
 func (r *Runner) RequestExit() {
 	r.exitOnce.Do(func() {
+		r.CloseSearch()
 		r.cancelDialogs()
 		r.endActions()
 		close(r.exitC)
 	})
+}
+
+func (r *Runner) CloseSearch() {
+	if alt, ok := r.view.(*tui.AltScreen); ok {
+		alt.CloseSearch()
+	}
 }
 
 func (r *Runner) cancelDialogs() {
@@ -318,6 +533,7 @@ func (r *Runner) Start() error {
 		return err
 	}
 	r.started.Store(true)
+	r.applyGraphics(r.view)
 	r.surface.Editor().SetTerminalRows(r.terminal.Rows())
 	r.terminal.SetTitle(r.title)
 	return nil
@@ -495,6 +711,9 @@ func (r *Runner) handleSubmit(text string) {
 func (r *Runner) handleInput(data string) tui.InputListenerResult {
 	if tui.IsKeyRelease(data) {
 		return tui.InputListenerResult{}
+	}
+	if r.graphicsTracker != nil && r.graphicsTracker.Observe(data) {
+		return tui.InputListenerResult{Consume: true}
 	}
 	if r.editorActive.Load() {
 		return tui.InputListenerResult{Consume: true}

@@ -25,6 +25,47 @@ func wrapBlockContent(content []string, width int) []string {
 	return result
 }
 
+func wrapBlockRich(content tui.RichRender, width int) tui.RichRender {
+	safeWidth := maxInt(1, width)
+	out := tui.RichRender{Lines: make([]string, 0, len(content.Lines)), Images: make([]tui.ImageDescriptor, 0, len(content.Images))}
+	offsets := make([]int, len(content.Lines)+1)
+	for index, line := range content.Lines {
+		offsets[index] = len(out.Lines)
+		out.Lines = append(out.Lines, tui.WrapTextWithANSI(line, safeWidth)...)
+	}
+	offsets[len(content.Lines)] = len(out.Lines)
+	for _, descriptor := range content.Images {
+		row := maxInt(0, minInt(len(content.Lines), descriptor.Row))
+		descriptor.Row += offsets[row] - row
+		out.Images = append(out.Images, descriptor)
+	}
+	return out
+}
+
+func applyBlockBackgroundRich(content tui.RichRender, width, paddingX, paddingY int, bgFn func(string) string) tui.RichRender {
+	safeWidth := maxInt(0, width)
+	left := strings.Repeat(" ", maxInt(0, paddingX))
+	out := tui.RichRender{
+		Lines:  make([]string, 0, len(content.Lines)+paddingY*2),
+		Images: make([]tui.ImageDescriptor, 0, len(content.Images)),
+	}
+	for i := 0; i < paddingY; i++ {
+		out.Lines = append(out.Lines, bgFn(strings.Repeat(" ", safeWidth)))
+	}
+	for _, line := range content.Lines {
+		out.Lines = append(out.Lines, bgFn(padLineToWidth(tui.TruncateToWidth(left+line, safeWidth, "", false), safeWidth)))
+	}
+	for i := 0; i < paddingY; i++ {
+		out.Lines = append(out.Lines, bgFn(strings.Repeat(" ", safeWidth)))
+	}
+	for _, descriptor := range content.Images {
+		descriptor.Row += paddingY
+		descriptor.OffsetX += paddingX
+		out.Images = append(out.Images, descriptor)
+	}
+	return out
+}
+
 func applyBlockBackground(content []string, width, paddingX, paddingY int, bgFn func(string) string) []string {
 	safeWidth := maxInt(0, width)
 	left := strings.Repeat(" ", maxInt(0, paddingX))
@@ -81,17 +122,26 @@ func (u *UserMessage) Invalidate() {
 	u.mu.Unlock()
 }
 
-func (u *UserMessage) Render(width int) []string {
+func (u *UserMessage) RenderRich(width int) tui.RichRender {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	contentWidth := blockContentWidth(width, 1)
-	content := wrapBlockContent(u.markdown.Render(contentWidth), contentWidth)
-	if len(content) == 0 {
-		return nil
+	content := u.markdown.RenderRich(contentWidth)
+	if len(content.Lines) == 0 {
+		return tui.RichRender{}
 	}
-	return applyBlockBackground(content, width, 1, 1, func(text string) string {
+	content = wrapBlockRich(content, contentWidth)
+	lines := applyBlockBackgroundRich(content, width, 1, 1, func(text string) string {
 		return u.theme.Bg("userMessageBg", text)
 	})
+	if len(lines.Lines) > 0 {
+		lines.Lines[0] = tui.OSC133PromptStart + lines.Lines[0]
+	}
+	return lines
+}
+
+func (u *UserMessage) Render(width int) []string {
+	return u.RenderRich(width).Lines
 }
 
 type assistantSegment struct {
@@ -118,6 +168,7 @@ type AssistantMessage struct {
 	cacheValid       bool
 	cacheWidth       int
 	cacheRender      []string
+	cacheRich        tui.RichRender
 }
 
 func NewAssistantMessage(theme *tui.Theme, hyperlinks bool) *AssistantMessage {
@@ -226,21 +277,26 @@ func (a *AssistantMessage) Text() string {
 }
 
 func (a *AssistantMessage) Render(width int) []string {
+	return a.RenderRich(width).Lines
+}
+
+func (a *AssistantMessage) RenderRich(width int) tui.RichRender {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.cacheValid && a.cacheWidth == width {
-		return a.cacheRender
+		return a.cacheRich
 	}
-	lines := a.render(width)
-	a.cacheRender = lines
+	rich := a.renderRich(width)
+	a.cacheRich = rich
+	a.cacheRender = rich.Lines
 	a.cacheWidth = width
 	a.cacheValid = true
-	return lines
+	return rich
 }
 
-func (a *AssistantMessage) render(width int) []string {
+func (a *AssistantMessage) renderRich(width int) tui.RichRender {
 	safeWidth := maxInt(1, width)
-	lines := make([]string, 0, len(a.segments)+2)
+	out := tui.RichRender{Lines: make([]string, 0, len(a.segments)+2)}
 	hasContent := false
 	for _, segment := range a.segments {
 		if strings.TrimSpace(segment.text) != "" {
@@ -249,21 +305,27 @@ func (a *AssistantMessage) render(width int) []string {
 		}
 	}
 	if hasContent {
-		lines = append(lines, "")
+		out.Lines = append(out.Lines, "")
 	}
 	for _, segment := range a.segments {
 		if strings.TrimSpace(segment.text) == "" {
 			continue
 		}
 		if segment.thinking {
-			lines = append(lines, a.renderThinking(segment.text, safeWidth)...)
+			out.Lines = append(out.Lines, a.renderThinking(segment.text, safeWidth)...)
 			continue
 		}
 		markdown := NewMarkdown(segment.text, 1, 0, a.theme, MarkdownStyle{}, a.hyperlinks)
-		lines = append(lines, markdown.Render(safeWidth)...)
+		rich := markdown.RenderRich(safeWidth)
+		offset := len(out.Lines)
+		for _, descriptor := range rich.Images {
+			descriptor.Row += offset
+			out.Images = append(out.Images, descriptor)
+		}
+		out.Lines = append(out.Lines, rich.Lines...)
 	}
-	lines = append(lines, a.renderStopLines(safeWidth)...)
-	return lines
+	out.Lines = append(out.Lines, a.renderStopLines(safeWidth)...)
+	return out
 }
 
 func (a *AssistantMessage) renderThinking(text string, width int) []string {
@@ -394,26 +456,36 @@ func (s *SkillBlock) IsExpanded() bool {
 func (s *SkillBlock) Invalidate() {}
 
 func (s *SkillBlock) Render(width int) []string {
+	return s.RenderRich(width).Lines
+}
+
+func (s *SkillBlock) RenderRich(width int) tui.RichRender {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	theme := s.theme
 	contentWidth := blockContentWidth(width, 1)
 	label := theme.Fg("customMessageLabel", theme.Bold("[skill]"))
-	var content []string
+	var content tui.RichRender
 	if s.expanded {
 		markdown := NewMarkdown("**"+s.name+"**\n\n"+s.content, 0, 0, theme, MarkdownStyle{
 			TextColor: func(text string) string { return theme.Fg("customMessageText", text) },
 		}, s.hyperlinks)
-		content = append(content, label)
-		content = append(content, markdown.Render(contentWidth)...)
+		rich := markdown.RenderRich(contentWidth)
+		content.Lines = append(content.Lines, label)
+		for _, descriptor := range rich.Images {
+			descriptor.Row += 1
+			content.Images = append(content.Images, descriptor)
+		}
+		content.Lines = append(content.Lines, rich.Lines...)
 	} else {
 		line := label + " " + theme.Fg("customMessageText", s.name)
 		if s.keyDisplay != "" {
 			line += theme.Fg("dim", " ("+s.keyDisplay+" to expand)")
 		}
-		content = append(content, line)
+		content.Lines = append(content.Lines, line)
 	}
-	return applyBlockBackground(wrapBlockContent(content, contentWidth), width, 1, 1, func(text string) string {
+	content = wrapBlockRich(content, contentWidth)
+	return applyBlockBackgroundRich(content, width, 1, 1, func(text string) string {
 		return theme.Bg("customMessageBg", text)
 	})
 }
@@ -453,30 +525,40 @@ func (c *CompactionBlock) IsExpanded() bool {
 func (c *CompactionBlock) Invalidate() {}
 
 func (c *CompactionBlock) Render(width int) []string {
+	return c.RenderRich(width).Lines
+}
+
+func (c *CompactionBlock) RenderRich(width int) tui.RichRender {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	theme := c.theme
 	contentWidth := blockContentWidth(width, 1)
 	label := theme.Fg("customMessageLabel", theme.Bold("[compaction]"))
 	tokens := formatTokenCount(c.tokensBefore)
-	var content []string
+	var content tui.RichRender
 	if c.expanded {
 		markdown := NewMarkdown("**Compacted from "+tokens+" tokens**\n\n"+c.summary, 0, 0, theme, MarkdownStyle{
 			TextColor: func(text string) string { return theme.Fg("customMessageText", text) },
 		}, c.hyperlinks)
-		content = append(content, label)
-		content = append(content, markdown.Render(contentWidth)...)
+		rich := markdown.RenderRich(contentWidth)
+		content.Lines = append(content.Lines, label)
+		for _, descriptor := range rich.Images {
+			descriptor.Row += 1
+			content.Images = append(content.Images, descriptor)
+		}
+		content.Lines = append(content.Lines, rich.Lines...)
 		if c.keyDisplay != "" {
-			content = append(content, theme.Fg("dim", "("+c.keyDisplay+" to collapse)"))
+			content.Lines = append(content.Lines, theme.Fg("dim", "("+c.keyDisplay+" to collapse)"))
 		}
 	} else {
 		line := theme.Fg("customMessageText", "Compacted from "+tokens+" tokens")
 		if c.keyDisplay != "" {
 			line += theme.Fg("dim", " ("+c.keyDisplay+" to expand)")
 		}
-		content = append(content, label, "", line)
+		content.Lines = append(content.Lines, label, "", line)
 	}
-	return applyBlockBackground(wrapBlockContent(content, contentWidth), width, 1, 1, func(text string) string {
+	content = wrapBlockRich(content, contentWidth)
+	return applyBlockBackgroundRich(content, width, 1, 1, func(text string) string {
 		return theme.Bg("customMessageBg", text)
 	})
 }

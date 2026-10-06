@@ -111,6 +111,28 @@ func TestBridgeSettingsToolAndThinkingExpansion(t *testing.T) {
 	}
 }
 
+func TestBridgeImageSettingReflectsAndAppliesState(t *testing.T) {
+	fixture := newBridgeFixture(t, nil, nil)
+	fixture.runner.SetImagesEnabled(true)
+	images := ""
+	for _, item := range fixture.bridge.settingItems() {
+		if item.ID == "images" {
+			images = item.CurrentValue
+		}
+	}
+	if images != "on" {
+		t.Fatalf("enabled images setting = %q, want on", images)
+	}
+	fixture.bridge.applySettings(map[string]string{"images": "off"})
+	if fixture.runner.ImagesEnabled() {
+		t.Fatal("applySettings off did not disable images")
+	}
+	fixture.bridge.applySettings(map[string]string{"images": "on"})
+	if !fixture.runner.ImagesEnabled() {
+		t.Fatal("applySettings on did not enable images")
+	}
+}
+
 func TestBridgeThemeSelectionRecolorsRetainedTranscript(t *testing.T) {
 	fixture := newBridgeFixture(t, nil, nil)
 	fixture.runner.Surface().AddUserMessage("retained transcript line")

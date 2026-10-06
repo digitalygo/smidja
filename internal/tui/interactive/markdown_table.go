@@ -125,14 +125,18 @@ func (r *mdRenderer) renderTable(block mdBlock, last bool) []string {
 	minWidths := r.fitMinWidths(minWord, availableForCells, columns)
 	widths := r.tableColumnWidths(natural, minWidths, availableForCells, columns, overhead)
 	aligns := block.align
+	fallback := false
 	lines := []string{tableBorder(widths, "┌", "┬", "┐")}
-	headerLines := r.tableRowLines(block.header, widths, aligns, true)
+	headerLines := r.tableRowLines(block.header, widths, aligns, true, &fallback)
 	lines = append(lines, headerLines...)
 	lines = append(lines, tableBorder(widths, "├", "┼", "┤"))
 	for _, row := range block.rows {
-		lines = append(lines, r.tableRowLines(row, widths, aligns, false)...)
+		lines = append(lines, r.tableRowLines(row, widths, aligns, false, &fallback)...)
 	}
 	lines = append(lines, tableBorder(widths, "└", "┴", "┘"))
+	if fallback {
+		lines = append(lines, r.mathWarning())
+	}
 	if !last {
 		lines = append(lines, "")
 	}
@@ -280,12 +284,14 @@ func tableBorder(widths []int, left, middle, right string) string {
 	return left + "─" + strings.Join(cells, "─"+middle+"─") + "─" + right
 }
 
-func (r *mdRenderer) tableRowLines(cells []string, widths []int, aligns []mdAlign, header bool) []string {
+func (r *mdRenderer) tableRowLines(cells []string, widths []int, aligns []mdAlign, header bool, mathFallback *bool) []string {
 	rendered := make([][]string, len(widths))
 	for i := range widths {
 		text := ""
 		if i < len(cells) {
-			text = r.inline(cells[i], r.defaultContext())
+			context := r.defaultContext()
+			context.mathFallback = mathFallback
+			text = r.inline(cells[i], context)
 		}
 		rendered[i] = wrapTableCell(text, widths[i])
 	}

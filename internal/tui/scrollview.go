@@ -138,6 +138,44 @@ func (s *ScrollView) SetScrollbar(mode ScrollbarMode) {
 	s.notifyRender()
 }
 
+func (s *ScrollView) SetScrollbarStyles(track, thumb func(string) string) {
+	s.mu.Lock()
+	if track != nil {
+		s.scrollbarTrackStyle = track
+	}
+	if thumb != nil {
+		s.scrollbarThumbStyle = thumb
+	}
+	s.mu.Unlock()
+	s.notifyRender()
+}
+
+func (s *ScrollView) SetScrollbarTrackStyle(style func(string) string) {
+	if style == nil {
+		return
+	}
+	s.mu.Lock()
+	s.scrollbarTrackStyle = style
+	s.mu.Unlock()
+	s.notifyRender()
+}
+
+func (s *ScrollView) SetScrollbarThumbStyle(style func(string) string) {
+	if style == nil {
+		return
+	}
+	s.mu.Lock()
+	s.scrollbarThumbStyle = style
+	s.mu.Unlock()
+	s.notifyRender()
+}
+
+func (s *ScrollView) scrollbarStyles() (func(string) string, func(string) string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scrollbarTrackStyle, s.scrollbarThumbStyle
+}
+
 func (s *ScrollView) ContentWidth(width int) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

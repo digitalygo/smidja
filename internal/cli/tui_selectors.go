@@ -243,6 +243,10 @@ func (b *tuiBridge) settingItems() []tui.SettingItem {
 	if b.runner.Surface().ThinkingExpanded() {
 		thinking = "visible"
 	}
+	images := "off"
+	if b.runner.ImagesEnabled() {
+		images = "on"
+	}
 	return []tui.SettingItem{
 		{
 			ID:           "retry",
@@ -265,6 +269,13 @@ func (b *tuiBridge) settingItems() []tui.SettingItem {
 			CurrentValue: thinking,
 			Values:       []string{"visible", "hidden"},
 		},
+		{
+			ID:           "images",
+			Label:        "Inline images",
+			Description:  "Render workspace images with the terminal graphics protocol.",
+			CurrentValue: images,
+			Values:       []string{"on", "off"},
+		},
 	}
 }
 
@@ -277,6 +288,9 @@ func (b *tuiBridge) applySettings(values map[string]string) {
 	}
 	if value, ok := values["thinking"]; ok {
 		b.runner.Surface().SetThinkingExpanded(value == "visible")
+	}
+	if value, ok := values["images"]; ok {
+		b.runner.SetImagesEnabled(value == "on")
 	}
 	b.inform(fmt.Sprintf("settings applied: %d change(s)", len(values)))
 }

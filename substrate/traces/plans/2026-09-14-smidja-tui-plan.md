@@ -1,28 +1,28 @@
 ---
 document_type: mycelium-plan
 plan_id: 2026-09-14-smidja-tui-plan
-status: blocked
+status: in-progress
 created_at: 2026-09-14
 planner: planner
 baseline_version: 1
 execution_owner: orchestrator
 execution_started_at: 2026-09-15T00:31:24+02:00
-last_updated_at: 2026-09-18
+last_updated_at: 2026-10-06
 ---
 
 # Smidja TUI implementation plan
 
 ## Current execution snapshot
 
-- **Status:** Blocked by unavailable implementation-provider quota. The repository and preserved P5 worktrees are ready for a later restart.
+- **Status:** In progress on the explicitly approved `feat/tui` branch. P5 is independently accepted and awaiting publication; P6 is next.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
 - **Execution baseline:** Resumed 2026-09-16T08:25:38+02:00 at repository commit `19be845a27d963b320e73334a30008eae7eb623c` on `feat/tui`, matching `origin/feat/tui`, with the preserved unfinished P2 work and living-plan update recorded in the ignored workspace-state snapshot.
-- **Active phase:** Phase P5: fullscreen extras, paused before final correction and gates.
-- **Last verified checkpoint:** Checkpoint 2026-09-18T11:32:59+02:00, implementation paused and durable handoff recorded.
+- **Active phase:** Phase P5 publication, then P6 final product wiring and documentation.
+- **Last verified checkpoint:** Checkpoint 2026-10-06T19:30:44+02:00, complete preserved P5 artifact accepted by independent deterministic, quality, and security gates.
 - **Last successful checks:** The wiring slice passed formatting, vet, build, all delta-package tests, four Darwin and Linux amd64 and arm64 static cross-builds, dependency hygiene, sequential race tests, and repeated real-PTY smoke, panic, Ctrl-D, and Ctrl-G tests. Package coverage is 90.3% for `internal/tui`, 96.5% for `internal/tui/interactive`, 97.2% for `internal/ui`, and 86.9% for `internal/cli`. The only full-suite failures are the verified pre-existing `internal/mcp.TestListToolsRetryOnceAfterRestart` and `internal/session.TestListNewestFirst` flakes outside the delta.
-- **Open blockers:** Codex subscription quota is exhausted. P5 Candidate A is uncommitted and has not passed the final full, race, coverage, quality, security, publication, or installed-binary gates. P6 and P7 have not started.
+- **Open blockers:** P6, P7 and final installed-binary acceptance remain open. Full-suite attempts expose unchanged MCP restart and session timestamp-order flakes, independently reproduced on untouched `origin/alpha`; all P5 delta tests pass. External ecosystem acceptance still requires an independent creator.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
-- **Next action:** On Luca's instruction and after provider capacity returns, read `docs/tui-handoff.md`, preserve both P5 worktrees, complete and publish Candidate A, then finish P6, P7, and the independent installed-binary acceptance suite.
+- **Next action:** Publish the accepted P5 artifact with this ledger, verify local/remote/PR equality, then finish P6 flags, configuration, trusted startup, OAuth, documentation and install. Execute P7 only after P6 gates pass.
 
 ## Planner baseline
 
@@ -455,6 +455,25 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** Preserve both P5 worktrees exactly as handoff material. Do not mark P5 complete, publish its code, begin P6 or P7, or use the installed binary as final evidence. `docs/tui-handoff.md` is the durable restart guide and acceptance checklist.
 - **Next action:** Resume only on Luca's instruction. Recheck ownership and Git state, then complete Candidate A without resetting either worktree.
 
+#### Checkpoint 2026-10-06T18:40:50+02:00: resumption baseline independently reconstructed
+
+- **Event:** Luca requested completion of unfinished work and explicitly confirmed continuation on `feat/tui` rather than default branch `alpha`.
+- **Planner prediction:** P5 must complete before P6 and P7, preserving both candidate worktrees and the zero-dependency, no-merge constraints.
+- **Subagent claims:** Read-only discovery identified P6 and P7 seams. Static analysis reported iTerm2 fullscreen raster rendering contrary to V-007, missing math fallback warnings, and stale interrupted search paste state.
+- **Orchestrator finding:** Direct source inspection confirmed those three gaps. The September handoff's dirty main checkout and published SHA are superseded; neither candidate has a P5 commit. Candidate B independently demonstrates the required iTerm2 fullscreen fallback and remains comparison-only. Corrections restore agreed behavior rather than introduce new requirements.
+- **Independently verified facts:** `chezmoi update --force` and `git pull --ff-only` exited zero. Main HEAD, origin and open PR 1 equal `5d15ed0b4935eefbacfaf3ba309b57737ccc88d0`; main worktree was clean. Candidate A retains 18 modified and 47 untracked files; B retains eight untracked files. Go is `go1.27.1`. In A, formatting, diff whitespace checks, vet, build, and uncached TUI, interactive, UI, CLI tests passed. Package coverage is 90.9%, 92.3%, 93.8%, and 88.9%, respectively. Profile `/tmp/smidja-p5-baseline.cover` reveals changed instrumented-line coverage below 80% in CLI selectors, lexer data, Markdown image/inline, surface, and transcript, so package totals do not close the delta gate. DRC, EXP and CONTRIBUTING domains are absent.
+- **Decision and impact:** Resume the accepted candidate, not a new race. Include all preserved P5 behavior in the review artifact and coverage gate. Preserve the baseline in ignored `substrate/traces/status/2026-10-06-smidja-tui-recovery-workspace-state.md`. The role-required harness sync ran before repository work; existing variation V-002 records this process boundary. Future work remains unmerged and external ecosystem acceptance will not be fabricated.
+- **Next action:** Correct the verified P5 gaps and add meaningful delta tests, then run deterministic checks, delegated quality judgment, and focused security review before publication.
+
+#### Checkpoint 2026-10-06T19:30:44+02:00: complete preserved P5 accepted
+
+- **Event:** P5 correction, independent verification, delegated quality judgment and focused security review completed.
+- **Planner prediction:** P5 delivers search, mouse, selection, links, graphics, honest Mermaid/math fallbacks and stdlib syntax highlighting before P6.
+- **Subagent claims:** The implementer corrected fullscreen iTerm2 resolution before file I/O and low-level raster transmission, added one warning for recognized unsupported math while preserving currency and incomplete streaming, reset and bounded search paste across close/reopen/session replacement, and added meaningful missing-path tests. Quality returned `PASS`; focused security returned exact `PASS`.
+- **Orchestrator finding:** Direct source and diff inspection confirms the intended fixes and stronger raw-source assertions without test deletion or skipping. The accepted 70-file artifact is `P5-31ddcc27dedc`, manifest SHA-256 `31ddcc27dedc1dd8b9beaab1336440c5e4353a81dcafc7256b7987cd083068b6`, matching all files. Protected paths remain untouched. Large cohesive renderer files are a non-blocking maintainability advisory, not an invented numerical cap.
+- **Independently verified facts:** Formatting, whitespace checks, vet, build, uncached focused tests, sequential race tests, eight explicit real PTY tests without skips, all four static Linux/Darwin amd64/arm64 builds, stdlib-only dependencies, unchanged `go.mod` and absent `go.sum` passed. Linux profile `/tmp/smidja-p5-final.cover` measures all 36 executable delta files at 80.2-100% changed instrumented-line coverage and 82.4-100% changed-block statement coverage. Package coverage is TUI 91.0%, interactive 93.8%, UI 93.7%, CLI 89.0%. Unsupported-platform code is N/A to Linux instrumentation and release platforms cross-compile. Full-suite attempts reported only `internal/session.TestListNewestFirst` and `internal/mcp.TestListToolsRetryOnceAfterRestart`; both were independently reproduced with 20 repetitions on an archived, untouched `origin/alpha`, recorded in `/tmp/smidja-alpha-flakes.log`.
+- **Decision and impact:** Accept P5 without fixing or concealing unrelated baseline flakes. Keep the full executable delta, not only the recovery correction, under the accepted review hash. Consolidate by Git onto `feat/tui` with this current ledger, never copying the stale candidate plan. The quality cursor advances to the published P5 commit after readback.
+- **Next action:** Commit and publish `feat(tui): complete fullscreen extras`, then begin P6 configuration and startup wiring.
 
 ### Phase P6 execution checkpoints
 

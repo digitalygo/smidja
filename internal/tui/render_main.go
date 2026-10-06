@@ -39,6 +39,10 @@ type MainScreen struct {
 	maxLinesRendered    int
 	previousViewportTop int
 
+	graphics   GraphicsCapability
+	placements *ImagePlacements
+	imageBytes func(source, cacheKey string) (*LoadedImage, bool)
+
 	overflowDetected bool
 }
 
@@ -48,12 +52,113 @@ func NewMainScreen(terminal Terminal, showHardwareCursor bool) *MainScreen {
 		previousWidth:  0,
 		previousHeight: 0,
 	}
+	screen.placements = NewImagePlacements(GraphicsNone)
 	screen.SetHooks(tuiHooks{
 		resetRenderState: screen.resetRenderState,
 		doRender:         func() { screen.doRender() },
 		beforeStop:       screen.beforeTerminalStop,
+		suspendProtocols: screen.suspendTerminalProtocols,
 	})
 	return screen
+}
+
+func (s *MainScreen) SetGraphics(capability GraphicsCapability) {
+	s.mu.Lock()
+	previous := s.graphics
+	s.graphics = capability
+	s.mu.Unlock()
+	if previous.Protocol != capability.Protocol {
+		s.releaseGraphics()
+		s.placements.SetProtocol(capability.Protocol)
+	}
+	if !capability.Available() {
+		s.ReleaseGraphics()
+	}
+}
+
+func (s *MainScreen) Graphics() GraphicsCapability {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.graphics
+}
+
+func (s *MainScreen) SetImageBytesProvider(provider func(source, cacheKey string) (*LoadedImage, bool)) {
+	s.mu.Lock()
+	s.imageBytes = provider
+	s.mu.Unlock()
+}
+
+func (s *MainScreen) releaseGraphics() {
+	if sequence := s.placements.ReleaseAll(); sequence != "" {
+		s.Terminal().Write(sequence)
+	}
+}
+
+func (s *MainScreen) ReleaseGraphics() {
+	s.releaseGraphics()
+}
+
+func (s *MainScreen) ImagePlacements() *ImagePlacements { return s.placements }
+
+func (s *MainScreen) suspendTerminalProtocols() {
+	s.releaseGraphics()
+}
+
+func (s *MainScreen) placementPass(rich RichRender, width, viewportTop, height int) (string, int) {
+	s.mu.Lock()
+	capability := s.graphics
+	provider := s.imageBytes
+	overlays := append([]overlayLayout(nil), s.renderedOverlays...)
+	s.mu.Unlock()
+	var requests []PlacementRequest
+	if provider != nil && capability.Available() {
+		generation := searchGeneration(rich.Lines, width)
+		for _, image := range rich.Images {
+			if image.Protocol == GraphicsNone || image.Protocol != capability.Protocol {
+				continue
+			}
+			columns := maxInt(1, image.Columns)
+			rows := maxInt(1, image.RowSpan)
+			screenRow := image.Row - viewportTop
+			if !imageFullyVisible(image.OffsetX, screenRow, columns, rows, width, height) {
+				continue
+			}
+			if overlayIntersectsPlacement(overlays, image.OffsetX, screenRow, columns, rows) {
+				continue
+			}
+			loaded, ok := provider(image.Source, image.CacheKey)
+			if !ok {
+				continue
+			}
+			requests = append(requests, PlacementRequest{
+				CacheKey:   image.CacheKey,
+				Source:     image.Source,
+				X:          image.OffsetX,
+				Y:          image.Row,
+				Rows:       rows,
+				Columns:    columns,
+				Generation: generation,
+				Image:      loaded,
+				Fullscreen: false,
+			})
+		}
+	}
+	result := s.placements.Reconcile(requests)
+	var builder strings.Builder
+	for _, deletion := range result.Deletions {
+		builder.WriteString(deletion)
+	}
+	lastRow := -1
+	for _, render := range result.Renders {
+		row := render.Y - viewportTop
+		if row < 0 || row >= height {
+			continue
+		}
+		builder.WriteString(CursorTo(row, render.X))
+		builder.WriteString(render.Sequence)
+		lastRow = row
+	}
+	return builder.String(), lastRow
 }
 
 func (s *MainScreen) resetRenderState() {
@@ -109,7 +214,8 @@ func (s *MainScreen) doRender() {
 		return targetScreenRow - currentScreenRow
 	}
 
-	newLines := s.Render(width)
+	rich := s.Container.RenderRich(width)
+	newLines := rich.Lines
 	newLines = s.compositeOverlays(newLines, width, height)
 	cursorRow, cursorCol, cursorFound := s.ExtractCursorPosition(newLines, height)
 	newLines = s.ApplyLineResets(newLines)
@@ -142,7 +248,12 @@ func (s *MainScreen) doRender() {
 		}
 		bufferLength := maxInt(height, len(newLines))
 		s.previousViewportTop = maxInt(0, bufferLength-height)
+		viewport := s.previousViewportTop
+		cursorRowValue := s.cursorRow
 		s.mu.Unlock()
+		if graphics, _ := s.placementPass(rich, width, viewport, height); graphics != "" {
+			s.Terminal().Write(graphics + CursorTo(cursorRowValue, 0))
+		}
 		s.positionHardwareCursor(cursorRow, cursorCol, cursorFound, len(newLines))
 		s.mu.Lock()
 		s.previousLines = newLines
@@ -343,7 +454,12 @@ func (s *MainScreen) doRender() {
 	s.previousLines = newLines
 	s.previousWidth = width
 	s.previousHeight = height
+	viewport := s.previousViewportTop
+	cursorRowValue := s.cursorRow
 	s.mu.Unlock()
+	if graphics, _ := s.placementPass(rich, width, viewport, height); graphics != "" {
+		s.Terminal().Write(graphics + CursorTo(cursorRowValue, 0))
+	}
 
 	s.positionHardwareCursor(cursorRow, cursorCol, cursorFound, len(newLines))
 }

@@ -50,6 +50,12 @@ func (s *Surface) ReplaceTranscript(entries []TranscriptEntry) {
 		}
 	})
 	s.invalidateChat()
+	s.stateMu.RLock()
+	controller := s.controller
+	s.stateMu.RUnlock()
+	if closer, ok := controller.(interface{ CloseSearch() }); ok {
+		closer.CloseSearch()
+	}
 }
 
 func (s *Surface) replayEntryLocked(entry TranscriptEntry) {

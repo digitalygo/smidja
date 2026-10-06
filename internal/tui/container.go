@@ -187,18 +187,27 @@ func (c *Container) Invalidate() {
 }
 
 func (c *Container) Render(width int) []string {
+	return c.RenderRich(width).Lines
+}
+
+func (c *Container) RenderRich(width int) RichRender {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	lines := make([]string, 0, len(c.children))
+	var rich RichRender
 	mouseChildren := make([]mouseChild, 0, len(c.children))
 	for _, child := range c.children {
-		childLines := child.Render(width)
-		mouseChildren = append(mouseChildren, mouseChild{component: child, height: len(childLines)})
-		lines = append(lines, childLines...)
+		childRich := RenderRichFrom(child, width)
+		mouseChildren = append(mouseChildren, mouseChild{component: child, height: len(childRich.Lines)})
+		offset := len(rich.Lines)
+		for _, descriptor := range childRich.Images {
+			descriptor.Row += offset
+			rich.Images = append(rich.Images, descriptor)
+		}
+		rich.Lines = append(rich.Lines, childRich.Lines...)
 	}
 	c.mouseWidth = width
 	c.mouseLayout = mouseChildren
-	return lines
+	return rich
 }
 
 func (c *Container) HandleMouse(event MouseEvent) *MouseEventResult {
@@ -354,7 +363,7 @@ func (b *Base) handleTerminalInput(data string) {
 		if top != nil {
 			b.setFocusLocked(top.component)
 		} else {
-			b.setFocusLocked(focusedOverlay.preFocus)
+			b.setFocusLocked(b.validFocusTargetLocked(focusedOverlay.preFocus))
 		}
 	}
 

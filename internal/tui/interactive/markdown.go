@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/digitalygo/smidja/internal/tui"
 )
@@ -32,11 +33,38 @@ type Markdown struct {
 	style      MarkdownStyle
 	hyperlinks bool
 	highlight  func(code, lang string) []string
+	image      tui.ImageResolver
 
 	version     int
 	cacheValid  bool
 	cacheWidth  int
 	cacheRender []string
+	cacheRich   tui.RichRender
+}
+
+var defaultImageResolver atomic.Pointer[tui.ImageResolver]
+
+func SetDefaultImageResolver(resolver tui.ImageResolver) {
+	if resolver == nil {
+		defaultImageResolver.Store(nil)
+		return
+	}
+	defaultImageResolver.Store(&resolver)
+}
+
+func currentImageResolver() tui.ImageResolver {
+	if pointer := defaultImageResolver.Load(); pointer != nil {
+		return *pointer
+	}
+	return nil
+}
+
+func DefaultImageResolverFor(source, alt string, maxColumns int) (tui.ResolvedImage, bool) {
+	resolver := currentImageResolver()
+	if resolver == nil {
+		return tui.ResolvedImage{}, false
+	}
+	return resolver(source, alt, maxColumns)
 }
 
 func NewMarkdown(text string, paddingX, paddingY int, theme *tui.Theme, style MarkdownStyle, hyperlinks bool) *Markdown {
@@ -46,6 +74,7 @@ func NewMarkdown(text string, paddingX, paddingY int, theme *tui.Theme, style Ma
 		theme:      theme,
 		style:      style,
 		hyperlinks: hyperlinks,
+		image:      currentImageResolver(),
 	}
 	component.SetText(text)
 	return component
@@ -63,6 +92,14 @@ func (m *Markdown) Text() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.text
+}
+
+func (m *Markdown) SetImageResolver(resolver tui.ImageResolver) {
+	m.mu.Lock()
+	m.image = resolver
+	m.version++
+	m.cacheValid = false
+	m.mu.Unlock()
 }
 
 func (m *Markdown) SetHighlight(highlight func(code, lang string) []string) {
@@ -89,6 +126,7 @@ const (
 	mdQuote
 	mdRule
 	mdTable
+	mdMath
 	mdSpace
 )
 
@@ -121,6 +159,9 @@ type mdBlock struct {
 	header []string
 	rows   [][]string
 	align  []mdAlign
+	raw    []string
+	parsed bool
+	closed bool
 }
 
 type mdParser struct {
@@ -150,6 +191,8 @@ func (p *mdParser) parseBlocks() []mdBlock {
 		switch {
 		case p.depth <= markdownMaxNesting && p.atFence(line):
 			blocks = append(blocks, p.parseFence(line))
+		case p.depth <= markdownMaxNesting && p.atDisplayMath(line):
+			blocks = append(blocks, p.parseDisplayMath())
 		case p.atHeading(line):
 			blocks = append(blocks, p.parseHeading(line))
 		case p.atRule(line):
@@ -232,6 +275,60 @@ func closingFence(line, marker string) bool {
 		return false
 	}
 	return strings.TrimSpace(trimmed[run:]) == ""
+}
+
+func (p *mdParser) atDisplayMath(line string) bool {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 || !strings.HasPrefix(trimmed, "$$") {
+		return false
+	}
+	rest := trimmed[2:]
+	if index := strings.Index(rest, "$$"); index >= 0 {
+		return strings.TrimSpace(rest[index+2:]) == ""
+	}
+	return true
+}
+
+func (p *mdParser) parseDisplayMath() mdBlock {
+	firstLine := p.lines[p.pos]
+	verbatim := []string{firstLine}
+	body := strings.TrimLeft(firstLine, " ")[2:]
+	if index := strings.Index(body, "$$"); index >= 0 && strings.TrimSpace(body[index+2:]) == "" {
+		p.pos++
+		block := newDisplayMathBlock(body[:index], verbatim)
+		block.closed = true
+		return block
+	}
+	parts := make([]string, 0, 4)
+	if strings.TrimSpace(body) != "" {
+		parts = append(parts, body)
+	}
+	p.pos++
+	for p.pos < len(p.lines) {
+		line := p.lines[p.pos]
+		verbatim = append(verbatim, line)
+		if index := strings.Index(line, "$$"); index >= 0 {
+			if strings.TrimSpace(line[:index]) != "" {
+				parts = append(parts, line[:index])
+			}
+			p.pos++
+			block := newDisplayMathBlock(strings.Join(parts, "\n"), verbatim)
+			block.closed = true
+			return block
+		}
+		parts = append(parts, line)
+		p.pos++
+	}
+	return newDisplayMathBlock("", verbatim)
+}
+
+func newDisplayMathBlock(content string, verbatim []string) mdBlock {
+	block := mdBlock{kind: mdMath, raw: verbatim}
+	if rendered, ok := parseMathExpression(content); ok {
+		block.text = rendered
+		block.parsed = true
+	}
+	return block
 }
 
 func sanitizeCodeLanguage(lang string) string {
@@ -355,7 +452,7 @@ func (p *mdParser) parseParagraph() mdBlock {
 		if trimmed == "" {
 			break
 		}
-		if p.depth <= markdownMaxNesting && (p.atFence(line) || p.atHeading(line) || p.atQuote(line) || p.atListItem(line, 0)) {
+		if p.depth <= markdownMaxNesting && (p.atFence(line) || p.atHeading(line) || p.atQuote(line) || p.atListItem(line, 0) || p.atDisplayMath(line)) {
 			break
 		}
 		if len(parts) > 0 && p.atRule(line) {
@@ -533,41 +630,44 @@ func indentOf(line string) int {
 }
 
 func (m *Markdown) Render(width int) []string {
+	return m.RenderRich(width).Lines
+}
+
+func (m *Markdown) RenderRich(width int) tui.RichRender {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cacheValid && m.cacheWidth == width {
-		return m.cacheRender
+		return m.cacheRich
 	}
-	lines := m.render(width)
-	m.cacheRender = lines
+	rich := m.renderRich(width)
+	m.cacheRender = rich.Lines
+	m.cacheRich = rich
 	m.cacheWidth = width
 	m.cacheValid = true
-	return lines
+	return rich
 }
 
-func (m *Markdown) render(width int) []string {
+func (m *Markdown) renderRich(width int) tui.RichRender {
 	contentWidth := maxInt(1, width-m.paddingX*2)
 	if strings.TrimSpace(m.text) == "" {
-		return nil
+		return tui.RichRender{}
 	}
+	collector := &mdImageCollector{}
 	blocks := parseMarkdownBlocks(m.text)
 	rendered := make([]string, 0, len(blocks)*2)
-	renderer := &mdRenderer{markdown: m, theme: m.theme, width: contentWidth, hyper: m.hyperlinks}
+	renderer := &mdRenderer{markdown: m, theme: m.theme, width: contentWidth, hyper: m.hyperlinks, images: collector}
 	for index, block := range blocks {
 		last := index == len(blocks)-1
 		rendered = append(rendered, renderer.renderBlock(block, last, len(blocks) > index+1 && blocks[index+1].kind == mdList)...)
 	}
-	wrapped := make([]string, 0, len(rendered))
-	for _, line := range rendered {
-		wrapped = append(wrapped, tui.WrapTextWithANSI(line, contentWidth)...)
-	}
+	content, images := m.expandImageTokens(rendered, collector, contentWidth)
 	left := strings.Repeat(" ", m.paddingX)
 	right := strings.Repeat(" ", m.paddingX)
-	result := make([]string, 0, len(wrapped)+m.paddingY*2)
+	result := make([]string, 0, len(content)+m.paddingY*2)
 	for i := 0; i < m.paddingY; i++ {
 		result = append(result, m.styledEmpty(width))
 	}
-	for _, line := range wrapped {
+	for _, line := range content {
 		combined := left + line + right
 		if m.style.BgColor != nil {
 			result = append(result, tui.ApplyBackgroundToLine(combined, width, m.style.BgColor))
@@ -578,7 +678,10 @@ func (m *Markdown) render(width int) []string {
 	for i := 0; i < m.paddingY; i++ {
 		result = append(result, m.styledEmpty(width))
 	}
-	return result
+	for index := range images {
+		images[index].Row += m.paddingY
+	}
+	return tui.RichRender{Lines: result, Images: images}
 }
 
 func (m *Markdown) styledEmpty(width int) string {

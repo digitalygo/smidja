@@ -600,3 +600,20 @@ func TestMarkdownNestedQuoteWrap(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkdownUnterminatedImageKeepsMarker(t *testing.T) {
+	for _, input := range []string{"![alt", "![alt](", "![alt](no-close"} {
+		lines := trimTrailingBlanks(renderMarkdownPlain(t, input, 80))
+		if got := strings.Join(lines, "\n"); got != input {
+			t.Fatalf("unterminated image %q rendered as %q", input, got)
+		}
+	}
+}
+
+func TestMarkdownUnderscoreInsideWordStaysLiteral(t *testing.T) {
+	input := "snake_case_name stays literal"
+	lines := trimTrailingBlanks(renderMarkdownPlain(t, input, 80))
+	if got := strings.Join(lines, "\n"); got != input {
+		t.Fatalf("intra-word underscore rendered as %q, want %q", got, input)
+	}
+}

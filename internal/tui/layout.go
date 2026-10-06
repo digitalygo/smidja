@@ -31,6 +31,7 @@ type LayoutBox struct {
 	parent             *LayoutBox
 	lines              []string
 	lineOffset         int
+	descriptors        []ImageDescriptor
 	scrollView         *ScrollView
 	scrollContentLines []string
 	layer              int
@@ -41,6 +42,7 @@ type LayoutFrame struct {
 	Width             int
 	Height            int
 	Lines             []string
+	Images            []LayoutImage
 	PrimaryScrollView *ScrollView
 	PrimaryScrollTop  int
 }
@@ -105,24 +107,37 @@ type ScrollLayoutProvider interface {
 type layoutContext struct {
 	viewport          Viewport
 	renderCache       map[Component]map[int][]string
+	richCache         map[Component]map[int]RichRender
 	requestRender     func()
 	primaryScrollView *ScrollView
 	primaryScrollTop  int
 }
 
-func renderCached(context *layoutContext, component Component, width int) []string {
+func renderRichCached(context *layoutContext, component Component, width int) RichRender {
 	safeWidth := maxInt(1, width)
-	widths, ok := context.renderCache[component]
+	widths, ok := context.richCache[component]
 	if !ok {
-		widths = make(map[int][]string)
-		context.renderCache[component] = widths
+		widths = make(map[int]RichRender)
+		context.richCache[component] = widths
 	}
-	lines, cached := widths[safeWidth]
+	rich, cached := widths[safeWidth]
 	if !cached {
-		lines = component.Render(safeWidth)
-		widths[safeWidth] = lines
+		rich = RenderRichFrom(component, safeWidth)
+		widths[safeWidth] = rich
+		if context.renderCache != nil {
+			cache, ok := context.renderCache[component]
+			if !ok {
+				cache = make(map[int][]string)
+				context.renderCache[component] = cache
+			}
+			cache[safeWidth] = rich.Lines
+		}
 	}
-	return lines
+	return rich
+}
+
+func renderCached(context *layoutContext, component Component, width int) []string {
+	return renderRichCached(context, component, width).Lines
 }
 
 func measureHeight(context *layoutContext, component Component, width int) int {
@@ -385,14 +400,14 @@ func layoutComponent(context *layoutContext, component Component, x, y, width, h
 		return box
 	}
 
-	lines := renderCached(context, component, safeWidth)
-	allocatedHeight := len(lines)
+	lines := renderRichCached(context, component, safeWidth)
+	allocatedHeight := len(lines.Lines)
 	if hasHeight {
 		allocatedHeight = maxInt(0, height)
 	}
 	lineOffset := 0
-	if len(lines) > allocatedHeight && allocatedHeight > 0 {
-		for index, line := range lines {
+	if len(lines.Lines) > allocatedHeight && allocatedHeight > 0 {
+		for index, line := range lines.Lines {
 			if strings.Contains(line, CursorMarker) {
 				if index >= allocatedHeight {
 					lineOffset = index - allocatedHeight + 1
@@ -402,12 +417,13 @@ func layoutComponent(context *layoutContext, component Component, x, y, width, h
 		}
 	}
 	return &LayoutBox{
-		Component:  component,
-		Rect:       LayoutRect{X: x, Y: y, Width: safeWidth, Height: allocatedHeight},
-		Clip:       intersectRects(clip, LayoutRect{X: x, Y: y, Width: safeWidth, Height: allocatedHeight}),
-		lines:      lines,
-		lineOffset: lineOffset,
-		layer:      0,
+		Component:   component,
+		Rect:        LayoutRect{X: x, Y: y, Width: safeWidth, Height: allocatedHeight},
+		Clip:        intersectRects(clip, LayoutRect{X: x, Y: y, Width: safeWidth, Height: allocatedHeight}),
+		lines:       lines.Lines,
+		lineOffset:  lineOffset,
+		descriptors: lines.Images,
+		layer:       0,
 	}
 }
 
@@ -517,15 +533,16 @@ func paintScrollbar(box *LayoutBox, screen []string, totalWidth int) {
 			continue
 		}
 		isThumb := row >= geometry.thumbTop && row < geometry.thumbTop+geometry.thumbHeight
+		trackStyle, thumbStyle := box.scrollView.scrollbarStyles()
 		var replacement string
 		if isThumb {
 			if box.scrollView.IsScrollbarActive() {
-				replacement = box.scrollView.scrollbarThumbStyle("█")
+				replacement = thumbStyle("█")
 			} else {
-				replacement = box.scrollView.scrollbarThumbStyle("┃")
+				replacement = thumbStyle("┃")
 			}
 		} else {
-			replacement = box.scrollView.scrollbarTrackStyle("│")
+			replacement = trackStyle("│")
 		}
 		screen[row] = replaceScrollbarCell(screen[row], geometry.column, totalWidth, replacement, box.scrollView.Scrollbar() != ScrollbarAlways)
 	}
@@ -576,12 +593,56 @@ func trimOSC133Zone(line string) string {
 	}
 }
 
+func imageFullyVisible(x, y, columns, rows, width, height int) bool {
+	if columns < 1 || rows < 1 || width < 1 || height < 1 {
+		return false
+	}
+	return x >= 0 && y >= 0 && x+columns <= width && y+rows <= height
+}
+
+func collectLayoutImages(frame *LayoutFrame) []LayoutImage {
+	if frame == nil || frame.Root == nil {
+		return nil
+	}
+	var images []LayoutImage
+	var visit func(box *LayoutBox)
+	visit = func(box *LayoutBox) {
+		for _, descriptor := range box.descriptors {
+			rows := maxInt(1, descriptor.RowSpan)
+			columns := descriptor.Columns
+			if columns <= 0 {
+				columns = maxInt(1, box.Rect.Width)
+			}
+			y := box.Rect.Y + descriptor.Row - box.lineOffset
+			if y >= box.Clip.Y+box.Clip.Height || y+rows <= box.Clip.Y {
+				continue
+			}
+			images = append(images, LayoutImage{
+				Source:   descriptor.Source,
+				CacheKey: descriptor.CacheKey,
+				Alt:      descriptor.Alt,
+				Protocol: descriptor.Protocol,
+				X:        box.Rect.X + descriptor.OffsetX,
+				Y:        y,
+				Rows:     rows,
+				Columns:  columns,
+			})
+		}
+		for _, child := range box.Children {
+			visit(child)
+		}
+	}
+	visit(frame.Root)
+	return images
+}
+
 func RenderLayoutFrame(root Component, width, height int, requestRender func()) *LayoutFrame {
 	safeWidth := maxInt(1, width)
 	safeHeight := maxInt(1, height)
 	context := &layoutContext{
 		viewport:      Viewport{Width: safeWidth, Height: safeHeight},
 		renderCache:   make(map[Component]map[int][]string),
+		richCache:     make(map[Component]map[int]RichRender),
 		requestRender: requestRender,
 	}
 	rootBox := layoutComponent(context, root, 0, 0, safeWidth, safeHeight, true, LayoutRect{X: 0, Y: 0, Width: safeWidth, Height: safeHeight})
@@ -590,7 +651,7 @@ func RenderLayoutFrame(root Component, width, height int, requestRender func()) 
 		lines[i] = ""
 	}
 	paintBox(rootBox, lines, safeWidth)
-	return &LayoutFrame{
+	frame := &LayoutFrame{
 		Root:              rootBox,
 		Width:             safeWidth,
 		Height:            safeHeight,
@@ -598,6 +659,8 @@ func RenderLayoutFrame(root Component, width, height int, requestRender func()) 
 		PrimaryScrollView: context.primaryScrollView,
 		PrimaryScrollTop:  context.primaryScrollTop,
 	}
+	frame.Images = collectLayoutImages(frame)
+	return frame
 }
 
 func getLayoutBoxesAt(frame *LayoutFrame, x, y int) []*LayoutBox {
