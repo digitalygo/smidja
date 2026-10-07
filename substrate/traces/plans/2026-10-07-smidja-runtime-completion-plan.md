@@ -14,15 +14,15 @@ last_updated_at: 2026-10-07
 
 ## Current execution snapshot
 
-- **Status:** In progress. R1-R3 are published; corrected R4 agent execution is independently accepted and ready for publication.
+- **Status:** In progress. R1-R4 are published and synchronized; R5 label/docs audit is accepted and final installation is next.
 - **Baseline identity:** `2026-10-07-smidja-runtime-completion-plan`, version 1, authored by the orchestrator after read-only repository analysis.
 - **Execution baseline:** Approved branch `feat/tui` at `80f29353f48116a8c4191709064f19d4402ef718`, matching origin and open PR 1 against `alpha`. Main worktree was clean before these trace updates.
-- **Active phase:** R4: resolved agent definitions, isolated execution and parent/tool integration.
-- **Last verified checkpoint:** 2026-10-07T19:46:19+02:00, complete corrected R4 independent gates accepted.
+- **Active phase:** R5: final audit, source publication, exact installed identity and actual-process acceptance.
+- **Last verified checkpoint:** 2026-10-07T20:44:04+02:00, R4 publication and R5 label/audit independently verified.
 - **Last successful checks:** R4 formatting, diff checks, vet/build, fresh affected/upstream tests, full affected race, ten reactivation/nested/cancellation/transport/generation regressions, real PTY abort/cleanup and four static builds pass. Eleven executable delta files reach 83.8-100% changed instrumented-line and 87.5-100% overlapping-block statement coverage. Repeated quality and focused security verdicts are PASS.
 - **Open blockers:** No R4 code-review blocker remains. Final audit/install/acceptance is pending; live-provider credentials and genuine external creator acceptance remain external limitations.
 - **Required approvals and gates:** Preserve the approved branch and PR, no merge/tag/release/package publication, no other repository modifications. Every behavioral slice needs independent delta tests, upstream coverage at least 80%, delegated quality judgment, focused security review when applicable, commit/push and exact remote/PR readback. Installation is only the authorized local test binary; tests use temporary homes and isolated fixtures.
-- **Next action:** Correct verified R4 child wire IDs, nested capability inheritance, child storage/lock lifetime, parent-hook isolation and direct-command cancellation/turn ownership; rerun whole-delta gates before publication.
+- **Next action:** Publish the accepted R5 agent-label/docs corrections, atomically install the exact clean pushed head, and independently execute all final actual-binary/public-SDK scenarios before closure.
 
 ## Planner baseline
 
@@ -287,7 +287,16 @@ last_updated_at: 2026-10-07
 
 ### R5 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-10-07T20:44:04+02:00: R4 published and final source audit accepted
+
+- **Event:** R4 is committed and published as fc5b7dc877a690ba385c6b1b53c3f77aca84aa98. R5 source-label and documentation corrections are accepted; installation is not yet performed.
+- **Planner prediction:** Close actual assigned stubs and reconcile public availability before final installation/acceptance.
+- **Subagent claims:** Read-only audit finds no remaining unimplemented assigned method; remaining Pi waves, shortcuts, bare/gateway errors and unsupported platform/transport paths are intentional. Documentation refresh removes stale uncommitted/future agent and unavailable-action claims. Temporary install/acceptance tools smoke-pass nine scenarios but these are not installed-binary evidence yet.
+- **Orchestrator finding:** Directly inspected current source, label changes, tests, documentation and both generated tools in full. The only behavioral R5 source delta removes the false deferred agent filename/help label; it neither changes JSON nor package validation/activation semantics. Existing label assertions change to the implemented contract and gain negative checks plus active/inactive and exact JSON tests, not test weakening. The generated installer uses exact HEAD/origin/PR validation, isolated identity probes, static release flags, unique backup and atomic replacement. The acceptance wrapper preserves prior checks, separates public SDK consumer identity and reports unsupported live/depth coverage honestly.
+- **Independently verified facts:** Main/origin/OPEN PR 1 match fc5b7dc. R5 label artifact R5-label-5e0b39a757c4 has SHA-256 5e0b39a757c45906dd69eac75b078b0e6550772b223237ae183abb43cafa1334, two files, and exact quality PASS. Leader normal CLI coverage and full CLI race, formatting, vet and build pass. Two changed printf blocks are covered at 100% changed-line and overlapping-block statement coverage in /tmp/smidja-r5-label-independent.cover. Non-executable docs have tests/coverage N/A; pure presentation introduces no core security review surface. The read-only audit confirms 49 core +16 print-mode implemented and 37 intentional deferred rows, 102 total; frozen TUI baseline counts are historic, not current facts.
+- **Decision and impact:** Publish coherent final source/docs corrections, then install and execute independent acceptance with no automatic P7 retry on the first full run. Any failed check remains visible and must be investigated rather than accepted from smoke self-report. The only remaining expected external constraints are configured-provider credentials and a genuinely external creator.
+- **Next action:** Commit/push chore(cli): refresh agent availability labels, install exact head with /tmp/smidja-runtime-install-20261007.sh, and run /tmp/smidja-runtime-acceptance-20261007.py against the installed binary and separate SDK consumers.
+
 
 ## Plan-variation ledger
 

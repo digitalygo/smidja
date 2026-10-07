@@ -4,7 +4,7 @@ A prompt template is a markdown file that smidja resolves from the same content 
 
 ## Status
 
-Prompt runtime consumption is implemented in the worktree and awaits its final validation gates and publication; the installed binary predates it. Agent definitions are still carried as deferred content, and this surface does not back the extension SDK host actions that remain unavailable.
+Prompt templates are consumed by the runtime: `/prompt` lists the resolved names or runs a template with text-only argument expansion, non-conflicting names register as shorthand commands, and print mode and `smidja run` expand a `/prompt` invocation before the turn. Agent definitions resolve through the same content tiers and are executable through the agents runtime described in [agents](agents.md). The installed binary remains the P7 baseline and predates this runtime. The extension SDK host actions are documented separately in [SDK runtime](sdk-runtime.md).
 
 ## Where templates come from
 
@@ -37,7 +37,7 @@ In the line interface and the TUI:
 - A template name that collides with no existing command also works as a shorthand: `/name [arguments]`.
 - An unknown name fails with `no prompt named "<name>"`.
 
-Reserved names stay free for built-in commands: `new`, `tree`, `fork`, `resume`, `sessions`, `help`, `model`, `theme`, `settings`, `quit`, `exit`, and `agent`. `agent` is reserved for a future built-in `/agent` command. A template with a reserved or colliding name is still reachable through explicit `/prompt <name>`.
+Reserved names stay free for built-in commands: `new`, `tree`, `fork`, `resume`, `sessions`, `help`, `model`, `theme`, `settings`, `quit`, `exit`, and `agent`. `agent` is reserved for the built-in `/agent` command. A template with a reserved or colliding name is still reachable through explicit `/prompt <name>`.
 
 The canonical `/prompt` command is registered before extensions register their commands. When an extension registers `prompt`, the catalog keeps the canonical command and gives the extension the next free numeric suffix, so the extension is reachable as `/prompt2` (then `/prompt3`, and so on).
 

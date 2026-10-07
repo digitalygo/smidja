@@ -36,10 +36,9 @@ context keeps its empty values, and the gateway builds no host binding.
 `registerShortcut` is the only remaining signature-frozen row without a
 runtime path, and it still has no SDK method.
 
-R2a is published at `bb86387` and R2b at `52dd418`. The R3 corrected
-source is uncommitted in the retained candidate worktree; the R3 gate
-has not run, nothing beyond `52dd418` is published, and the installed
-binary remains P7.
+R1 to R4 are implemented and published on `feat/tui` through `fc5b7dc`.
+The final R5 installation and acceptance are pending, so the installed
+binary remains the P7 baseline without this runtime.
 
 ## Disposition legend
 
@@ -100,7 +99,7 @@ The R2b delivery rows follow the mailbox and loop integration:
 `internal/agent/loop.go`; `internal/extensions/api.go`; and
 `internal/tui/editor.go`.
 
-The R3 rows follow the corrected source in the candidate worktree:
+The R3 rows follow the published source:
 `internal/cli/bootstrap.go`, `host_model.go`, `reasoning_client.go`,
 `host_context.go`, and `host_runtime.go`; `internal/extensions/flags.go`,
 `providers.go`, `events.go`, `setup.go`, `api.go`, and `registry.go`;
@@ -359,7 +358,7 @@ values. The interactive TUI command context also implements `newSession`,
   `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, and
   `Exec` landed in R2a; `SendMessage` and `SendUserMessage` landed in
   R2b; `SetModel`, `SetThinkingLevel`, `RegisterProvider`,
-  `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent` land
+  `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent` landed
   in R3. All fourteen are runtime-backed in the CLI and TUI host and
   unavailable on the bare API and in the gateway. The composed contexts,
   snapshots, and lifecycle rules are documented in

@@ -2,9 +2,9 @@
 
 ## Current state (2026-10-07)
 
-P5 landed in `1a9f71a` (`feat(tui): complete fullscreen extras`). P6 landed in `b091d74` (`feat(tui): finish configuration and interactive startup`) and its installed binary passed regular/fullscreen checks with exact terminal restoration. P7's additive extension UI source and adapters now pass independent tests and quality/security review. Final installation and expanded runtime acceptance remain separate gates; the prior P6 installed binary is not evidence for P7 behavior. Follow the [living TUI plan](../substrate/traces/plans/2026-09-14-smidja-tui-plan.md) for the current SHA, state, and next action.
+P0 to P7 are implemented on `feat/tui`, and the runtime completion slices R1 to R4 are published through `fc5b7dc`. The installed binary remains the P7 baseline and predates the runtime completion; final R5 installation and acceptance are pending. Current surface documentation is in [Smidja TUI](tui.md), [Agents](agents.md), [SDK runtime](sdk-runtime.md), and the [SDK parity matrix](sdk-parity-matrix.md). The [living TUI plan](../substrate/traces/plans/2026-09-14-smidja-tui-plan.md) holds the P0-P7 baseline and checkpoints, and the [runtime completion plan](../substrate/traces/plans/2026-10-07-smidja-runtime-completion-plan.md) holds the R1-R5 execution ledger.
 
-Everything after this note is the September 2026 historical record. Its published SHAs, phase status, installed-binary identity, and process, provider, and quota notes describe that moment. They are preserved as history and are superseded by the current state above and the living plan.
+Everything after this note is the September 2026 historical record. Its published SHAs, phase status, installed-binary identity, and process, provider, and quota notes describe that moment. They are preserved as history and are superseded by the current state above and the living plans.
 
 ## Purpose
 

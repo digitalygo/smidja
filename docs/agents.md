@@ -4,7 +4,7 @@ An agent definition is a markdown file that gives a child assistant its own iden
 
 ## Status
 
-R4 agent content execution is implemented in the uncommitted worktree on top of `24df52e` on `feat/tui`, and the R1 to R4 technical implementation is accepted after independent quality and security PASS. Nothing beyond `24df52e` is published, the installed binary remains P7, and final R5 installation and audit are pending; the shipped binary therefore has no `/agent` command and no `subagent` tool. R1 to R3 are published and synchronized. The agents runtime adds behavior, not an `sdk.API` method, so the accepted SDK parity counts stay at 49 core and 16 print-mode rows implemented with 37 deferred. Live-provider credentials and external creator acceptance are still pending, and this page claims no live-provider result.
+Agent execution is implemented on the `feat/tui` branch and published through `fc5b7dc`. The runtime adds behavior, not an `sdk.API` method, so the SDK parity counts stay at 49 core and 16 print-mode rows implemented with 37 deferred. The installed binary remains the P7 baseline and predates this runtime, so it has no `/agent` command and no `subagent` tool; final installation and acceptance are pending. Live-provider credentials and external creator acceptance are still pending, and this page claims no live-provider result.
 
 ## Where definitions come from
 
@@ -210,7 +210,7 @@ The independent gate covered the whole 27-file R4 artifact (review manifest SHA-
 
 ## Limits
 
-- The installed binary is P7 and predates R4: it has no `/agent` command and no host `subagent` tool. Final R5 installation and audit are still pending.
+- The installed binary remains the P7 baseline and does not include the agents runtime: it has no `/agent` command and no host `subagent` tool until the final installation.
 - The `/agent` command is not available in print mode or `smidja run`; those paths treat the input as literal prompt text.
-- `smidja pkg inspect` in the shipped binary still shows the legacy deferred label from the P7 head; its refresh is planned for R5 installation, and the label does not describe the accepted R4 runtime.
+- `smidja pkg inspect` lists a package's agent files as plain relative filenames, whether the package is active or only installed. The listing is not validation and does not promise the definitions run; the subagent runtime consumes agent content only while the package is active.
 - External provider credentials and external creator acceptance are pending, so no live-provider run is claimed here.
