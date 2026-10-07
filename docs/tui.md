@@ -4,7 +4,7 @@ Smidja has two interactive frontends. The TUI renders the transcript, editor, di
 
 ## Status
 
-Phases P0 to P7 of the TUI workstream are implemented on `feat/tui`. P6 at `b091d74` passed installed-binary checks in regular and fullscreen modes. P7's additive SDK adapters have passed independent tests and quality/security review; final installation and expanded runtime acceptance are tracked in the living TUI plan. The [SDK parity matrix](sdk-parity-matrix.md) tracks each row, and the [extension UI SDK documentation](sdk-ui.md) documents the surface.
+Phases P0 to P7 of the TUI workstream are implemented on `feat/tui`. P6 at `b091d74` passed installed-binary checks in regular and fullscreen modes. P7's additive SDK adapters have passed independent tests and quality/security review. R2a and R2b are published through `52dd418`; the R3 runtime controls are uncommitted in the worktree, their gate has not run, nothing beyond `52dd418` is published, and the installed binary remains P7. Final installation and expanded runtime acceptance are tracked in the living TUI plan. The [SDK parity matrix](sdk-parity-matrix.md) tracks each row, and the [extension UI SDK documentation](sdk-ui.md) documents the surface.
 
 ## Starting the TUI
 
@@ -169,4 +169,4 @@ The terminal framework implements raw mode, size handling, and resize for Linux 
 
 ## What remains
 
-P0-P7 source and isolated installed acceptance are complete. Seven additional SDK actions are backed in the composed CLI/TUI host; seven remain assigned to the runtime-completion plan: `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent`. Agent content execution and final installation of the broader runtime head also remain. Real-provider acceptance requires user-configured Smidja credentials. Extension keybinding registration stays outside the contract, and the deferred Pi events stay with their runtime waves. The [SDK parity matrix](sdk-parity-matrix.md) records each row.
+P0-P7 source and isolated installed acceptance are complete. Fourteen SDK actions are backed in the composed CLI/TUI host: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `Exec`, `SendMessage`, `SendUserMessage`, `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent`. Agent content execution (R4) and final installation of the broader runtime head remain. Real-provider acceptance requires user-configured Smidja credentials and is not claimed. Extension keybinding registration stays outside the contract, and the 27 deferred Pi events stay with their runtime waves. The [SDK runtime](sdk-runtime.md) page documents the composed host rules, and the [SDK parity matrix](sdk-parity-matrix.md) records each row.

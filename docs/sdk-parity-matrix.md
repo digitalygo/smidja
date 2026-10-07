@@ -19,26 +19,27 @@ final runtime acceptance are tracked separately in the living TUI plan. Existing
 `sdk.ExtendedUI` and `sdk.UIRegistrationAPI`, documented in
 [extension UI SDK](sdk-ui.md).
 
-Seven Extension API methods keep frozen signatures but are not
-runtime-backed yet. Their rows are counted as deferred, not as runtime:
-`SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`,
-`RegisterFlag`, `Flags`, and `EmitCustomEvent`. Six of them return an
-error naming the method
-(`extensions: API method not available in this release: <name>`), and
-`Flags` returns an empty map placeholder. The model, thinking, provider,
-flag, and event methods stay in the R3 wave.
+The R3 workstream backs the last seven signature-frozen Extension API
+methods. On a composed host, fourteen Extension API methods now run:
+R2a added `SetActiveTools`, `AppendEntry`, `SetSessionName`,
+`LabelEntry`, and `Exec`; R2b added `SendMessage` and `SendUserMessage`
+through the per-session mailbox; R3 adds `SetModel`, `SetThinkingLevel`,
+`RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and
+`EmitCustomEvent` through the host model transaction, the in-memory
+provider and flag registries, and the custom event bus. Custom event
+subscription is a separate optional `sdk.CustomEventSubscription`
+interface. The bindings are documented in [SDK runtime](sdk-runtime.md).
+The bare API keeps the unavailable error for the thirteen
+error-returning methods and the empty map for `Flags`, the fallback
+context keeps its empty values, and the gateway builds no host binding.
 
-On a composed host, seven Extension API methods now run: R2a added
-`SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, and
-`Exec`, and R2b adds `SendMessage` and `SendUserMessage` through the
-per-session mailbox. The bindings are documented in
-[SDK runtime](sdk-runtime.md). The bare API keeps returning the
-unavailable error for all seven, the fallback context keeps its empty
-values, and the gateway has no host binding.
+`registerShortcut` is the only remaining signature-frozen row without a
+runtime path, and it still has no SDK method.
 
-R2a is published at `bb86387`. The R2b source is uncommitted in the
-retained candidate worktree; MAIN still carries R2a only, and the
-installed binary remains P7 without either slice.
+R2a is published at `bb86387` and R2b at `52dd418`. The R3 corrected
+source is uncommitted in the retained candidate worktree; the R3 gate
+has not run, nothing beyond `52dd418` is published, and the installed
+binary remains P7.
 
 ## Disposition legend
 
@@ -93,18 +94,30 @@ The R2a rows follow the composed host bindings in the smidja worktree:
 and `ports.go`; `internal/tools/exec_direct.go`; and
 `internal/contextmanager/manager.go`.
 
-The R2b delivery rows follow the mailbox and loop integration in the
-candidate worktree: `internal/cli/host_mailbox.go`, `host_scheduled.go`,
+The R2b delivery rows follow the mailbox and loop integration:
+`internal/cli/host_mailbox.go`, `host_scheduled.go`,
 `host_context.go`, `host_runtime.go`, and `tui_bridge.go`;
 `internal/agent/loop.go`; `internal/extensions/api.go`; and
 `internal/tui/editor.go`.
+
+The R3 rows follow the corrected source in the candidate worktree:
+`internal/cli/bootstrap.go`, `host_model.go`, `reasoning_client.go`,
+`host_context.go`, and `host_runtime.go`; `internal/extensions/flags.go`,
+`providers.go`, `events.go`, `setup.go`, `api.go`, and `registry.go`;
+`internal/models/reasoning.go`, `catalog.go`, and `fetch.go`;
+`internal/openrouter/reasoning.go` and `client.go`; `sdk/capabilities.go`
+and `sdk/custom_events.go`; and the R3 test files `internal/cli/r3_*.go`,
+`internal/extensions/r3_test.go`, `internal/models/reasoning_test.go`,
+and `internal/openrouter/reasoning_test.go`.
 
 ## Extension API surface (`pi.*`)
 
 From `ExtensionAPI` in `dist/core/extensions/types.d.ts`. The smidja
 contract is the `sdk.API` interface in `sdk/context.go`; the P7
 registration methods are reached through the optional
-`sdk.UIRegistrationAPI` interface in `sdk/ui_renderers.go`.
+`sdk.UIRegistrationAPI` interface in `sdk/ui_renderers.go`, and custom
+event subscriptions through the optional `sdk.CustomEventSubscription`
+interface in `sdk/custom_events.go`.
 
 | Pi capability | Disposition | Smidja v0 mapping |
 | --- | --- | --- |
@@ -112,8 +125,8 @@ registration methods are reached through the optional
 | `registerTool` | implement now | `API.RegisterTool`; registering an existing name replaces it (Pi tool override) |
 | `registerCommand` | implement now | `API.RegisterCommand`; duplicate names get numeric invocation suffixes |
 | `registerShortcut` | deferred | no SDK method exists; extension keybinding registration is not in the v0 contract and the TUI keybinding registry is host-only |
-| `registerFlag` | deferred | `API.RegisterFlag` is frozen but returns the unavailable error naming the method; flag registration is next-slice work |
-| `getFlag` | deferred | `API.Flags` returns an empty map placeholder; no flag values are populated |
+| `registerFlag` | implement now (composed host) | `API.RegisterFlag` declares boolean and string flags with typed defaults; the parser applies them at the root and on `run`, and the bare API keeps returning the unavailable error |
+| `getFlag` | implement now (composed host) | `API.Flags` returns a copy of the captured values; the bare API keeps returning an empty map placeholder |
 | `registerMessageRenderer` | implement now | `UIRegistrationAPI.RegisterMessageRenderer`; backed by `internal/extensionui.Registry` and the runner surface for live and replayed messages |
 | `registerMarkdownTransformer` | implement now | `UIRegistrationAPI.RegisterMarkdownTransformer`; composed in registration order and applied to live and replayed Markdown |
 | `registerEntryRenderer` | implement now | `UIRegistrationAPI.RegisterEntryRenderer`; separate map from message renderers |
@@ -128,12 +141,12 @@ registration methods are reached through the optional
 | `getAllTools` | implement now | `API.AllTools` (`ToolInfo` with name, description, schema, source) |
 | `setActiveTools` | implement now (composed host) | `API.SetActiveTools` gates advertisement and execution: unknown names are ignored, `nil` resets to all registered tools, an empty list disables all, and `AllTools` keeps the full registry. The bare API keeps returning the unavailable error |
 | `getCommands` | implement now | `API.Commands` (`CommandInfo` without Pi's `sourceInfo` provenance) |
-| `setModel` | deferred | `API.SetModel` returns the unavailable error |
+| `setModel` | implement now (composed host) | `API.SetModel` runs the validated model transaction: build-before-commit, runtime-profile persistence, and next-boundary adoption of the model, wire model, provider, window, preparer, and client; failures roll back. The bare API keeps returning the unavailable error |
 | `getThinkingLevel` | implement now | read side via `HandlerContext.ThinkingLevel()` |
-| `setThinkingLevel` | deferred | `API.SetThinkingLevel` returns the unavailable error; model-capability clamping is unwired |
-| `registerProvider` | deferred | `API.RegisterProvider` returns the unavailable error; the OpenRouter-completions dialect and other dialects are unwired |
-| `unregisterProvider` | deferred | `API.RemoveProvider` returns the unavailable error |
-| `events` bus | deferred | `API.EmitCustomEvent` returns the unavailable error; the subscribe side is not in the v0 contract |
+| `setThinkingLevel` | implement now (composed host) | `API.SetThinkingLevel` applies `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `default` through capability checks and the OpenRouter reasoning decorator; unsupported transports and levels return a typed `sdk.ErrUnsupported`, and no level is silently clamped. The bare API keeps returning the unavailable error |
+| `registerProvider` | implement now (composed host) | `API.RegisterProvider` adds a per-run in-memory provider restricted to the `openai-completions` dialect, validates name, URL, and models, and routes registered models through the existing completions client without persisting credentials. The bare API keeps returning the unavailable error |
+| `unregisterProvider` | implement now (composed host) | `API.RemoveProvider` removes an inactive provider and refuses the active or pending one with an explicit guard. The bare API keeps returning the unavailable error |
+| `events` bus | implement now (composed host) | `API.EmitCustomEvent` dispatches through the per-host custom event bus, and the optional `sdk.CustomEventSubscription` interface adds typed subscriptions. This bus is not the 27 deferred Pi events. The bare API keeps returning the unavailable error |
 
 ## Handler context surface (`ctx.*`)
 
@@ -147,10 +160,10 @@ contract is `sdk.HandlerContext` in `sdk/context.go`.
 | `ctx.hasUI` | implement now | `HandlerContext.HasUI()` |
 | `ctx.cwd` | implement now | `HandlerContext.Cwd()` |
 | `ctx.sessionManager` | implement now (subset) | `SessionView`: `ID`, `Path`, `Cwd`, `Name`, `Messages`; entry and tree access is not in the v0 session view |
-| `ctx.modelRegistry` | implement now (subset) | `ModelRegistry`: `Model`, `Available`, `Find`; provider auth resolution deferred |
+| `ctx.modelRegistry` | implement now (subset) | `ModelRegistry`: `Model`, `Available`, `Find`; registered custom provider models appear in `Available` and resolve through `Find(provider, id)`; provider auth resolution deferred |
 | `ctx.model` | implement now | `HandlerContext.Model()` (`sdk.Model` with `ID`, `Name`, `Provider`) |
 | `ctx.scopedModels` | deferred | model scoping feature not in v0 |
-| `ctx.thinkingLevel` | implement now | `HandlerContext.ThinkingLevel()` |
+| `ctx.thinkingLevel` | implement now | `HandlerContext.ThinkingLevel()` returns the active level, the provider default when a model is bound without an explicit level, and `off` with no model |
 | `ctx.isIdle()` | deferred | no v0 accessor; `CommandContext.WaitForIdle` returns `sdk.ErrModeUnsupported` even though delivery runs asynchronously |
 | `ctx.isProjectTrusted()` | deferred | the interactive TUI asks for workspace trust at startup and does not persist it; extensions cannot query trust in the v0 contract |
 | `ctx.signal` | implement now | `HandlerContext.Signal()` returns a `context.Context`, nil when idle (Pi returns `undefined`) |
@@ -210,9 +223,10 @@ From `ExtensionEvent` and the agent-session event set in
 smidja contract is the handler func types in `sdk/hooks.go` and the event
 structs in `sdk/events.go`.
 
-P7 adds no events. The 27 deferred events below stay outside P7 on
-purpose, one per later runtime wave, and the matrix never counts a typed
-handler signature as runtime dispatch.
+R3 adds no Pi events. The custom event bus is a separate smidja
+mechanism, not one of the rows below. The 27 deferred events stay
+outside the current slices on purpose, one per later runtime wave, and
+the matrix never counts a typed handler signature as runtime dispatch.
 
 | Pi event | Disposition | Smidja v0 mapping |
 | --- | --- | --- |
@@ -263,20 +277,21 @@ counted in their own column and are not merged into the core count.
 
 | Surface | Implement now | Implement now, print-mode | Deferred | Total |
 | --- | --- | --- | --- | --- |
-| Extension API (`pi.*`) | 18 | 0 | 8 | 26 |
+| Extension API (`pi.*`) | 25 | 0 | 1 | 26 |
 | Handler context (`ctx.*`) | 13 | 1 | 4 | 18 |
 | Command context | 3 | 0 | 5 | 8 |
 | UI (`ctx.ui.*`) | 0 | 15 | 0 | 15 |
 | Events | 8 | 0 | 27 | 35 |
-| Total | 42 | 16 | 44 | 102 |
+| Total | 49 | 16 | 37 | 102 |
 
-58 capabilities are implemented: 42 core plus 16 with print-mode
-semantics. The UI table moved from 9 to 15 print-mode rows, because P7
-closes its 6 deferred rows. The Extension API table moved from 16 to 18
-implemented rows, because R2b backs its two messaging methods. The
-Extension API table carries 8 deferred rows: the 7 signature-frozen
-methods listed at the top of this page plus `registerShortcut`, which
-has no method at all.
+65 capabilities are implemented: 49 core plus 16 with print-mode
+semantics. The UI table moved from 9 to 15 print-mode rows because P7
+closed its 6 deferred rows. The Extension API table moved from 18 to 25
+implemented rows because R3 backs its last 7 signature-frozen methods.
+It now carries a single deferred row: `registerShortcut`, which has no
+method at all. Fourteen Extension API methods are runtime-backed on a
+composed host (7 from R2a/R2b and 7 from R3); the bare API and the
+gateway keep the unavailable behavior.
 
 In print mode the `ctx.ui` surface has 4 blocking dialogs that return
 `sdk.ErrModeUnsupported` and 5 fire-and-forget methods that are no-ops.
@@ -304,8 +319,10 @@ values. The interactive TUI command context also implements `newSession`,
 - **Partial patches use pointer fields.** `ToolResultEventResult.IsError`
   is `*bool` and `Usage` is `*Usage` so "field omitted" is distinct from
   "set to zero", matching Pi's per-field `!== undefined` checks.
-- **`SetModel` returns an error** where Pi's `setModel` returns
-  `Promise<boolean>`.
+- **`SetModel` commits through a transaction, not a boolean.** Pi's
+  `setModel` returns `Promise<boolean>`; smidja validates, builds, and
+  persists first, then adopts the model at the next turn boundary, and
+  reports every failure as an error.
 - **`UnregisterTool` is smidja-only.** Pi has no tool removal; smidja adds
   the symmetric registry operation.
 - **`sendUserMessage` takes a string.** Pi accepts text and image content
@@ -333,18 +350,35 @@ values. The interactive TUI command context also implements `newSession`,
   not declare. Extensions that only know `sdk.API` keep compiling, and
   registration succeeds into an inert registry when no surface is
   attached.
-- **Signature-frozen methods are deferred until runtime-backed.**
-  `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`,
-  `RegisterFlag`, `Flags`, and `EmitCustomEvent` are counted as deferred
-  even though their signatures exist, because calling them returns the
-  unavailable error (or, for `Flags`, an empty map placeholder).
-  Counting signatures as runtime would overstate parity.
-- **Seven methods are backed only through the composed host.**
+- **Hosted methods fall back to unavailable on a bare API.** The
+  fourteen composed-host methods keep their frozen signatures. Without a
+  host binding the thirteen error-returning methods return the
+  unavailable error and `Flags` returns an empty map. Counting the
+  signature alone as runtime would overstate parity.
+- **Fourteen methods are backed only through the composed host.**
   `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, and
   `Exec` landed in R2a; `SendMessage` and `SendUserMessage` landed in
-  R2b. All seven are runtime-backed in the CLI host and unavailable on
-  the bare API and in the gateway. The composed contexts, snapshots, and
-  lifecycle rules are documented in [SDK runtime](sdk-runtime.md).
+  R2b; `SetModel`, `SetThinkingLevel`, `RegisterProvider`,
+  `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent` land
+  in R3. All fourteen are runtime-backed in the CLI and TUI host and
+  unavailable on the bare API and in the gateway. The composed contexts,
+  snapshots, and lifecycle rules are documented in
+  [SDK runtime](sdk-runtime.md).
+- **Thinking limits are explicit, never clamped.** A model without
+  effort selection, an effort outside its allowlist, and `off` on a
+  mandatory-reasoning model all fail with a named error. Transports
+  without the request-side reasoning seam return the typed
+  `sdk.ErrUnsupported`; smidja never picks a nearby effort on its own.
+  The [SDK runtime](sdk-runtime.md) documents the request wire.
+- **Custom provider registrations are in-memory.** Pi loads provider
+  plugins and packages; smidja keeps extension-registered providers in
+  the run-time registry only, restricted to the `openai-completions`
+  dialect, with no persistence and no credential metadata.
+- **Custom event subscription is an optional interface.** Pi's extension
+  API types the event bus directly. Smidja keeps the frozen `sdk.API`
+  and exposes `sdk.CustomEventSubscription` separately, so existing API
+  implementations keep compiling. The 27 typed Pi events remain
+  deferred.
 - **`SendMessage` feeds the host delivery seam.** A composed host
   persists the custom entry and, for `Display: true`, drives
   `DeliverCustomMessage`; `AppendEntry` uses `DeliverCustomEntry`. Replay still
@@ -352,6 +386,6 @@ values. The interactive TUI command context also implements `newSession`,
   returning the unavailable error.
 - **`registerShortcut` stays out.** No SDK method exists, and extension
   keybinding registration is not planned for the current surface.
-- **P7 adds no events.** Renderer and UI registration does not dispatch
-  any of the deferred Pi events; event parity remains an explicit later
-  wave.
+- **No slice adds typed Pi events.** Renderer, UI, and custom-event
+  registration does not dispatch any of the deferred Pi events; event
+  parity remains an explicit later wave.

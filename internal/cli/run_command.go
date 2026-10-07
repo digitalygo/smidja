@@ -45,8 +45,14 @@ func defaultProviderModel(opts *rootOptions, d *Deps) {
 }
 
 func runRun(args []string, d *Deps) error {
+	bootstrap, err := bootstrapExtensions(d)
+	if err != nil {
+		return fail(d, err)
+	}
+	defer bootstrap.close()
 	var opts rootOptions
 	fs := newRootFlagSet(&opts)
+	bootstrap.flags.Apply(fs)
 	flags, positionals, err := splitSubcommandArgs(fs, args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -62,6 +68,7 @@ func runRun(args []string, d *Deps) error {
 		printRunUsage(d.Stderr)
 		return err
 	}
+	bootstrap.flags.Capture(fs)
 	if opts.version {
 		fmt.Fprintf(d.Stdout, "smidja %s\n", versionFor(d))
 		return nil
@@ -84,7 +91,7 @@ func runRun(args []string, d *Deps) error {
 		return err
 	}
 	defaultProviderModel(&opts, d)
-	return runChat(d, opts.prompt, opts.model, opts.system, opts.provider, opts.allowWorkspaceMCP, opts.continuePath, opts.tuiModeFlag, opts.useThemeFlag)
+	return runChat(d, opts.prompt, opts.model, opts.system, opts.provider, opts.allowWorkspaceMCP, opts.continuePath, opts.tuiModeFlag, opts.useThemeFlag, bootstrap)
 }
 
 func resolveRunPrompt(opts *rootOptions, positionals []string, promptSet bool) error {

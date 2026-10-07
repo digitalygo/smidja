@@ -117,8 +117,15 @@ func run(args []string, d *Deps) error {
 		return runSubcommand(args[0], args[1:], d)
 	}
 
+	bootstrap, err := bootstrapExtensions(d)
+	if err != nil {
+		return fail(d, err)
+	}
+	defer bootstrap.close()
+
 	var opts rootOptions
 	fs := newRootFlagSet(&opts)
+	bootstrap.flags.Apply(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage(d.Stderr)
@@ -128,6 +135,7 @@ func run(args []string, d *Deps) error {
 		printUsage(d.Stderr)
 		return err
 	}
+	bootstrap.flags.Capture(fs)
 	if opts.version {
 		fmt.Fprintf(d.Stdout, "smidja %s\n", versionFor(d))
 		return nil
@@ -145,7 +153,7 @@ func run(args []string, d *Deps) error {
 		return err
 	}
 	defaultProviderModel(&opts, d)
-	return runChat(d, opts.prompt, opts.model, opts.system, opts.provider, opts.allowWorkspaceMCP, opts.continuePath, opts.tuiModeFlag, opts.useThemeFlag)
+	return runChat(d, opts.prompt, opts.model, opts.system, opts.provider, opts.allowWorkspaceMCP, opts.continuePath, opts.tuiModeFlag, opts.useThemeFlag, bootstrap)
 }
 
 func validateTUIModeFlag(value string, d *Deps) error {

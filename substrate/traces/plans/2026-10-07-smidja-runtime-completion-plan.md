@@ -14,15 +14,15 @@ last_updated_at: 2026-10-07
 
 ## Current execution snapshot
 
-- **Status:** In progress. R1 and R2a are published and synchronized; R2b message delivery is active.
+- **Status:** In progress. R1 and R2 are published; corrected R3 registration/model controls are independently accepted and ready for publication.
 - **Baseline identity:** `2026-10-07-smidja-runtime-completion-plan`, version 1, authored by the orchestrator after read-only repository analysis.
 - **Execution baseline:** Approved branch `feat/tui` at `80f29353f48116a8c4191709064f19d4402ef718`, matching origin and open PR 1 against `alpha`. Main worktree was clean before these trace updates.
-- **Active phase:** R2b: per-session message delivery, loop boundaries and truthful persistence.
-- **Last verified checkpoint:** 2026-10-07T06:53:59+02:00, corrected R2a independent verification and both repeated reviews accepted.
+- **Active phase:** R3: hosted model/thinking controls and per-host provider, flag and custom-event registration.
+- **Last verified checkpoint:** 2026-10-07T13:46:10+02:00, corrected R3 independent tests and quality/security gates accepted.
 - **Last successful checks:** R1 formatting, vet, build, uncached upstream tests, affected race tests, real PTY collision/no-TUI checks, four static builds and actual temporary-binary wire/persistence checks pass. Five executable delta files reach 90-100% changed-line and 96.7-100% overlapping-block statement coverage. Quality and focused security verdicts are PASS.
-- **Open blockers:** No R2a code-review blocker remains. R2b delivery, R3 registration/model controls, R4 agent execution and final acceptance remain unfinished. Real-provider credentials and genuine external creator acceptance remain absent.
+- **Open blockers:** No R3 code-review blocker remains. R4 agent execution and final runtime installation/acceptance remain unfinished. Live-provider credentials and genuine external creator acceptance remain absent.
 - **Required approvals and gates:** Preserve the approved branch and PR, no merge/tag/release/package publication, no other repository modifications. Every behavioral slice needs independent delta tests, upstream coverage at least 80%, delegated quality judgment, focused security review when applicable, commit/push and exact remote/PR readback. Installation is only the authorized local test binary; tests use temporary homes and isolated fixtures.
-- **Next action:** Compare two isolated R2b scheduler candidates using identical contracts; independently verify survivors and choose correctness, conventions and simplicity in that order. Then gate and publish before R3 registration/model controls.
+- **Next action:** Implement R3 with optional host bindings, exactly-once Setup flag discovery and per-host registries, capability-aware reasoning and truthful request-wire tests; preserve all old unbound contracts.
 
 ## Planner baseline
 
@@ -221,7 +221,26 @@ last_updated_at: 2026-10-07
 
 ### R3 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-10-07T10:57:49+02:00: R2b publication and race cleanup verified
+
+- **Event:** Accepted B was fast-forward integrated and published as `52dd4184a8e623b8d1d8ac91c9c4aa9bbc789a81`, `feat(sdk): deliver queued extension messages`.
+- **Planner prediction:** Publish only the accepted winner after independent gates and remove only newly recorded race resources.
+- **Subagent claims:** None for R3 implementation yet.
+- **Orchestrator finding:** Source and docs corrections preserve the accepted executable hashes. The losing candidate was rejected on correctness; no unverified source is grafted. R3 must keep optional interfaces and plain unbound API tests, use existing model transactions and factories, and avoid hidden cosmetic reasoning changes or credential-bearing metadata.
+- **Independently verified facts:** Main, origin and OPEN PR 1 match `52dd418`; main worktree is clean. Only `smidja-race-20261007-r2b-a` and `smidja-race-20261007-r2b-b`, recorded at this session's creation, were removed with their temporary branches after integration/publication. Historical P5 worktrees remain preserved. Installed binary is P7 until final runtime installation.
+- **Decision and impact:** The R3 provider scope stays in-memory and uses existing completion client factories without driver/schema rewrites. Request reasoning is limited to a proven narrow OpenRouter adapter seam with capability metadata and exact JSON assertions; unsupported transports or effort intents fail explicitly. Extension flags are discovered in one Setup pass before the final standard parse; custom event subscription is additive and isolated from future typed Pi event waves.
+- **Next action:** Delegate R3 source/tests with bounded host/model/registry ownership and complete real-runtime fixtures, then independent gates and documentation.
+
+
+#### Checkpoint 2026-10-07T13:46:10+02:00: corrected R3 controls and registration accepted
+
+- **Event:** All seven remaining hosted API controls/registrations pass independent eligibility and exact quality/security PASS.
+- **Planner prediction:** Actual model/request effects, one declaration-only Setup pass, private in-memory providers, safe flags/events and honest unsupported transport/effort behavior, without protected driver rewrites.
+- **Subagent claims:** Optional host callbacks, model intents and atomic persistence/adoption, provider registry, flag discovery and event subscriptions are implemented. Corrections closed eight initial bootstrap/rollback/model/window/thinking/event/secret defects and removed an unsupported goroutine-ID close mechanism. Ordinary Go doc comments were removed to restore repository compliance.
+- **Orchestrator finding:** Direct source inspection confirms transactional model/thinking state, actual OpenRouter endpoint-scoped cloned request decoration and exact JSON parameters, coherent TUI/SDK selector behavior and preparer/window/client updates. Failed Setup rolls back all catalogs/UI/active state plus new registries. Early run actions fail closed before validated/trusted readiness, and every helper/error path closes the bootstrap. Event Close is a nonblocking logical admission barrier; bounded Wait occurs at actual teardown, not inside a handler. Explicit request thinking is process-local: resume reports ThinkingDefault and keeps historic entries as notices rather than silently restoring an unsupported value. No cosmetic reasoning effect or unsupported success is claimed.
+- **Independently verified facts:** Artifact `R3-6fcb8f8f49d3`, manifest SHA-256 `6fcb8f8f49d351745709b140131f22c444b174fd05653c4a35550f10c2fbfe4a`, covers 45 files excluding traces; all hashes verify. Leader formatting, diff checks, vet, build, fresh upstream tests across six affected packages, complete sequential race, 10 repeated transaction/mandatory/resume/event-close/flood/Setup-rollback tests and four static Linux/Darwin amd64/arm64 builds pass. Twenty-six production files reach 83.3-100% instrumented changed-line and 88.9-100% overlapping-block statement coverage in `/tmp/smidja-r3-final.cover`. New SDK files and ThinkingDefault are additive declarations; old method signatures and protected driver/schema/gateway/package/build/dependency paths are unchanged, no go.sum or code comments. Full suite's only latest failure is the alpha-reproduced MCP restart flake. Quality PASS and security PASS apply to the exact artifact.
+- **Decision and impact:** Accept R3 source and accurate 102-row parity documentation (49 core +16 print-mode implemented,37 deferred). All 14 assigned API actions are now hosted-backed; bare APIs/gateway retain honest availability errors. Preserve deferred typed Pi waves and shortcut scope. The uncooperative event-handler join is bounded at five seconds, not a false guarantee of killing arbitrary Go code.
+- **Next action:** Publish `feat(sdk): complete model and extension registries`, verify remote/PR, then execute R4 agent content runtime and final installation.
 
 ### R4 execution checkpoints
 

@@ -1,8 +1,8 @@
 # Smidja SDK runtime
 
-The extension SDK runtime composes a per-session host view behind the frozen `sdk` contracts. A host binding adds behavior; callers without one keep the defaults: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `Exec`, `SendMessage`, and `SendUserMessage` return `extensions.ErrUnavailable` (`extensions: API method not available in this release: <name>`), and the fallback handler context returns empty values.
+The extension SDK runtime composes a per-session host view behind the frozen `sdk` contracts. On a composed CLI or TUI host, fourteen `sdk.API` methods run with real behavior: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `Exec`, `SendMessage`, `SendUserMessage`, `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent`. A host binding adds the behavior; a bare API keeps the defaults: the error-returning methods above return `extensions.ErrUnavailable` (`extensions: API method not available in this release: <name>`), `Flags` returns an empty map placeholder, and the fallback handler context returns empty values. Custom event subscriptions are a separate optional interface, not part of the frozen `sdk.API`.
 
-R2a is published at `bb86387`. The R2b delivery source is uncommitted in the retained candidate worktree; MAIN still carries R2a only, and the installed binary remains P7 without either slice. The [SDK parity matrix](sdk-parity-matrix.md) holds the row-level dispositions, and the [extension UI SDK](sdk-ui.md) covers the UI surface.
+R2a is published at `bb86387` and R2b at `52dd418`. The R3 corrected source is uncommitted in the retained candidate worktree; the R3 gate has not run, nothing beyond `52dd418` is published, and the installed binary remains P7. The [SDK parity matrix](sdk-parity-matrix.md) holds the row-level dispositions, and the [extension UI SDK](sdk-ui.md) covers the UI surface.
 
 ## Composed contexts
 
@@ -14,17 +14,30 @@ R2a is published at `bb86387`. The R2b delivery source is uncommitted in the ret
 | Print, line, and non-TTY sessions | `sdk.ModePrint` | false | no-op UI | live session |
 | Bare fallback, for example the gateway | `sdk.ModePrint` | false | no-op UI | empty |
 
-The live shapes expose the bound session through `Cwd`, `SessionManager`, `ModelRegistry`, `Model`, `ThinkingLevel`, `SystemPrompt`, and `ContextUsage`. `ContextUsage` reports the last assistant input tokens, the context window, and the percent of the window. The TUI decorates the host context through the runner and reports `ModeInteractive` with the bound UI; print and line sessions report `ModePrint`, so UI dialogs return `sdk.ErrModeUnsupported`.
+The live shapes expose the bound session through `Cwd`, `SessionManager`, `ModelRegistry`, `Model`, `ThinkingLevel`, `SystemPrompt`, and `ContextUsage`. `ContextUsage` reports the last assistant input tokens, the context window, and the percent of the window. `ThinkingLevel` reports the active level, `default` when a model is active and no explicit level is set, and `off` before a model is bound. The TUI decorates the host context through the runner and reports `ModeInteractive` with the bound UI; print and line sessions report `ModePrint`, so UI dialogs return `sdk.ErrModeUnsupported`.
 
 The gateway builds the extension runtime without a host context or a host API binding. It keeps the bare fallback: nil session view, model, and registry; empty cwd and system prompt; and unavailable host-backed methods. Binding the gateway host is later work.
 
 ## Dispatch signals and snapshots
 
-Every dispatch binds its signal to the handler context and captures a fresh snapshot of the session state. The composed host context receives the signal through `WithSignal`, so each handler sees the signal for its own event. The snapshot holds the session handle with its generation, the messages, the current model, the registry view, the system prompt, and the usage values.
+Every dispatch binds its signal to the handler context and captures a fresh snapshot of the session state. The composed host context receives the signal through `WithSignal`, so each handler sees the signal for its own event. The snapshot holds the session handle with its generation, the messages, the current model, the registry view, the system prompt, the usage values, and the thinking level.
 
 Snapshots are isolated. The messages are cloned down to content blocks and tool-call argument bytes, and the model, the available-model list, and the usage pointers are copies. Two extensions handling the same event cannot mutate each other's view through the handler context.
 
 Writes are generation-bound. A handle captured from an earlier session fails with `extensions: the session context is no longer active` after the active session changes, and every mutation fails with `extensions: the host session is not available` after shutdown. A stale write never reaches the session file, and a stale UI delivery is dropped at the serial boundary instead of landing on the replacement session.
+
+## Setup and readiness
+
+Extension Setup runs exactly once per process, ahead of the final flag parse in the root and `run` paths. `bootstrapExtensions` builds the catalogs, the UI registry, the flag and provider registries, the custom event bus, the host, and the API, then `Runtime.Start` runs `Registry.Setup`. A second run with the same runtime fails with `extensions: setup already run`; other subcommands such as `version` never run Setup.
+
+Setup is a declaration phase. Registrations take effect, and `EmitCustomEvent` works because the bus is ready, while run-only host actions fail closed because the host is not ready yet:
+
+- `Exec` returns `extensions: the host session is not available`.
+- `SetModel` and `SetThinkingLevel` return the same closed-host error because no session handle is bound.
+
+The host becomes ready only after `runChat` binds the session, which happens after TUI startup and the workspace trust decision. From then on handler-context `Exec`, `SetModel`, and `SetThinkingLevel` run against the live session. Help, root `-version`, and malformed-flag exits still tear the bootstrap down through the deferred close: the host shuts down, the event bus closes, and no credential store is written. A malformed user settings file is captured during bootstrap and only fails the chat path, so help and version keep working.
+
+A failed Setup is rolled back per extension. Before each extension's `Setup`, the API snapshots its tool catalog, command catalog, UI registry, flag declarations, provider registry, and custom event subscriptions. On failure the snapshot is restored, so a partially declared extension leaves nothing behind while successful earlier extensions keep their contributions. The failed extension is disabled and logged by id and error; provider keys never reach the log.
 
 ## Session actions
 
@@ -63,7 +76,7 @@ The active view feeds the toolset fingerprint used by the session runtime profil
 
 ## Direct exec
 
-`Exec(command, args, opts)` runs argv directly, without a shell, in the configured workspace root and with a sanitized environment. `ctx.Exec` runs under the per-dispatch signal; `api.Exec` has no dispatch signal and is still owned by the host run context, so shutdown cancels it too.
+`Exec(command, args, opts)` runs argv directly, without a shell, in the configured workspace root and with a sanitized environment. `ctx.Exec` runs under the per-dispatch signal; `api.Exec` has no dispatch signal and is still owned by the host run context, so shutdown cancels it too. Exec is gated on host readiness, so calls from Setup fail closed and calls from later dispatches run.
 
 Timeouts:
 
@@ -132,13 +145,124 @@ An injected delivery writes exactly one existing session entry: a custom message
 - Shutdown clears every queue, including `nextTurn`.
 - Scheduled turns are asynchronous. A provider failure in a TUI continuation appears as a warning notice, and a canceled continuation settles as interrupted. In print and line mode the scheduler writes `smidja: scheduled message: <err>` to stderr. `SendMessage` and `SendUserMessage` return after persisting or enqueueing, not after the turn result.
 
+## Model controls
+
+`SetModel` is backed through the same validated transaction used by the TUI `/model` selector. Validation runs before anything commits:
+
+- a non-empty model id is required
+- the model must resolve in the configured registry or in a registered custom provider, otherwise the error names the unknown model
+- a verified wire model must exist for the active transport, otherwise `extensions: model has no verified wire model for the active transport`
+- when a thinking level is explicitly set, the target model must allow it; a level outside the allowlist fails with `extensions: the active thinking level is not supported by the requested model`
+- when the explicit level is `off` and the target model requires reasoning, the transaction resets thinking to the provider default and persists a `default` entry instead of sending a rejected disable
+- host bindings must be configured, otherwise `extensions: model changes are not available in this host`
+
+The preparer and the client for the new model are built before the session commit. The commit then writes the runtime profile entry, plus the optional thinking-default reset entry, in one session transaction. Only after the write succeeds does the host adopt the intent: `pendingModel` is set, and the next turn boundary applies the new model, wire model, provider, reasoning seam, context window, preparer, and client. `ContextUsage` recomputes its percent against the new window, and later dispatches read the new model and provider through the handler context. In print and line mode the boundary is `loopDeps`; the TUI applies the pending intent right after the selector confirms it and then updates the footer.
+
+Every failure path rolls back: an empty, unknown, unverified, or incompatible model, a host without bindings, a preparer or client build failure, a stale session handle, and a persistence failure all leave the model, thinking level, preparer, client, window, and runtime profile untouched, and no pending intent is queued. A session switch or shutdown discards a pending intent instead of applying it to the replacement session. When the active transport uses a fixed deployment, the TUI selector refuses selection before any transaction starts.
+
+## Thinking level
+
+`SetThinkingLevel` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `default`. `default` returns control to the provider: the getter reports `default`, no effort directive is sent, and an explicit `default` persists a `default` thinking entry while clearing the explicit-set flag. Unknown levels fail with `extensions: unknown thinking level`.
+
+Capability checks use the model metadata gathered from the catalog and the OpenRouter models endpoint:
+
+- `reasoning: true` and `reasoning: false` set known support or known unsupported state.
+- An object may carry `mandatory` plus an effort list under `supported_efforts`, `efforts`, or `values`; effort names are trimmed and lowercased.
+- A null effort list means effort selection without an allowlist, so every gateway effort is accepted.
+- A list means effort selection with an allowlist; a level outside it fails with `extensions: the active model does not allow this reasoning effort`.
+- `supported_parameters` containing `reasoning` means supported without effort selection.
+- Omitted, null, or malformed metadata stays unknown.
+
+Unknown metadata never invents support, models without effort selection reject efforts, and mandatory models reject `off` with `extensions: the active model requires reasoning`. Rejected levels are neither clamped to a nearby effort nor persisted. A registry merge preserves known reasoning metadata over an unknown later entry.
+
+### OpenRouter wire
+
+The OpenRouter client wraps the HTTP client with a per-request reasoning decorator. Only POST requests to the configured endpoint are patched; the decorator clones the request, leaves the caller request untouched, and rewrites or inserts the `reasoning` field:
+
+| Active level | `reasoning` field |
+| --- | --- |
+| `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | `{"effort":"<level>"}` |
+| `off` | `{"enabled":false,"effort":"none"}` |
+| `default` or unset | omitted |
+
+The directive travels in the request context, so it is per request and never leaks between turns. Non-POST requests, off-endpoint requests, and non-JSON bodies pass through unchanged. Transports without this seam return the typed `sdk.ErrUnsupported` (`sdk: the active transport or model does not support this operation`) instead of pretending to apply a level.
+
+### Resume behavior
+
+Thinking levels are ephemeral across process restarts. A resumed session keeps its persisted thinking entry in history, but the new process starts at the provider default: the persisted entry does not restore a wire directive, and a new context reports `default` until `SetThinkingLevel` is called again. Do not read this as cross-process setting continuity. The runtime profile, by contrast, does continue: it carries the provider, model, system prompt, tool schema, content, and affinity state, it is rewritten only when that profile actually changes, and it never encodes thinking state. Tests assert both sides: the old thinking entry stays untouched and the first request of each resumed run omits reasoning.
+
+## Providers
+
+`RegisterProvider` and `RemoveProvider` are backed by a per-run, in-memory provider registry. No provider configuration is persisted, and no credential metadata is written to sessions, logs, flags, or the system prompt. Only the `openai-completions` dialect is supported; an empty `API` field defaults to it and any other value fails with `extensions: unsupported provider completion dialect`.
+
+Registration validation:
+
+- the name must match `[A-Za-z0-9][A-Za-z0-9._-]*` and must not collide with a built-in transport name, otherwise `extensions: provider name collides with a built-in transport`
+- the base URL must be a plain http(s) URL with a host and no user info; trailing slashes are trimmed, and a query string is allowed and preserved
+- every model id must be non-empty; duplicate ids collapse, and the provider name is stamped on each model
+- registering an existing name replaces it in place and keeps its position in the provider order
+
+Runtime effects:
+
+- registered models appear in `ModelRegistry().Available()` and resolve through `Find(provider, id)`, and the TUI model selector lists them
+- selecting one routes the next model turn through the existing OpenAI completions client at `base URL + /chat/completions`, with the API key sent as `Authorization: Bearer <key>`
+- a custom provider client has no reasoning seam, so thinking levels report unsupported on that route
+- removing the provider that backs the active or pending model fails with `extensions: the provider is active; switch models before removing it`; after switching away, removal succeeds and the model no longer resolves
+- removing an unknown provider fails with `extensions: provider is not registered`
+
+Errors are redacted. A validation error never echoes the raw URL or the API key: user info is dropped and query strings and fragments are replaced with `redacted` while scheme, host, and path stay readable. Tests assert that keys do not reach errors, stderr, the session file, the system prompt, flag values, or the credential store.
+
+## Flags
+
+`RegisterFlag` and `Flags` are backed by a per-run flag registry. Setup declares flags once, before the final parse, and the parser then sees them on the root command and on `run`, including the positional prompt form.
+
+Declarations:
+
+- only `boolean` and `string` types are accepted; anything else fails with `extensions: unsupported flag type`
+- a nil default becomes `false` for booleans and `""` for strings; a default of the wrong type fails with `extensions: flag default does not match its type`
+- names must match `[A-Za-z0-9][A-Za-z0-9._-]*`
+- names that collide with a core flag fail with `extensions: flag name collides with a core flag`; the reserved set is `p`, `model`, `system`, `provider`, `continue`, `tui-mode`, `use-theme`, `version`, `allow-workspace-mcp`, `h`, and `help`
+- re-registering a name fails with `extensions: flag is already registered`
+
+Parsing follows the standard library behavior. Extension flags parse at the root and after `run`, help and version still exit cleanly, unknown extension flags produce the standard `flag provided but not defined` error, and typed values use the standard conversion errors. `Values` returns a copy of the captured values, and a flag that was declared but never applied is skipped. Extensions with a failed Setup leave no ghost flag declarations behind, so their names are unknown on the command line while earlier extensions' flags keep working.
+
+## Custom events
+
+The custom event bus is the smidja equivalent of Pi's inter-extension event bus. Because the frozen `sdk.API` keeps its signature, subscription is offered through the optional `sdk.CustomEventSubscription` interface:
+
+```go
+type CustomEventSubscription interface {
+	SubscribeCustomEvent(name string, handler CustomEventHandler) (unsubscribe func(), err error)
+}
+```
+
+`sdk.CustomEvent` carries the name and the `Data` value. Data is the Go value the emitter passed, not a JSON copy, so handlers see the source object semantics. Custom event payloads are never persisted to the session and never enter model requests.
+
+Dispatch rules:
+
+- subscribers run in registration order; an event emitted from inside a handler is appended to the drain queue and delivered after the current event's remaining handlers, in emit order
+- nesting is bounded at 1024 queued emits; beyond that `Emit` returns `extensions: too many nested custom events` and the bus stays open
+- while a drain is active, concurrent emits are either accepted into the queue or rejected with the same overflow error, and every accepted event is delivered exactly once
+- callbacks run outside the bus lock, so a handler may unsubscribe itself, close the bus, or emit another event
+- a handler error or panic does not stop later handlers; `Emit` joins the errors, naming panics as `extensions: custom event "<name>" handler panic: <value>`, and the bus remains usable
+
+Lifecycle:
+
+- `SubscribeCustomEvent` rejects empty names and nil handlers, and `Emit` rejects empty names; after `Close` both fail with `extensions: the custom event bus is closed`
+- `Close` is a logical admission barrier: it is nonblocking, refuses new subscriptions and emits, drops queued events, and does not interrupt a handler that is already running
+- `Close` itself does not join the active drain; `Wait(timeout)` joins it, and a zero timeout is a probe. Shutdown closes the bus and the bootstrap teardown then waits up to five seconds for the drain; an uncooperative handler that outlasts the bound leaves teardown proceeding without a false claim that it joined, and the bus stays closed
+- a rollback that restores a bootstrap snapshot never reopens a closed bus
+
+The event bus is not the 27 typed Pi events. Those rows stay deferred to their own runtime waves, and the matrix does not count them as backed by this bus.
+
 ## Abort and shutdown
 
 `Abort()` cancels the turn that owns the dispatch signal. A canceled turn drops pending steer, follow-up, and deferred deliveries and invalidates queued continuations; buffered next-turn deliveries stay until the session changes or the host shuts down. A context captured during an earlier turn carries that turn's cancel function and cannot abort a newer one. A context created outside a turn carries no cancel, so `Abort` does nothing.
 
 `Shutdown()` owns the run and is idempotent:
 
-- it marks the host closed, cancels the owned run context, joins running exec processes through that context, and clears every mailbox queue
+- it marks the host closed, cancels the owned run context, joins running exec processes through that context, clears every mailbox queue, and closes the custom event bus
+- it discards a pending model intent instead of applying it to a replacement session
 - pending and running compaction jobs settle with a truthful error instead of committing late work
 - in the TUI it requests the runner exit; teardown joins the callbacks before the host stops
 
@@ -157,6 +281,12 @@ Behavior:
 
 Callback panics are recovered and counted on the host. The host does not raise a warning notice for them; a wired UI surface reports the panics it observes through its own handling.
 
-## Deferred surface
+## Remaining surface
 
-R2a backs five methods and R2b adds the two messaging methods, for seven runtime-backed methods on a composed host. The rest of the frozen API keeps its unavailable behavior: `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent` stay for the R3 wave, and the gateway builds no host binding, so its extension surfaces keep the bare fallback. The command-extra and event tables are unchanged from P7.
+All fourteen declared API methods above are runtime-backed on a composed CLI or TUI host. The rest of the frozen contract keeps its existing behavior:
+
+- the bare API and the gateway build no host binding, so all fourteen keep the unavailable behavior and `Flags` keeps returning an empty map
+- `registerShortcut` has no SDK method and no current plan; extension keybinding registration stays outside the contract
+- the 27 deferred Pi events stay with their runtime waves and are not dispatched
+- agent content execution, the R4 phase, is not implemented; the existing subagent package is a compaction selector, not a coding-agent executor
+- real-provider acceptance still needs user-configured credentials, and no live provider or external acceptance result is claimed here

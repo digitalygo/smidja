@@ -60,6 +60,8 @@ func FetchOpenRouterModels(ctx context.Context, client *http.Client) ([]ModelInf
 type wireModel struct {
 	ID            string          `json:"id"`
 	ContextLength json.RawMessage `json:"context_length"`
+	Reasoning     json.RawMessage `json:"reasoning"`
+	Supported     []string        `json:"supported_parameters"`
 }
 
 func (w wireModel) info() ModelInfo {
@@ -67,6 +69,7 @@ func (w wireModel) info() ModelInfo {
 		ID:            w.ID,
 		ContextWindow: lenientInt64(w.ContextLength),
 		Provider:      providerOf(w.ID),
+		Reasoning:     parseReasoningMetadata(w.Reasoning, w.Supported),
 	}
 }
 

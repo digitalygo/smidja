@@ -16,6 +16,7 @@ const (
 	ThinkingHigh    ThinkingLevel = "high"
 	ThinkingXHigh   ThinkingLevel = "xhigh"
 	ThinkingMax     ThinkingLevel = "max"
+	ThinkingDefault ThinkingLevel = "default"
 )
 
 type Model struct {

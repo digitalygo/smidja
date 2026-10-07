@@ -292,3 +292,85 @@ func TestRegistryIsolation(t *testing.T) {
 		t.Fatal("registry instances share registration values")
 	}
 }
+
+func TestRegistrySnapshotRestoreRoundTrip(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.RegisterComponent("component", func() sdk.Component { return idComponent{id: "c"} }); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterWidget("widget", func() sdk.Component { return idComponent{id: "w"} }); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterMessageRenderer("message", rendererFor("m")); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterEntryRenderer("entry", entryRendererFor("e")); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterMarkdownTransformer("markdown", func(markdown string, ctx sdk.MarkdownTransformContext) string { return markdown }); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterTerminalInputHook("input", func(data string) sdk.TerminalInputResult { return sdk.TerminalInputResult{Consume: true} }); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := registry.Snapshot()
+	_, _, before := registry.WidgetSnapshot()
+	if err := registry.UnregisterWidget("widget"); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterWidget("ghost", func() sdk.Component { return idComponent{id: "g"} }); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterComponent("ghost", func() sdk.Component { return idComponent{id: "g"} }); err != nil {
+		t.Fatal(err)
+	}
+	registry.Restore(snapshot)
+	if keys := registry.ComponentKeys(); len(keys) != 1 || keys[0] != "component" {
+		t.Fatalf("component keys = %v", keys)
+	}
+	if keys := registry.WidgetKeys(); len(keys) != 1 || keys[0] != "widget" {
+		t.Fatalf("widget keys = %v", keys)
+	}
+	if types := registry.MessageRendererTypes(); len(types) != 1 || types[0] != "message" {
+		t.Fatalf("message renderer types = %v", types)
+	}
+	if types := registry.EntryRendererTypes(); len(types) != 1 || types[0] != "entry" {
+		t.Fatalf("entry renderer types = %v", types)
+	}
+	if names := registry.MarkdownTransformerNames(); len(names) != 1 || names[0] != "markdown" {
+		t.Fatalf("transformer names = %v", names)
+	}
+	if keys := registry.TerminalInputHookKeys(); len(keys) != 1 || keys[0] != "input" {
+		t.Fatalf("input hook keys = %v", keys)
+	}
+	order, factories, generations := registry.WidgetSnapshot()
+	if len(order) != 1 || order[0] != "widget" || factories["widget"] == nil {
+		t.Fatalf("widget snapshot = %v %v", order, factories)
+	}
+	if generations["widget"] != before["widget"] {
+		t.Fatalf("widget generation = %d, want restored %d", generations["widget"], before["widget"])
+	}
+	if _, ok := registry.Component("ghost"); ok {
+		t.Fatal("ghost component survived the restore")
+	}
+	if _, ok := registry.Widgets()["ghost"]; ok {
+		t.Fatal("ghost widget survived the restore")
+	}
+}
+
+func TestRegistrySnapshotHandlesNilReceiver(t *testing.T) {
+	var registry *Registry
+	snapshot := registry.Snapshot()
+	registry.Restore(snapshot)
+	if snapshot.components != nil || snapshot.widgets != nil {
+		t.Fatal("nil registry snapshot must stay empty")
+	}
+	restored := NewRegistry()
+	restored.Restore(RegistrySnapshot{})
+	if keys := restored.WidgetKeys(); len(keys) != 0 {
+		t.Fatalf("empty snapshot keys = %v", keys)
+	}
+	if restored.Widgets() == nil {
+		t.Fatal("restored registry must keep usable maps")
+	}
+}

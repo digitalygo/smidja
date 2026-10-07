@@ -713,6 +713,16 @@ func (b *tuiBridge) tuiHostLifecycle(runner *ui.Runner) hostLifecycle {
 				surface.RequestRender()
 			}
 		},
+		model: func(model string) {
+			if surface := runner.Surface(); surface != nil {
+				surface.SetModel(model)
+			}
+		},
+		thinking: func(level string) {
+			if surface := runner.Surface(); surface != nil {
+				surface.SetThinkingLevel(level)
+			}
+		},
 	}
 }
 
@@ -1031,6 +1041,7 @@ func (b *tuiBridge) refreshEntryIDs(history []*agent.Message) ([]string, error) 
 
 func (b *tuiBridge) loopDeps(scope *ui.TurnScope, hooks agent.HookDispatcher) *agent.LoopDeps {
 	d := b.rd
+	d.applyPendingModel()
 	var catalog agent.ToolCatalog
 	if d.catalog != nil {
 		catalog = d.catalog

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/digitalygo/smidja/internal/content"
 	"github.com/digitalygo/smidja/internal/extensions"
@@ -31,6 +32,61 @@ var promptShorthandReserved = map[string]struct{}{
 func registerPromptCommand(commands *extensions.CommandCatalog, prompts content.PromptCatalog, output io.Writer, reserved map[string]struct{}) map[string]string {
 	registerPromptHostCommand(commands, prompts, output)
 	return registerPromptAliases(commands, prompts, reserved)
+}
+
+type promptCommandSlot struct {
+	mu         sync.Mutex
+	registered string
+	handler    func(ctx sdk.CommandContext, args string) error
+}
+
+func newPromptCommandSlot() *promptCommandSlot {
+	return &promptCommandSlot{}
+}
+
+func (s *promptCommandSlot) bind(commands *extensions.CommandCatalog) string {
+	if s == nil || commands == nil {
+		return ""
+	}
+	s.mu.Lock()
+	if s.registered != "" {
+		registered := s.registered
+		s.mu.Unlock()
+		return registered
+	}
+	s.mu.Unlock()
+	registered, _ := commands.Register(promptCommandName, sdk.Command{
+		Description: "run a prompt template; /prompt lists the available names",
+		Handler: func(ctx sdk.CommandContext, args string) error {
+			return s.dispatch(ctx, args)
+		},
+	})
+	s.mu.Lock()
+	s.registered = registered
+	s.mu.Unlock()
+	return registered
+}
+
+func (s *promptCommandSlot) set(handler func(ctx sdk.CommandContext, args string) error) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.handler = handler
+	s.mu.Unlock()
+}
+
+func (s *promptCommandSlot) dispatch(ctx sdk.CommandContext, args string) error {
+	if s == nil {
+		return errors.New("prompt: templates are not available in this context")
+	}
+	s.mu.Lock()
+	handler := s.handler
+	s.mu.Unlock()
+	if handler == nil {
+		return errors.New("prompt: templates are not available yet")
+	}
+	return handler(ctx, args)
 }
 
 func registerPromptHostCommand(commands *extensions.CommandCatalog, prompts content.PromptCatalog, output io.Writer) string {

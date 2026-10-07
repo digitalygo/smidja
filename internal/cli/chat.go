@@ -54,11 +54,14 @@ type runDeps struct {
 	showThinking bool
 	sessionPath  string
 
-	client   agent.Client
-	tools    []agent.Tool
-	recorder agent.Recorder
-	stdout   io.Writer
-	stderr   io.Writer
+	client         agent.Client
+	baseClient     agent.Client
+	baseSeam       bool
+	providerClient func(model string) (agent.Client, bool)
+	tools          []agent.Tool
+	recorder       agent.Recorder
+	stdout         io.Writer
+	stderr         io.Writer
 
 	retryPolicy    agent.RetryPolicy
 	retryPolicySet bool
@@ -69,6 +72,7 @@ type runDeps struct {
 	detector       agent.LoopDetector
 
 	provider       string
+	providers      *extensions.ProviderRegistry
 	catalog        *extensions.ToolCatalog
 	commands       *extensions.CommandCatalog
 	handlerContext func(context.Context) sdk.HandlerContext
@@ -90,18 +94,17 @@ type runDeps struct {
 	promptCommand string
 }
 
-func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath, tuiModeFlag, themeFlag string) error {
+func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath, tuiModeFlag, themeFlag string, bootstrap *extensionBootstrap) error {
 	ctx := d.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	cfg := d.Config
 	if cfg == nil {
-		var err error
-		cfg, err = loadChatConfig(d)
-		if err != nil {
-			return fail(d, err)
+		if bootstrap.configErr != nil {
+			return fail(d, bootstrap.configErr)
 		}
+		cfg = bootstrap.cfg
 	}
 	if model != "" {
 		cfg.Model = model
@@ -150,7 +153,10 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if err != nil {
 		return fail(d, err)
 	}
-	toolSet := d.Tools
+	toolSet := bootstrap.toolSet
+	if len(toolSet) == 0 {
+		toolSet = d.Tools
+	}
 	if len(toolSet) == 0 {
 		ws, err := workspace.New(cfg.WorkspaceRoot)
 		if err != nil {
@@ -189,33 +195,20 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	controller.Hold(sess)
 	defer controller.Close()
 
-	catalog := extensions.NewToolCatalog()
-	for _, t := range toolSet {
-		if err := catalog.Register(t); err != nil {
-			return fail(d, err)
+	catalog := bootstrap.catalog
+	if !bootstrap.toolsRegistered {
+		for _, t := range toolSet {
+			if err := catalog.Register(t); err != nil {
+				return fail(d, err)
+			}
 		}
 	}
-	commands := extensions.NewCommandCatalog()
-	uiRegistry := extensionui.NewRegistry()
-
-	runtime := d.ExtensionRuntime
-	if runtime == nil {
-		runtime = extensions.NewRuntime(extensions.NewRegistry())
-	}
-	host := newHostRuntime(ctx, cwd, controller, catalog)
-	api := extensions.NewAPI(extensions.APIOptions{
-		Catalog:       catalog,
-		Commands:      commands,
-		ResolveConfig: cfg.Default,
-		UI:            uiRegistry,
-		Host:          host.hostOptions(),
-	})
-	host.bindAPI(api)
+	commands := bootstrap.commands
+	uiRegistry := bootstrap.uiRegistry
+	runtime := bootstrap.runtime
+	host := bootstrap.host
 	host.setExecLimits(time.Duration(cfg.ExecTimeoutSecs)*time.Second, cfg.MaxOutputBytes)
 	host.setExecCwd(cfg.WorkspaceRoot)
-	runtime.SetAPI(func() sdk.API { return api })
-	runtime.SetUIRegistry(uiRegistry)
-	runtime.SetContext(func() sdk.HandlerContext { return host.context() })
 
 	initialName := ""
 	if continuePath != "" {
@@ -228,6 +221,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		recorder = current.recorder
 	}
 	host.bindSession(sess, recorder, sess.ID(), sess.Path(), cwd, initialName)
+	host.setReady(true)
 
 	snapshot, err := buildContentSnapshot(d, cfg.WorkspaceRoot, trustWorkspace)
 	if err != nil {
@@ -235,15 +229,14 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	promptCat := content.NewPromptCatalog(snapshot)
 	skillOut := &switchWriter{target: d.Stdout}
-	promptCommand := registerPromptHostCommand(commands, promptCat, skillOut)
+	bootstrap.promptSlot.set(func(ctx sdk.CommandContext, args string) error {
+		return handlePromptCommand(ctx, promptCat, skillOut, args)
+	})
+	promptCommand := bootstrap.promptCommand
 	var promptAliases map[string]string
 	host.setPromptExpander(func(input string) (string, error) {
 		return (&runDeps{prompts: promptCat, promptAliases: promptAliases, promptCommand: promptCommand}).expandPromptInput(input)
 	})
-
-	if err := runtime.Start(); err != nil {
-		return fail(d, err)
-	}
 	hooks := runtime.Dispatcher()
 
 	skillCat, err := snapshotSkillCatalog(snapshot)
@@ -272,10 +265,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	defer mcpRt.Close()
 
-	modelReg := d.ModelRegistry
-	if modelReg == nil {
-		modelReg = models.NewRegistry()
-	}
+	modelReg := bootstrap.modelReg
 	if err := refreshModelRegistry(ctx, d, cfg, modelReg); err != nil {
 		return fail(d, err)
 	}
@@ -318,6 +308,34 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	host.setSystem(sysPrompt)
 	host.setWindow(window)
 	host.attachPreparer(preparer)
+	providerRegistry := bootstrap.providers
+	host.setProviders(providerRegistry)
+	baseSeam := isOpenRouterClient(client)
+	host.setReasoningSeam(baseSeam)
+	host.bindModelBindings(hostModelBindings{
+		resolveWire: func(model string) (string, string, bool) {
+			if providerRegistry != nil {
+				if entry, ok := providerRegistry.FindModel(model); ok {
+					return model, entry.Name, true
+				}
+			}
+			wire, ok := resolveWireModel(providerID, model)
+			if !ok {
+				return "", "", false
+			}
+			return wire, providerID, true
+		},
+		buildPreparer: func(model, wire string) (*contextPreparerAdapter, error) {
+			return newModelPreparer(*cfg, modelReg, model, wire, selector)
+		},
+		buildClient: func(provider string) (agent.Client, bool, error) {
+			if client, ok := providerEntryClient(d, host, providerRegistry, provider); ok {
+				return client, false, nil
+			}
+			return newHostClient(client, host, baseSeam), baseSeam, nil
+		},
+		persist: newHostModelPersister(host, cfg, sysPrompt, catalog, toolSet, cfg.WorkspaceRoot, func() string { return snapshot.Fingerprint() }),
+	})
 	if continuePath != "" && prompt != "" {
 		if loader, lerr := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true}); lerr == nil {
 			if _, _, _, verr := projectModelHistoryWithIDs(loader); verr != nil {
@@ -343,7 +361,9 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		system:       sysPrompt,
 		showThinking: envTruthy(d.Env("SMIDJA_SHOW_THINKING")),
 		sessionPath:  sess.Path(),
-		client:       client,
+		client:       newHostClient(client, host, baseSeam),
+		baseClient:   newHostClient(client, host, baseSeam),
+		baseSeam:     baseSeam,
 		tools:        toolSet,
 		recorder:     &sessionRecorder{sess},
 		stdout:       d.Stdout,
@@ -369,11 +389,15 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		},
 		modelRegistry: modelReg,
 		provider:      providerID,
+		providers:     providerRegistry,
 		uiRegistry:    uiRegistry,
 		prompts:       promptCat,
 		promptAliases: promptAliases,
 		promptCommand: promptCommand,
 		host:          host,
+	}
+	rd.providerClient = func(model string) (agent.Client, bool) {
+		return providerEntryClient(d, host, providerRegistry, modelProviderFor(providerRegistry, "", model))
 	}
 	rd.reprepare = func(model, wireModel string) (*contextPreparerAdapter, error) {
 		built, err := newModelPreparer(*cfg, modelReg, model, wireModel, selector)
@@ -385,7 +409,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	rd.controller = controller
 	rd.resumedSession = continuePath != ""
-	rd.persistModel = newModelPersister(controller, cfg, providerID, sysPrompt, catalog, toolSet, cfg.WorkspaceRoot, func() string { return snapshot.Fingerprint() })
+	rd.persistModel = newModelPersisterWithProviders(controller, cfg, providerRegistry, providerID, sysPrompt, catalog, toolSet, cfg.WorkspaceRoot, func() string { return snapshot.Fingerprint() })
 
 	mode := sdk.ModeInteractive
 	if prompt != "" {
@@ -731,6 +755,27 @@ func (d *runDeps) wireModelID() string {
 	return d.wireModel
 }
 
+func (d *runDeps) applyPendingModel() {
+	if d == nil || d.host == nil {
+		return
+	}
+	intent := d.host.applyPendingModel()
+	if intent == nil {
+		return
+	}
+	if intent.model != "" {
+		d.model = intent.model
+		d.wireModel = intent.wire
+	}
+	if intent.preparer != nil {
+		d.preparer = intent.preparer
+		d.host.attachPreparer(intent.preparer)
+	}
+	if intent.client != nil {
+		d.client = intent.client
+	}
+}
+
 func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, input string, scheduled ...hostScheduledTurn) (result []*agent.Message, resultErr error) {
 	if d.host != nil {
 		d.host.loopMu.Lock()
@@ -884,6 +929,7 @@ func (d *runDeps) persistCompactions() error {
 }
 
 func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
+	d.applyPendingModel()
 	var onThinking func(string)
 	if d.showThinking {
 		onThinking = func(delta string) { io.WriteString(out, delta) }

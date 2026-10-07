@@ -242,6 +242,8 @@ func (b *tuiBridge) installSessionDisplayState(next *activeSession) {
 		if b.rd.host != nil {
 			b.rd.host.bindSession(next.sess, next.recorder, next.sess.ID(), next.path, b.rd.cwd, next.name)
 			b.rd.host.attachPreparer(next.preparer)
+			provider := modelProviderFor(b.rd.providers, b.rd.provider, next.model)
+			b.rd.host.setModel(b.rd.modelRegistry, next.model, next.wireModel, provider)
 		}
 	}
 	b.history = next.history

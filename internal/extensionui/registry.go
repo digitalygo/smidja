@@ -396,3 +396,114 @@ func (r *Registry) TerminalInputHooks() []sdk.TerminalInputHandler {
 	}
 	return out
 }
+
+type RegistrySnapshot struct {
+	components   map[string]sdk.ComponentFactory
+	componentOrd []string
+
+	widgets   map[string]sdk.ComponentFactory
+	widgetOrd []string
+	widgetGen map[string]uint64
+	widgetSeq uint64
+
+	messageRenderers map[string]sdk.MessageRenderer
+	messageOrd       []string
+
+	entryRenderers map[string]sdk.EntryRenderer
+	entryOrd       []string
+
+	transformers   map[string]sdk.MarkdownTransformer
+	transformerOrd []string
+
+	inputHooks map[string]sdk.TerminalInputHandler
+	inputOrd   []string
+}
+
+func (r *Registry) Snapshot() RegistrySnapshot {
+	if r == nil {
+		return RegistrySnapshot{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap := RegistrySnapshot{
+		components:       make(map[string]sdk.ComponentFactory, len(r.components)),
+		componentOrd:     append([]string(nil), r.componentOrd...),
+		widgets:          make(map[string]sdk.ComponentFactory, len(r.widgets)),
+		widgetOrd:        append([]string(nil), r.widgetOrd...),
+		widgetGen:        make(map[string]uint64, len(r.widgetGen)),
+		widgetSeq:        r.widgetSeq,
+		messageRenderers: make(map[string]sdk.MessageRenderer, len(r.messageRenderers)),
+		messageOrd:       append([]string(nil), r.messageOrd...),
+		entryRenderers:   make(map[string]sdk.EntryRenderer, len(r.entryRenderers)),
+		entryOrd:         append([]string(nil), r.entryOrd...),
+		transformers:     make(map[string]sdk.MarkdownTransformer, len(r.transformers)),
+		transformerOrd:   append([]string(nil), r.transformerOrd...),
+		inputHooks:       make(map[string]sdk.TerminalInputHandler, len(r.inputHooks)),
+		inputOrd:         append([]string(nil), r.inputOrd...),
+	}
+	for key, value := range r.components {
+		snap.components[key] = value
+	}
+	for key, value := range r.widgets {
+		snap.widgets[key] = value
+	}
+	for key, value := range r.widgetGen {
+		snap.widgetGen[key] = value
+	}
+	for key, value := range r.messageRenderers {
+		snap.messageRenderers[key] = value
+	}
+	for key, value := range r.entryRenderers {
+		snap.entryRenderers[key] = value
+	}
+	for key, value := range r.transformers {
+		snap.transformers[key] = value
+	}
+	for key, value := range r.inputHooks {
+		snap.inputHooks[key] = value
+	}
+	return snap
+}
+
+func (r *Registry) Restore(snapshot RegistrySnapshot) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.components = snapshot.components
+	if r.components == nil {
+		r.components = map[string]sdk.ComponentFactory{}
+	}
+	r.componentOrd = snapshot.componentOrd
+	r.widgets = snapshot.widgets
+	if r.widgets == nil {
+		r.widgets = map[string]sdk.ComponentFactory{}
+	}
+	r.widgetOrd = snapshot.widgetOrd
+	r.widgetGen = snapshot.widgetGen
+	if r.widgetGen == nil {
+		r.widgetGen = map[string]uint64{}
+	}
+	r.widgetSeq = snapshot.widgetSeq
+	r.messageRenderers = snapshot.messageRenderers
+	if r.messageRenderers == nil {
+		r.messageRenderers = map[string]sdk.MessageRenderer{}
+	}
+	r.messageOrd = snapshot.messageOrd
+	r.entryRenderers = snapshot.entryRenderers
+	if r.entryRenderers == nil {
+		r.entryRenderers = map[string]sdk.EntryRenderer{}
+	}
+	r.entryOrd = snapshot.entryOrd
+	r.transformers = snapshot.transformers
+	if r.transformers == nil {
+		r.transformers = map[string]sdk.MarkdownTransformer{}
+	}
+	r.transformerOrd = snapshot.transformerOrd
+	r.inputHooks = snapshot.inputHooks
+	if r.inputHooks == nil {
+		r.inputHooks = map[string]sdk.TerminalInputHandler{}
+	}
+	r.inputOrd = snapshot.inputOrd
+}

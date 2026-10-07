@@ -146,6 +146,51 @@ func (c *ToolCatalog) enabledLocked(name string) bool {
 	return ok
 }
 
+type toolCatalogSnapshot struct {
+	tools   map[string]agent.Tool
+	source  map[string]string
+	order   []string
+	enabled map[string]struct{}
+}
+
+func (c *ToolCatalog) snapshot() toolCatalogSnapshot {
+	if c == nil {
+		return toolCatalogSnapshot{}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	snap := toolCatalogSnapshot{
+		tools:  make(map[string]agent.Tool, len(c.tools)),
+		source: make(map[string]string, len(c.source)),
+		order:  append([]string(nil), c.order...),
+	}
+	for name, tool := range c.tools {
+		snap.tools[name] = tool
+	}
+	for name, source := range c.source {
+		snap.source[name] = source
+	}
+	if c.enabled != nil {
+		snap.enabled = make(map[string]struct{}, len(c.enabled))
+		for name := range c.enabled {
+			snap.enabled[name] = struct{}{}
+		}
+	}
+	return snap
+}
+
+func (c *ToolCatalog) restore(snap toolCatalogSnapshot) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tools = snap.tools
+	c.source = snap.source
+	c.order = snap.order
+	c.enabled = snap.enabled
+}
+
 func (c *ToolCatalog) AllInfo() []sdk.ToolInfo {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -196,6 +241,37 @@ func (c *CommandCatalog) Register(name string, cmd sdk.Command) (string, error) 
 	return registered, nil
 }
 
+type commandCatalogSnapshot struct {
+	commands map[string]sdk.Command
+	order    []string
+}
+
+func (c *CommandCatalog) snapshot() commandCatalogSnapshot {
+	if c == nil {
+		return commandCatalogSnapshot{}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	snap := commandCatalogSnapshot{
+		commands: make(map[string]sdk.Command, len(c.commands)),
+		order:    append([]string(nil), c.order...),
+	}
+	for name, command := range c.commands {
+		snap.commands[name] = command
+	}
+	return snap
+}
+
+func (c *CommandCatalog) restore(snap commandCatalogSnapshot) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.commands = snap.commands
+	c.order = snap.order
+}
+
 func (c *CommandCatalog) Get(name string) (sdk.Command, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -216,13 +292,16 @@ func (c *CommandCatalog) List() []sdk.CommandInfo {
 }
 
 type Host struct {
-	SetActiveTools  func(names []string) error
-	AppendEntry     func(customType string, data any) error
-	SetSessionName  func(name string) error
-	LabelEntry      func(entryID, label string) error
-	SendMessage     func(msg sdk.CustomMessage, opts sdk.SendOptions) error
-	SendUserMessage func(text string, opts sdk.SendOptions) error
-	Exec            func(ctx context.Context, command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error)
+	SetActiveTools   func(names []string) error
+	AppendEntry      func(customType string, data any) error
+	SetSessionName   func(name string) error
+	LabelEntry       func(entryID, label string) error
+	SendMessage      func(msg sdk.CustomMessage, opts sdk.SendOptions) error
+	SendUserMessage  func(text string, opts sdk.SendOptions) error
+	Exec             func(ctx context.Context, command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error)
+	SetModel         func(m sdk.Model) error
+	SetThinkingLevel func(level sdk.ThinkingLevel) error
+	RemoveProvider   func(name string) error
 }
 
 type APIOptions struct {
@@ -231,17 +310,25 @@ type APIOptions struct {
 	ResolveConfig func(key string) string
 	UI            *extensionui.Registry
 	Host          *Host
+	Flags         *FlagRegistry
+	Providers     *ProviderRegistry
+	Events        *CustomEventBus
 }
 
 type api struct {
-	catalog  *ToolCatalog
-	commands *CommandCatalog
-	resolve  func(key string) string
-	ui       *extensionui.Registry
-	host     *Host
+	catalog   *ToolCatalog
+	commands  *CommandCatalog
+	resolve   func(key string) string
+	ui        *extensionui.Registry
+	host      *Host
+	flags     *FlagRegistry
+	providers *ProviderRegistry
+	events    *CustomEventBus
 }
 
 var _ sdk.API = (*api)(nil)
+
+var _ sdk.CustomEventSubscription = (*api)(nil)
 
 func NewAPI(opts APIOptions) sdk.API {
 	if opts.Catalog == nil {
@@ -253,7 +340,16 @@ func NewAPI(opts APIOptions) sdk.API {
 	if opts.UI == nil {
 		opts.UI = extensionui.NewRegistry()
 	}
-	return &api{catalog: opts.Catalog, commands: opts.Commands, resolve: opts.ResolveConfig, ui: opts.UI, host: opts.Host}
+	return &api{
+		catalog:   opts.Catalog,
+		commands:  opts.Commands,
+		resolve:   opts.ResolveConfig,
+		ui:        opts.UI,
+		host:      opts.Host,
+		flags:     opts.Flags,
+		providers: opts.Providers,
+		events:    opts.Events,
+	}
 }
 
 func (a *api) RegisterTool(t sdk.Tool) error {
@@ -334,27 +430,48 @@ func (a *api) LabelEntry(entryID, label string) error {
 }
 
 func (a *api) SetModel(m sdk.Model) error {
-	return unavailable("SetModel")
+	if a.host == nil || a.host.SetModel == nil {
+		return unavailable("SetModel")
+	}
+	return a.host.SetModel(m)
 }
 
 func (a *api) SetThinkingLevel(level sdk.ThinkingLevel) error {
-	return unavailable("SetThinkingLevel")
+	if a.host == nil || a.host.SetThinkingLevel == nil {
+		return unavailable("SetThinkingLevel")
+	}
+	return a.host.SetThinkingLevel(level)
 }
 
 func (a *api) RegisterProvider(name string, cfg sdk.ProviderConfig) error {
-	return unavailable("RegisterProvider")
+	if a.providers == nil {
+		return unavailable("RegisterProvider")
+	}
+	return a.providers.Register(name, cfg)
 }
 
 func (a *api) RemoveProvider(name string) error {
-	return unavailable("RemoveProvider")
+	if a.host != nil && a.host.RemoveProvider != nil {
+		return a.host.RemoveProvider(name)
+	}
+	if a.providers == nil {
+		return unavailable("RemoveProvider")
+	}
+	return a.providers.Remove(name)
 }
 
 func (a *api) RegisterFlag(name string, opts sdk.FlagOptions) error {
-	return unavailable("RegisterFlag")
+	if a.flags == nil {
+		return unavailable("RegisterFlag")
+	}
+	return a.flags.Register(name, opts)
 }
 
 func (a *api) Flags() map[string]any {
-	return map[string]any{}
+	if a.flags == nil {
+		return map[string]any{}
+	}
+	return a.flags.Values()
 }
 
 func (a *api) Exec(command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error) {
@@ -365,7 +482,17 @@ func (a *api) Exec(command string, args []string, opts sdk.ExecOptions) (*sdk.Ex
 }
 
 func (a *api) EmitCustomEvent(name string, data any) error {
-	return unavailable("EmitCustomEvent")
+	if a.events == nil {
+		return unavailable("EmitCustomEvent")
+	}
+	return a.events.Emit(name, data)
+}
+
+func (a *api) SubscribeCustomEvent(name string, handler sdk.CustomEventHandler) (func(), error) {
+	if a.events == nil {
+		return nil, unavailable("SubscribeCustomEvent")
+	}
+	return a.events.Subscribe(name, handler)
 }
 
 type toolAdapter struct {

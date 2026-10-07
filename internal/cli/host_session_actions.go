@@ -27,11 +27,7 @@ func (h *hostRuntime) commitSession(handle *hostSessionHandle, write func(*sessi
 		return err
 	}
 	if after != nil {
-		h.mu.Lock()
-		if h.handle != nil && h.handle.generation == handle.generation {
-			after(h.handle)
-		}
-		h.mu.Unlock()
+		after(current)
 	}
 	return nil
 }
@@ -68,9 +64,11 @@ func (h *hostRuntime) setSessionName(handle *hostSessionHandle, name string) err
 	if err := h.commitSession(handle, func(sess *session.Session) error {
 		return sess.AppendEntry(&session.SessionInfoEntry{Name: &name})
 	}, func(current *hostSessionHandle) {
+		h.mu.Lock()
 		updated := *current
 		updated.name = name
 		h.handle = &updated
+		h.mu.Unlock()
 	}); err != nil {
 		return err
 	}
@@ -139,6 +137,13 @@ func (h *hostRuntime) shutdown() {
 		h.lifecycleMu.Unlock()
 		if cancel != nil {
 			cancel()
+		}
+		h.mu.Lock()
+		bus := h.events
+		h.pendingModel = nil
+		h.mu.Unlock()
+		if bus != nil {
+			bus.Close()
 		}
 		for _, opts := range h.claimPendingCompact() {
 			failures = append(failures, compactFailure{opts: opts, err: errHostCompactCanceled})

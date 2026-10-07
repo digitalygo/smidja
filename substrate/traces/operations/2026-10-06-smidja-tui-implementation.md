@@ -215,3 +215,21 @@ Custom messages preserve model context regardless of Display, persist exactly on
 ### Validation steps
 
 Artifact `R2b-65d07e6ef500`, SHA-256 `65d07e6ef50055b993b06dc760f0947465f9c4ae0875694a22ec9c465888aac2`, 17 files, passed quality and focused security review. The first security member failed required absolute-manifest verification; its provenance was rejected and the sequential fallback verified all 17 exact hashes before PASS. Leader fresh upstream tests, affected sequential race, 10 repeated continuation/send/editor regressions and four static builds pass. Ten production files reach 81.8-100% changed instrumented-line and 87-100% overlapping-block statement coverage. An additional unchanged MCP mid-flight test passed 100 baseline repetitions and is not labeled proven pre-existing. Only recorded new R2b race paths are eligible for cleanup after accepted integration. Documentation-only exactness corrections preserve executable hashes.
+
+## Update 2026-10-07: R3 host controls and registries accepted
+
+### Summary of changes
+
+The composed CLI/TUI host now backs all 14 assigned SDK actions. R3 supplies transactional model/thinking controls, in-memory completion providers, declared extension flags and custom-event subscriptions. Agent content execution and final installation remain separate work.
+
+### Technical reasoning
+
+One declaration-only Setup pass precedes final parsing; run-only actions require validated/trusted readiness. Failed Setup rolls back all catalogs, active tools and UI plus flags/providers/subscriptions. Models are built outside locks and persisted/adopted in one generation transaction; TUI selection uses the same path. OpenRouter reasoning uses endpoint-scoped cloned request decoration and verified capability metadata without changing protected drivers. Unsupported transports/intents are explicit errors. Event Close is logical and nonblocking; bounded Wait occurs only at actual teardown, with no goroutine-ID mechanism.
+
+### Impact assessment
+
+ThinkingDefault accurately represents provider control. Explicit request reasoning is process-local; resumed historic entries do not silently restore unsupported settings. Provider API keys remain private and URL validation errors redact userinfo/query credentials. Old SDK signatures and bare/gateway availability contracts remain unchanged. The 102-row matrix reports 49 core plus 16 print-mode capabilities implemented and 37 future capabilities deferred.
+
+### Validation steps
+
+Artifact `R3-6fcb8f8f49d3`, SHA-256 `6fcb8f8f49d351745709b140131f22c444b174fd05653c4a35550f10c2fbfe4a`, 45 files excluding traces, passed exact quality and focused security PASS with all file hashes verified. Leader reran formatting, vet/build, fresh six-package upstream tests, complete affected sequential race, 10 repeated model/mandatory/resume/event-close/flood/Setup-rollback regressions and four static builds. Twenty-six production files reach 83.3-100% changed instrumented-line and 88.9-100% overlapping-block statement coverage (`/tmp/smidja-r3-final.cover`). The latest full-suite failure is only the alpha-reproduced MCP restart flake. No original test was weakened, no ordinary code comments, no protected driver/schema or dependency change; no go.sum.

@@ -8,6 +8,7 @@ import (
 	"github.com/digitalygo/smidja/internal/tui"
 	"github.com/digitalygo/smidja/internal/tui/interactive"
 	"github.com/digitalygo/smidja/internal/ui"
+	"github.com/digitalygo/smidja/sdk"
 )
 
 const (
@@ -93,6 +94,14 @@ func (b *tuiBridge) modelChoices() []ui.ModelChoice {
 			choices = append(choices, ui.ModelChoice{ID: info.ID, Provider: info.Provider, ContextWindow: info.ContextWindow})
 		}
 	}
+	if registry := b.rd.providers; registry != nil {
+		for _, model := range registry.Models() {
+			if hasModelChoice(choices, model.ID) {
+				continue
+			}
+			choices = append(choices, ui.ModelChoice{ID: model.ID, Provider: model.Provider})
+		}
+	}
 	current := strings.TrimSpace(b.rd.model)
 	if current != "" && !hasModelChoice(choices, current) {
 		choices = append(choices, ui.ModelChoice{ID: b.rd.model, Provider: currentModelProviderLabel})
@@ -164,10 +173,28 @@ func (b *tuiBridge) applyModel(model string) {
 		b.inform("model: " + selected)
 		return
 	}
-	wire, ok := resolveWireModel(transport, selected)
-	if !ok {
-		b.warn(fmt.Errorf("model %q has no verified native wire model for transport %q", selected, transport))
+	if b.rd.host != nil && b.rd.host.modelBindingsConfigured() {
+		if err := b.rd.host.requestModel(sdk.Model{ID: selected}, b.rd.host.snapshot()); err != nil {
+			b.warn(err)
+			return
+		}
+		b.rd.host.cancelPendingCompact()
+		b.rd.applyPendingModel()
+		b.runner.Surface().SetModel(b.rd.model)
+		b.inform("model: " + b.rd.model)
 		return
+	}
+	customProvider := ""
+	if b.rd.providers != nil {
+		if entry, ok := b.rd.providers.FindModel(selected); ok {
+			customProvider = entry.Name
+		}
+	}
+	wire := selected
+	if customProvider == "" {
+		if resolved, ok := resolveWireModel(transport, selected); ok {
+			wire = resolved
+		}
 	}
 
 	previousModel := b.rd.model
@@ -193,6 +220,11 @@ func (b *tuiBridge) applyModel(model string) {
 	}
 	if b.rd.host != nil {
 		b.rd.host.cancelPendingCompact()
+		b.rd.host.discardPendingModel()
+	}
+	provider := b.rd.provider
+	if customProvider != "" {
+		provider = customProvider
 	}
 	b.rd.model = selected
 	b.rd.wireModel = wire
@@ -201,7 +233,21 @@ func (b *tuiBridge) applyModel(model string) {
 	}
 	if b.rd.host != nil {
 		b.rd.host.attachPreparer(b.rd.preparer)
-		b.rd.host.setModel(b.rd.modelRegistry, selected, wire, b.rd.provider)
+		b.rd.host.setModel(b.rd.modelRegistry, selected, wire, provider)
+	}
+	if b.rd.baseClient != nil {
+		b.rd.client = b.rd.baseClient
+		if b.rd.host != nil {
+			b.rd.host.setReasoningSeam(b.rd.baseSeam)
+		}
+	}
+	if customProvider != "" && b.rd.providerClient != nil {
+		if client, ok := b.rd.providerClient(selected); ok {
+			b.rd.client = client
+			if b.rd.host != nil {
+				b.rd.host.setReasoningSeam(false)
+			}
+		}
 	}
 	b.runner.Surface().SetModel(selected)
 	b.inform("model: " + selected)

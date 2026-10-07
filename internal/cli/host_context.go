@@ -79,11 +79,19 @@ func (h *hostRuntime) modelRegistry() sdk.ModelRegistry {
 	modelID := h.modelID
 	wireModel := h.wireModel
 	provider := h.provider
+	providers := h.providers
 	h.mu.Unlock()
 	if reg == nil {
 		return nil
 	}
-	return &hostModelRegistry{reg: reg, modelID: modelID, wireModel: wireModel, provider: provider}
+	return &hostModelRegistry{reg: reg, modelID: modelID, wireModel: wireModel, provider: provider, extra: providerModels(providers)}
+}
+
+func providerModels(registry *extensions.ProviderRegistry) []sdk.Model {
+	if registry == nil {
+		return nil
+	}
+	return registry.Models()
 }
 
 func sdkModel(modelID, wireModel, provider string) *sdk.Model {
@@ -149,6 +157,7 @@ type hostContextState struct {
 	model    *sdk.Model
 	system   string
 	usage    *sdk.ContextUsage
+	thinking sdk.ThinkingLevel
 }
 
 func (h *hostRuntime) captureContextState() *hostContextState {
@@ -161,8 +170,9 @@ func (h *hostRuntime) captureContextState() *hostContextState {
 		usage:    contextUsageOf(h.messages, h.window),
 	}
 	state.model = sdkModel(h.modelID, h.wireModel, h.provider)
+	state.thinking = h.thinkingLevelLocked()
 	if h.modelReg != nil {
-		state.modelReg = &hostModelRegistry{reg: h.modelReg, modelID: h.modelID, wireModel: h.wireModel, provider: h.provider}
+		state.modelReg = &hostModelRegistry{reg: h.modelReg, modelID: h.modelID, wireModel: h.wireModel, provider: h.provider, extra: providerModels(h.providers)}
 	}
 	return state
 }
@@ -221,6 +231,7 @@ type hostModelRegistry struct {
 	modelID   string
 	wireModel string
 	provider  string
+	extra     []sdk.Model
 }
 
 var _ sdk.ModelRegistry = (*hostModelRegistry)(nil)
@@ -231,7 +242,17 @@ func (r *hostModelRegistry) Model() *sdk.Model {
 
 func (r *hostModelRegistry) Available() []sdk.Model {
 	seen := map[string]struct{}{}
-	out := make([]sdk.Model, 0, 16)
+	out := make([]sdk.Model, 0, len(r.reg.Keys())+len(r.extra))
+	for _, model := range r.extra {
+		if model.ID == "" {
+			continue
+		}
+		if _, dup := seen[model.ID]; dup {
+			continue
+		}
+		seen[model.ID] = struct{}{}
+		out = append(out, model)
+	}
 	for _, key := range r.reg.Keys() {
 		info, ok := r.reg.GetByKey(key)
 		if !ok || info.ID == "" {
@@ -249,6 +270,15 @@ func (r *hostModelRegistry) Available() []sdk.Model {
 func (r *hostModelRegistry) Find(provider, id string) (sdk.Model, bool) {
 	if id == "" {
 		return sdk.Model{}, false
+	}
+	for _, model := range r.extra {
+		if model.ID != id {
+			continue
+		}
+		if provider != "" && model.Provider != provider {
+			continue
+		}
+		return model, true
 	}
 	var info models.ModelInfo
 	var ok bool
@@ -313,7 +343,33 @@ func (c *hostHandlerContext) Model() *sdk.Model {
 	return &model
 }
 
-func (c *hostHandlerContext) ThinkingLevel() sdk.ThinkingLevel { return sdk.ThinkingOff }
+func (c *hostHandlerContext) ThinkingLevel() sdk.ThinkingLevel {
+	if c.state == nil {
+		return sdk.ThinkingOff
+	}
+	return c.state.thinking
+}
+
+func (c *hostHandlerContext) SetModel(m sdk.Model) error {
+	if c.host == nil {
+		return errHostClosed
+	}
+	return c.host.requestModel(m, c.sessionHandle())
+}
+
+func (c *hostHandlerContext) SetThinkingLevel(level sdk.ThinkingLevel) error {
+	if c.host == nil {
+		return errHostClosed
+	}
+	return c.host.requestThinking(level, c.sessionHandle())
+}
+
+func (c *hostHandlerContext) sessionHandle() *hostSessionHandle {
+	if c.state == nil {
+		return nil
+	}
+	return c.state.handle
+}
 
 func (c *hostHandlerContext) Abort() { c.host.abort(c.signal) }
 

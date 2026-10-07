@@ -3,6 +3,7 @@ package openrouter
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/digitalygo/smidja/internal/agent"
@@ -30,6 +31,8 @@ func New(baseURL, apiKey string, httpClient *http.Client) *Client {
 		httpClient = providers.DefaultHTTPClient()
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
+	driverClient := *httpClient
+	driverClient.Transport = &reasoningTransport{base: httpClient.Transport, endpoint: parseReasoningEndpoint(baseURL)}
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  apiKey,
@@ -45,10 +48,18 @@ func New(baseURL, apiKey string, httpClient *http.Client) *Client {
 			},
 			ProviderID: provider,
 			API:        apiField,
-		}, httpClient),
+		}, &driverClient),
 	}
 }
 
 func (c *Client) StreamTurn(ctx context.Context, req *agent.TurnRequest, onText func(string), onThinking func(string)) (*agent.AssistantMessage, error) {
 	return c.driver.StreamTurn(ctx, req, onText, onThinking)
+}
+
+func parseReasoningEndpoint(baseURL string) *url.URL {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return nil
+	}
+	return parsed
 }

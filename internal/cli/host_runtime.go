@@ -89,6 +89,26 @@ type hostLifecycle struct {
 	message      func(*session.CustomMessageEntry)
 	userMessage  func(text string)
 	name         func(name string)
+	model        func(model string)
+	thinking     func(level string)
+}
+
+type hostModelBindings struct {
+	resolveWire   func(model string) (wire string, provider string, ok bool)
+	buildPreparer func(model, wire string) (*contextPreparerAdapter, error)
+	buildClient   func(provider string) (agent.Client, bool, error)
+	persist       func(handle *hostSessionHandle, intent *hostModelIntent, adopt func(*hostSessionHandle)) error
+}
+
+type hostModelIntent struct {
+	model         string
+	wire          string
+	provider      string
+	preparer      *contextPreparerAdapter
+	client        agent.Client
+	seam          bool
+	window        int64
+	resetThinking bool
 }
 
 type hostRuntime struct {
@@ -98,24 +118,32 @@ type hostRuntime struct {
 	catalog    *extensions.ToolCatalog
 	api        sdk.API
 
-	mu           sync.Mutex
-	generation   uint64
-	handle       *hostSessionHandle
-	messages     []*agent.Message
-	entryIDs     []string
-	modelReg     *models.Registry
-	modelID      string
-	wireModel    string
-	provider     string
-	system       string
-	window       int64
-	execCwd      string
-	execTimeout  time.Duration
-	execMaxBytes int64
+	mu            sync.Mutex
+	generation    uint64
+	handle        *hostSessionHandle
+	messages      []*agent.Message
+	entryIDs      []string
+	modelReg      *models.Registry
+	modelID       string
+	wireModel     string
+	provider      string
+	system        string
+	window        int64
+	execCwd       string
+	execTimeout   time.Duration
+	execMaxBytes  int64
+	pendingModel  *hostModelIntent
+	thinking      sdk.ThinkingLevel
+	thinkingSet   bool
+	reasoningSeam bool
+	modelBindings hostModelBindings
+	providers     *extensions.ProviderRegistry
+	events        *extensions.CustomEventBus
 
 	sessionMu  sync.Mutex
 	deliveryMu sync.Mutex
 	closed     atomic.Bool
+	ready      atomic.Bool
 
 	turnMu     sync.Mutex
 	turnActive bool
@@ -152,7 +180,7 @@ func newHostRuntime(ctx context.Context, cwd string, controller *sessionControll
 		ctx = context.Background()
 	}
 	runCtx, cancelRun := context.WithCancel(ctx)
-	return &hostRuntime{
+	host := &hostRuntime{
 		baseCtx:     ctx,
 		cwd:         cwd,
 		execCwd:     cwd,
@@ -162,10 +190,77 @@ func newHostRuntime(ctx context.Context, cwd string, controller *sessionControll
 		runCtx:      runCtx,
 		cancelRun:   cancelRun,
 	}
+	host.ready.Store(true)
+	return host
+}
+
+func (h *hostRuntime) setReady(ready bool) {
+	h.ready.Store(ready)
+}
+
+func (h *hostRuntime) modelBindingsConfigured() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.modelBindings.resolveWire != nil && h.modelBindings.buildPreparer != nil && h.modelBindings.persist != nil
+}
+
+func (h *hostRuntime) applyPendingModel() *hostModelIntent {
+	h.mu.Lock()
+	intent := h.pendingModel
+	h.pendingModel = nil
+	if intent != nil {
+		h.modelID = intent.model
+		h.wireModel = intent.wire
+		h.provider = intent.provider
+		h.reasoningSeam = intent.seam
+		if intent.window > 0 {
+			h.window = intent.window
+		}
+		if intent.resetThinking {
+			h.thinking = sdk.ThinkingDefault
+			h.thinkingSet = false
+		}
+	}
+	h.mu.Unlock()
+	return intent
 }
 
 func (h *hostRuntime) bindAPI(api sdk.API) {
 	h.api = api
+}
+
+func (h *hostRuntime) bindModelBindings(bindings hostModelBindings) {
+	h.mu.Lock()
+	h.modelBindings = bindings
+	h.mu.Unlock()
+}
+
+func (h *hostRuntime) setProviders(registry *extensions.ProviderRegistry) {
+	h.mu.Lock()
+	h.providers = registry
+	h.mu.Unlock()
+}
+
+func (h *hostRuntime) setEventBus(bus *extensions.CustomEventBus) {
+	h.mu.Lock()
+	h.events = bus
+	h.mu.Unlock()
+}
+
+func (h *hostRuntime) setReasoningSeam(enabled bool) {
+	h.mu.Lock()
+	h.reasoningSeam = enabled
+	h.mu.Unlock()
+}
+
+func (h *hostRuntime) providerModels() []sdk.Model {
+	h.mu.Lock()
+	registry := h.providers
+	h.mu.Unlock()
+	if registry == nil {
+		return nil
+	}
+	return registry.Models()
 }
 
 func (h *hostRuntime) bindRunContext(ctx context.Context, cancel context.CancelFunc) {
@@ -215,7 +310,19 @@ func (h *hostRuntime) hostOptions() *extensions.Host {
 			return h.sendUserMessage(nil, nil, text, opts)
 		},
 		Exec: func(ctx context.Context, command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error) {
+			if !h.ready.Load() {
+				return nil, errHostClosed
+			}
 			return h.exec(ctx, command, args, opts)
+		},
+		SetModel: func(m sdk.Model) error {
+			return h.requestModel(m, nil)
+		},
+		SetThinkingLevel: func(level sdk.ThinkingLevel) error {
+			return h.requestThinking(level, nil)
+		},
+		RemoveProvider: func(name string) error {
+			return h.removeProvider(name)
 		},
 	}
 }
@@ -244,6 +351,7 @@ func (h *hostRuntime) bindSession(sess *session.Session, recorder agent.Recorder
 			name:       name,
 		}
 	}
+	h.pendingModel = nil
 	generation := h.generation
 	h.mu.Unlock()
 	h.mailboxMu.Lock()
@@ -285,6 +393,42 @@ func (h *hostRuntime) setModel(reg *models.Registry, modelID, wireModel, provide
 	h.modelID = modelID
 	h.wireModel = wireModel
 	h.provider = provider
+	h.mu.Unlock()
+}
+
+func (h *hostRuntime) setModelRegistry(reg *models.Registry) {
+	h.mu.Lock()
+	h.modelReg = reg
+	h.mu.Unlock()
+}
+
+func (h *hostRuntime) currentThinking() sdk.ThinkingLevel {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.thinkingLevelLocked()
+}
+
+func (h *hostRuntime) thinkingLevelLocked() sdk.ThinkingLevel {
+	if h.thinking != "" {
+		return h.thinking
+	}
+	if h.modelID != "" {
+		return sdk.ThinkingDefault
+	}
+	return sdk.ThinkingOff
+}
+
+func (h *hostRuntime) takePendingModel() *hostModelIntent {
+	h.mu.Lock()
+	intent := h.pendingModel
+	h.pendingModel = nil
+	h.mu.Unlock()
+	return intent
+}
+
+func (h *hostRuntime) discardPendingModel() {
+	h.mu.Lock()
+	h.pendingModel = nil
 	h.mu.Unlock()
 }
 

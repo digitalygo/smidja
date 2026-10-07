@@ -139,6 +139,12 @@ Without `-provider`, smidja uses the default OpenRouter client built from the co
 
 When `-provider` is given and neither `-model` nor `SMIDJA_MODEL` is set, the model defaults to the provider's default model. Set `-model` explicitly to override it.
 
+## Extension-registered providers
+
+Extensions can register a provider at runtime through the SDK. These registrations are in memory for the run only and never touch `~/.smidja/auth.json`. The API key lives in the runtime registry, is sent to the configured endpoint as `Authorization: Bearer <key>`, and never appears in session files, logs, flag values, the system prompt, or error messages. Validation errors redact URL user info, query strings, and fragments before they are reported.
+
+Only the `openai-completions` dialect is accepted. Registered models join the model registry and the `/model` selector, and their turns route to `<base URL>/chat/completions` through the same completions client used by the built-in providers. Removing the provider that backs the active or pending model is refused until another model is selected.
+
 ## Tokens never leave the machine
 
 Login exchanges happen over HTTPS directly from your machine to the provider. The store never transmits credentials anywhere, and `smidja auth status` never prints them. Treat `~/.smidja/auth.json` like a private key file: do not commit it, do not copy it between machines, and back it up with the same care as the credentials it holds.
