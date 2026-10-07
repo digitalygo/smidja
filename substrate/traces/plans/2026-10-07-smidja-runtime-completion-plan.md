@@ -14,15 +14,15 @@ last_updated_at: 2026-10-07
 
 ## Current execution snapshot
 
-- **Status:** In progress. R1 code and documentation are independently accepted; publication is next, followed by R2 host backing.
+- **Status:** In progress. R1 is published; corrected R2a host backing is independently accepted and ready for publication.
 - **Baseline identity:** `2026-10-07-smidja-runtime-completion-plan`, version 1, authored by the orchestrator after read-only repository analysis.
 - **Execution baseline:** Approved branch `feat/tui` at `80f29353f48116a8c4191709064f19d4402ef718`, matching origin and open PR 1 against `alpha`. Main worktree was clean before these trace updates.
-- **Active phase:** R1 publication, then R2 composed host contexts, session actions and delivery.
-- **Last verified checkpoint:** 2026-10-07T03:42:04+02:00, R1 independent deterministic and review gates accepted.
+- **Active phase:** R2a: composed host contexts, safe session/tool/process actions and lifecycle callbacks. R2b mailbox delivery follows as a separately gated slice.
+- **Last verified checkpoint:** 2026-10-07T06:53:59+02:00, corrected R2a independent verification and both repeated reviews accepted.
 - **Last successful checks:** R1 formatting, vet, build, uncached upstream tests, affected race tests, real PTY collision/no-TUI checks, four static builds and actual temporary-binary wire/persistence checks pass. Five executable delta files reach 90-100% changed-line and 96.7-100% overlapping-block statement coverage. Quality and focused security verdicts are PASS.
-- **Open blockers:** No R1 implementation blocker. Live configured-provider acceptance has not been performed: Smidja settings/auth files and the default OpenRouter environment key were absent when inspected. External creator acceptance requires a genuinely external actor.
+- **Open blockers:** No R2a code-review blocker remains. R2b delivery, R3 registration/model controls, R4 agent execution and final acceptance remain unfinished. Real-provider credentials and genuine external creator acceptance remain absent.
 - **Required approvals and gates:** Preserve the approved branch and PR, no merge/tag/release/package publication, no other repository modifications. Every behavioral slice needs independent delta tests, upstream coverage at least 80%, delegated quality judgment, focused security review when applicable, commit/push and exact remote/PR readback. Installation is only the authorized local test binary; tests use temporary homes and isolated fixtures.
-- **Next action:** Publish `feat(cli): execute prompt templates and run subcommand`, verify exact remote/PR equality, then implement bounded R2 host contexts and action bindings while preserving unbound contracts.
+- **Next action:** Implement R2a by reusing existing session/controller/tool/context-manager primitives with optional host bindings, preserving unchanged bare API contracts. Gate and publish that slice before the higher-variance mailbox scheduler.
 
 ## Planner baseline
 
@@ -158,7 +158,36 @@ last_updated_at: 2026-10-07
 
 ### R2 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-10-07T04:01:18+02:00: R1 publication verified and R2 split into coherent slices
+
+- **Event:** R1 is published at `ed31a06d526706f5ef0c79e6b59cb2d26a237705`, `feat(cli): execute prompt templates and run subcommand`.
+- **Planner prediction:** R2 supplies optional host bindings, real context views/actions and then a non-deadlocking per-session delivery mailbox.
+- **Subagent claims:** None for R2 implementation yet.
+- **Orchestrator finding:** Implement known data/action adapters first as R2a; isolate mailbox ordering and loop integration as R2b after that gate. This partitions existing planned steps, not scope or acceptance requirements. Real API calls must be invocation/session scoped; getters are defensive snapshots and sensitive provider configuration never enters them. External callbacks must run outside host locks, and compaction must not synchronously reenter the loop/preparer while it is active.
+- **Independently verified facts:** Main, origin and OPEN PR 1 match `ed31a06`; main worktree is clean. R1 actual-binary wire/persistence and prior quality/security evidence remain accepted. The installed binary is still P7, explicitly not claimed to include R1.
+- **Decision and impact:** Use one writer for R2a's constrained adapters and retain all unbound `ErrUnavailable`/empty-context tests. The higher-variance R2b scheduler is a separate implementation and review slice, with race adjudication when competing implementations are warranted.
+- **Next action:** Delegate R2a source/tests only; verify all host read/write/process/lifecycle semantics before implementing queued model delivery.
+
+
+#### Checkpoint 2026-10-07T05:50:27+02:00: R2a independent verification passes but quality blocks publication
+
+- **Event:** R2a code and ownership corrections pass deterministic checks; quality returns FAIL and focused security PASS. No R2a code is committed.
+- **Planner prediction:** Hosted contexts/actions must be session-scoped, defensive, cancellable and lifecycle-owned while preserving unbound contracts.
+- **Subagent claims:** Optional host bindings, active-tool execution gates, direct exec and real compaction were added; corrections introduced request snapshots, generation transactions, owned cancellation and panic containment. The reviewer found five remaining quality gaps.
+- **Orchestrator finding:** Preserve exact blockers: generation check and UI delivery are still check-then-act; message contents/arguments/usage and model/usage pointers are shared across co-handlers; cancellation needs a final disk-commit check; fallback callback goroutines need lifecycle ownership. The initial reported Shutdown/Once self-deadlock was refuted and is not claimed as evidence.
+- **Independently verified facts:** Artifact `R2a-e7187de84de9`, manifest SHA-256 `e7187de84de9fef2e05234b3616e0dba5a79307d4e72edf184fe6b7a589e018d`, covers 26 files excluding traces. Fresh upstream tests, affected race suites, 10 repeated host stress sets, real PTY host abort/shutdown and canceled idle compaction, four static builds, formatting/vet/build passed. Fifteen production files measure 81.2-100% changed instrumented lines and 86.5-100% overlapping-block statements. Frozen SDK, protected subsystems and `go.mod` are unchanged; no `go.sum` or weakened tests. Full suite includes known alpha MCP/session flakes and a newly observed unchanged MCP crash-test failure, which is not falsely classified as independently proven pre-existing.
+- **Decision and impact:** Keep the quality cursor at published R1 `ed31a06`; correct only these remaining defects and rerun all required gates before publication. Core registered methods outside R2a remain explicitly unavailable rather than no-op backed.
+- **Next action:** Delegate bounded quality corrections and stronger same-event snapshot, cancellation-boundary, generation-delivery and callback-teardown tests.
+
+#### Checkpoint 2026-10-07T06:53:59+02:00: corrected R2a accepted
+
+- **Event:** Optional host contexts, session/tool/process/lifecycle and compaction backing pass corrected independent tests and repeated quality/security reviews, both exact PASS.
+- **Planner prediction:** Keep bare API/default contexts unchanged while composed hosts gain real, scoped effects and defensive views.
+- **Subagent claims:** Session/generation transactions protect disk writes; serial generation-tagged jobs protect visible delivery; getters deeply clone nested SDK messages, arguments, usage and model values. Compaction captures request scope, owns cancellation and checks it at the disk boundary. Safe callback ownership joins fallback work during teardown without self-waiting Shutdown. Direct exec is argv-based, canceled-before-start safe and bounded by process-group cancellation plus pipe drain delay.
+- **Orchestrator finding:** Direct source/diff/test inspection and quality re-review confirm all five previous blockers closed. The earlier broader eight ownership/process defects and their correction evidence remain relevant context, not unverified completion claims. Compact custom instructions are accurately unsupported through OnError. Callback panics are contained and counted, not falsely advertised as visible warnings. Gateway host binding remains outside this slice.
+- **Independently verified facts:** Accepted artifact `R2a-6785c984336c`, manifest SHA-256 `6785c984336cf44fbbdaf3290e00c27f47e50157f410b1b977df75d8cfd2aa4f`, covers 30 files excluding traces. Formatting, diff checks, vet, build, fresh upstream tests across five affected packages, complete affected sequential race tests, 10 repeated snapshot/delivery/cancellation/callback regressions, real PTY abort/shutdown/canceled-idle-compaction tests and four static Linux/Darwin amd64/arm64 builds passed. Profile `/tmp/smidja-r2a-gated.cover` measures 15 production files at 84.8-100% changed instrumented-line and 88.7-100% overlapping-block statement coverage. No old test was deleted, skipped or weakened; frozen SDK, protected subsystems and `go.mod` are unchanged, no `go.sum`. Exact repeated quality and focused security verdicts are PASS.
+- **Decision and impact:** Accept R2a source and accurate availability documentation. Publish one coherent commit before R2b scheduler work. Remaining nine SDK action methods are still explicitly deferred; no delivery, provider, flag, event or agent execution is claimed yet. The installed binary remains P7 until final runtime installation.
+- **Next action:** Commit and push `feat(sdk): bind host contexts and runtime actions`, then execute R2b with isolated scheduler candidates if its variance warrants a race.
 
 ### R3 execution checkpoints
 

@@ -25,10 +25,11 @@ func unavailable(method string) error {
 }
 
 type ToolCatalog struct {
-	mu     sync.RWMutex
-	tools  map[string]agent.Tool
-	source map[string]string
-	order  []string
+	mu      sync.RWMutex
+	tools   map[string]agent.Tool
+	source  map[string]string
+	order   []string
+	enabled map[string]struct{}
 }
 
 var _ agent.ToolCatalog = (*ToolCatalog)(nil)
@@ -84,7 +85,7 @@ func (c *ToolCatalog) Tools() []agent.Tool {
 	defer c.mu.RUnlock()
 	out := make([]agent.Tool, 0, len(c.order))
 	for _, name := range c.order {
-		if t, ok := c.tools[name]; ok {
+		if t, ok := c.tools[name]; ok && c.enabledLocked(name) {
 			out = append(out, t)
 		}
 	}
@@ -98,16 +99,51 @@ func (c *ToolCatalog) Get(name string) (agent.Tool, bool) {
 	return t, ok
 }
 
+func (c *ToolCatalog) GetActive(name string) (agent.Tool, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	t, ok := c.tools[name]
+	if !ok || !c.enabledLocked(name) {
+		return nil, false
+	}
+	return t, true
+}
+
 func (c *ToolCatalog) Names() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	out := make([]string, 0, len(c.order))
 	for _, name := range c.order {
-		if _, ok := c.tools[name]; ok {
+		if _, ok := c.tools[name]; ok && c.enabledLocked(name) {
 			out = append(out, name)
 		}
 	}
 	return out
+}
+
+func (c *ToolCatalog) SetActive(names []string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if names == nil {
+		c.enabled = nil
+		return nil
+	}
+	enabled := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if _, ok := c.tools[name]; ok {
+			enabled[name] = struct{}{}
+		}
+	}
+	c.enabled = enabled
+	return nil
+}
+
+func (c *ToolCatalog) enabledLocked(name string) bool {
+	if c.enabled == nil {
+		return true
+	}
+	_, ok := c.enabled[name]
+	return ok
 }
 
 func (c *ToolCatalog) AllInfo() []sdk.ToolInfo {
@@ -179,11 +215,20 @@ func (c *CommandCatalog) List() []sdk.CommandInfo {
 	return out
 }
 
+type Host struct {
+	SetActiveTools func(names []string) error
+	AppendEntry    func(customType string, data any) error
+	SetSessionName func(name string) error
+	LabelEntry     func(entryID, label string) error
+	Exec           func(ctx context.Context, command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error)
+}
+
 type APIOptions struct {
 	Catalog       *ToolCatalog
 	Commands      *CommandCatalog
 	ResolveConfig func(key string) string
 	UI            *extensionui.Registry
+	Host          *Host
 }
 
 type api struct {
@@ -191,6 +236,7 @@ type api struct {
 	commands *CommandCatalog
 	resolve  func(key string) string
 	ui       *extensionui.Registry
+	host     *Host
 }
 
 var _ sdk.API = (*api)(nil)
@@ -205,7 +251,7 @@ func NewAPI(opts APIOptions) sdk.API {
 	if opts.UI == nil {
 		opts.UI = extensionui.NewRegistry()
 	}
-	return &api{catalog: opts.Catalog, commands: opts.Commands, resolve: opts.ResolveConfig, ui: opts.UI}
+	return &api{catalog: opts.Catalog, commands: opts.Commands, resolve: opts.ResolveConfig, ui: opts.UI, host: opts.Host}
 }
 
 func (a *api) RegisterTool(t sdk.Tool) error {
@@ -224,7 +270,10 @@ func (a *api) ActiveTools() []string {
 }
 
 func (a *api) SetActiveTools(names []string) error {
-	return unavailable("SetActiveTools")
+	if a.host == nil || a.host.SetActiveTools == nil {
+		return unavailable("SetActiveTools")
+	}
+	return a.host.SetActiveTools(names)
 }
 
 func (a *api) AllTools() []sdk.ToolInfo {
@@ -256,15 +305,24 @@ func (a *api) SendUserMessage(text string, opts sdk.SendOptions) error {
 }
 
 func (a *api) AppendEntry(customType string, data any) error {
-	return unavailable("AppendEntry")
+	if a.host == nil || a.host.AppendEntry == nil {
+		return unavailable("AppendEntry")
+	}
+	return a.host.AppendEntry(customType, data)
 }
 
 func (a *api) SetSessionName(name string) error {
-	return unavailable("SetSessionName")
+	if a.host == nil || a.host.SetSessionName == nil {
+		return unavailable("SetSessionName")
+	}
+	return a.host.SetSessionName(name)
 }
 
 func (a *api) LabelEntry(entryID, label string) error {
-	return unavailable("LabelEntry")
+	if a.host == nil || a.host.LabelEntry == nil {
+		return unavailable("LabelEntry")
+	}
+	return a.host.LabelEntry(entryID, label)
 }
 
 func (a *api) SetModel(m sdk.Model) error {
@@ -292,7 +350,10 @@ func (a *api) Flags() map[string]any {
 }
 
 func (a *api) Exec(command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error) {
-	return nil, unavailable("Exec")
+	if a.host == nil || a.host.Exec == nil {
+		return nil, unavailable("Exec")
+	}
+	return a.host.Exec(context.Background(), command, args, opts)
 }
 
 func (a *api) EmitCustomEvent(name string, data any) error {

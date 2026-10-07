@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -542,6 +543,9 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	workCtx, cancelWork := context.WithCancel(ctx)
 	defer cancelWork()
 	bridge := newTuiBridge(workCtx, cancelWork, &rdTUI, runner, capture)
+	if rd.host != nil {
+		rd.host.bindRunContext(workCtx, cancelWork)
+	}
 	bridge.holdAdmission()
 	var initial *activeSession
 	if rd.controller != nil && rd.env != nil && rd.sess != nil {
@@ -561,6 +565,11 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 		initial = prepared
 		bridge.history = prepared.history
 		bridge.entryIDs = prepared.entryIDs
+		bridge.syncHostSession()
+		if rd.host != nil {
+			rd.host.bindSession(prepared.sess, prepared.recorder, prepared.sess.ID(), prepared.path, rd.cwd, prepared.name)
+			rd.host.attachPreparer(prepared.preparer)
+		}
 	}
 	runner.SetOnSubmit(bridge.submit)
 	runner.SetOnInterrupt(bridge.interrupt)
@@ -571,6 +580,9 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 			defer rd.hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
 			bridge.shutdown()
 			bridge.wait()
+			if rd.host != nil {
+				rd.host.setLifecycle(hostLifecycle{shutdown: cancelWork})
+			}
 			return repl(ctx, lineUI, rd)
 		}
 	}
@@ -588,6 +600,22 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 			return runner.InteractiveHandlerContext(signal, base)
 		})
 		defer runtime.SetContextDecorator(nil)
+	}
+	if rd.host != nil {
+		rd.host.setLifecycle(hostLifecycle{
+			shutdown: runner.RequestExit,
+			dispatch: func(job func()) bool { return bridge.lifecycle.enqueue(job) },
+			entry: func(customType string, raw json.RawMessage) {
+				runner.DeliverCustomEntry(interactive.CustomEntryView{CustomType: customType, Data: raw, Text: string(raw)})
+			},
+			name: func(name string) {
+				if surface := runner.Surface(); surface != nil {
+					surface.SetSessionName(name)
+					surface.RequestRender()
+				}
+			},
+		})
+		defer rd.host.setLifecycle(hostLifecycle{})
 	}
 	if skillOut != nil {
 		skillOut.Set(capture)
@@ -647,6 +675,9 @@ func (b *tuiBridge) openAdmission() {
 }
 
 func (b *tuiBridge) shutdown() {
+	if b.rd != nil && b.rd.host != nil {
+		b.rd.host.shutdown()
+	}
 	b.lifecycle.beginShutdown()
 	if b.cancelWork != nil {
 		b.cancelWork()
@@ -655,6 +686,9 @@ func (b *tuiBridge) shutdown() {
 
 func (b *tuiBridge) wait() {
 	b.lifecycle.wait()
+	if b.rd != nil && b.rd.host != nil {
+		b.rd.host.waitCallbacks()
+	}
 }
 
 func (b *tuiBridge) submit(input string) {
@@ -698,6 +732,7 @@ func (b *tuiBridge) runUserTurn(input string) {
 		return
 	}
 	turnCtx, cancel := context.WithCancel(b.ctx)
+	turnCtx = withHostTurnCancel(turnCtx, cancel)
 	handle := &tuiTurnHandle{cancel: cancel}
 	b.lifecycle.trackTurn(handle)
 	defer b.lifecycle.completeTurn(handle)
@@ -816,7 +851,16 @@ func (b *tuiBridge) refreshProjection() error {
 	b.history = active.history
 	b.entryIDs = active.entryIDs
 	b.projectionStale = false
+	b.syncHostSession()
 	return nil
+}
+
+func (b *tuiBridge) syncHostSession() {
+	if b.rd == nil || b.rd.host == nil {
+		return
+	}
+	b.rd.host.setMessages(b.history)
+	b.rd.host.setEntryIDs(b.entryIDs)
 }
 
 func (b *tuiBridge) refreshEntryIDs(history []*agent.Message) ([]string, error) {
@@ -843,7 +887,7 @@ func (b *tuiBridge) loopDeps(scope *ui.TurnScope, hooks agent.HookDispatcher) *a
 		Client:            d.client,
 		Tools:             d.tools,
 		Catalog:           catalog,
-		Recorder:          d.recorder,
+		Recorder:          hostRecorder(d, d.recorder),
 		Stdout:            scope.TextWriter(),
 		OnThinking:        scope.ThinkingCallback(),
 		Preparer:          preparer,

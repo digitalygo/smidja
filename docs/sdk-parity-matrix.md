@@ -19,15 +19,23 @@ final runtime acceptance are tracked separately in the living TUI plan. Existing
 `sdk.ExtendedUI` and `sdk.UIRegistrationAPI`, documented in
 [extension UI SDK](sdk-ui.md).
 
-Fourteen Extension API methods keep frozen signatures but are not
+Nine Extension API methods keep frozen signatures but are not
 runtime-backed yet. Their rows are counted as deferred, not as runtime:
-`SetActiveTools`, `SendMessage`, `SendUserMessage`, `AppendEntry`,
-`SetSessionName`, `LabelEntry`, `SetModel`, `SetThinkingLevel`,
-`RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, `Exec`,
-and `EmitCustomEvent`. Thirteen of them return an error naming the
-method (`extensions: API method not available in this release: <name>`),
-and `Flags` returns an empty map placeholder. They land in the next slice
-under the broader runtime-completion request.
+`SendMessage`, `SendUserMessage`, `SetModel`, `SetThinkingLevel`,
+`RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and
+`EmitCustomEvent`. Eight of them return an error naming the method
+(`extensions: API method not available in this release: <name>`), and
+`Flags` returns an empty map placeholder. Messaging lands with the R2b
+mailbox slice; the model, thinking, provider, and flag methods stay in
+later waves.
+
+The R2a runtime slice backs five methods when a host is bound:
+`SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, and
+`Exec`. The bindings are documented in [SDK runtime](sdk-runtime.md).
+The bare API keeps returning the unavailable error for all five, and the
+fallback context keeps its empty values. R2a source is in the worktree;
+publication and installation are tracked separately, and the installed
+binary remains P7.
 
 ## Disposition legend
 
@@ -75,6 +83,13 @@ The P7 rows were verified against the smidja worktree: `sdk/ui_component.go`,
 and `frame_sanitize.go`, plus the P7 test files listed in
 [extension UI SDK](sdk-ui.md).
 
+The R2a rows follow the composed host bindings in the smidja worktree:
+`internal/cli/host_runtime.go`, `host_context.go`, `host_compaction.go`,
+`host_session_actions.go`, and `context_preparer.go`;
+`internal/extensions/api.go` and `runtime.go`; `internal/agent/loop.go`
+and `ports.go`; `internal/tools/exec_direct.go`; and
+`internal/contextmanager/manager.go`.
+
 ## Extension API surface (`pi.*`)
 
 From `ExtensionAPI` in `dist/core/extensions/types.d.ts`. The smidja
@@ -95,14 +110,14 @@ registration methods are reached through the optional
 | `registerEntryRenderer` | implement now | `UIRegistrationAPI.RegisterEntryRenderer`; separate map from message renderers |
 | `sendMessage` | deferred | `API.SendMessage` returns the unavailable error. The host has a delivery seam (`Runner.DeliverCustomMessage`) used by wiring and replay, and renderers draw host-delivered messages, but an extension cannot enqueue a custom message yet; delivery modes and queue ordering land with the next slice |
 | `sendUserMessage` | deferred | `API.SendUserMessage` returns the unavailable error; text and image content both unwired |
-| `appendEntry` | deferred | `API.AppendEntry` returns the unavailable error; extensions cannot append custom session entries yet |
-| `setSessionName` | deferred | `API.SetSessionName` returns the unavailable error; the read side `SessionView.Name` is implemented |
+| `appendEntry` | implement now (composed host) | `API.AppendEntry` persists a custom session entry through the active recorder and delivers it to the TUI entry renderer; a non-empty custom type and JSON-marshalable data are required. The bare API keeps returning the unavailable error |
+| `setSessionName` | implement now (composed host) | `API.SetSessionName` persists a session-info entry, updates the live handle, and refreshes the TUI footer; a non-empty name is required and `SessionView.Name` reads the updated value. The bare API keeps returning the unavailable error |
 | `getSessionName` | implement now | read side via `HandlerContext.SessionManager().Name()` |
-| `setLabel` | deferred | `API.LabelEntry` returns the unavailable error; the internal tree browser can append labels, extensions cannot |
-| `exec` | deferred | `API.Exec` returns the unavailable error; `ExecOptions` timeout is modeled |
+| `setLabel` | implement now (composed host) | `API.LabelEntry` persists a label entry that the session tree projection reads back; a non-empty entry id is required. The bare API keeps returning the unavailable error |
+| `exec` | implement now (composed host) | `API.Exec` runs argv directly with bounded output, workspace cwd, sanitized environment, and process-group cancellation on timeout, cancel, and shutdown. The bare API keeps returning the unavailable error |
 | `getActiveTools` | implement now | `API.ActiveTools` |
 | `getAllTools` | implement now | `API.AllTools` (`ToolInfo` with name, description, schema, source) |
-| `setActiveTools` | deferred | `API.SetActiveTools` returns the unavailable error; unknown-name and additive semantics are documented but unwired |
+| `setActiveTools` | implement now (composed host) | `API.SetActiveTools` gates advertisement and execution: unknown names are ignored, `nil` resets to all registered tools, an empty list disables all, and `AllTools` keeps the full registry. The bare API keeps returning the unavailable error |
 | `getCommands` | implement now | `API.Commands` (`CommandInfo` without Pi's `sourceInfo` provenance) |
 | `setModel` | deferred | `API.SetModel` returns the unavailable error |
 | `getThinkingLevel` | implement now | read side via `HandlerContext.ThinkingLevel()` |
@@ -239,17 +254,19 @@ counted in their own column and are not merged into the core count.
 
 | Surface | Implement now | Implement now, print-mode | Deferred | Total |
 | --- | --- | --- | --- | --- |
-| Extension API (`pi.*`) | 11 | 0 | 15 | 26 |
+| Extension API (`pi.*`) | 16 | 0 | 10 | 26 |
 | Handler context (`ctx.*`) | 13 | 1 | 4 | 18 |
 | Command context | 3 | 0 | 5 | 8 |
 | UI (`ctx.ui.*`) | 0 | 15 | 0 | 15 |
 | Events | 8 | 0 | 27 | 35 |
-| Total | 35 | 16 | 51 | 102 |
+| Total | 40 | 16 | 46 | 102 |
 
-51 capabilities are implemented: 35 core plus 16 with print-mode
+56 capabilities are implemented: 40 core plus 16 with print-mode
 semantics. The UI table moved from 9 to 15 print-mode rows, because P7
-closes its 6 deferred rows. The Extension API table carries 15 deferred
-rows: the 14 signature-frozen methods listed at the top of this page plus
+closes its 6 deferred rows. The Extension API table moved from 11 to 16
+implemented rows, because R2a backs its five session, tool, and process
+methods. The Extension API table carries 10 deferred rows: the 9
+signature-frozen methods listed at the top of this page plus
 `registerShortcut`, which has no method at all.
 
 In print mode the `ctx.ui` surface has 4 blocking dialogs that return
@@ -308,13 +325,17 @@ values. The interactive TUI command context also implements `newSession`,
   registration succeeds into an inert registry when no surface is
   attached.
 - **Signature-frozen methods are deferred until runtime-backed.**
-  `SetActiveTools`, `SendMessage`, `SendUserMessage`, `AppendEntry`,
-  `SetSessionName`, `LabelEntry`, `SetModel`, `SetThinkingLevel`,
-  `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, `Exec`,
-  and `EmitCustomEvent` are counted as deferred even though their
-  signatures exist, because calling them returns the unavailable error
-  (or, for `Flags`, an empty map placeholder). Counting signatures as
-  runtime would overstate parity.
+  `SendMessage`, `SendUserMessage`, `SetModel`, `SetThinkingLevel`,
+  `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and
+  `EmitCustomEvent` are counted as deferred even though their signatures
+  exist, because calling them returns the unavailable error (or, for
+  `Flags`, an empty map placeholder). Counting signatures as runtime
+  would overstate parity.
+- **Five methods are backed only through the composed host.**
+  `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, and
+  `Exec` are runtime-backed in the CLI host and unavailable on the bare
+  API and in the gateway. The composed contexts, snapshots, and lifecycle
+  rules are documented in [SDK runtime](sdk-runtime.md).
 - **Host delivery is not `SendMessage`.** The interactive runner can
   render a custom message or entry the host delivers (`DeliverCustomMessage`,
   `DeliverCustomEntry`), which is how replay and renderer tests exercise

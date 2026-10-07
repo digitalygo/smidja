@@ -179,3 +179,21 @@ Artifact `R1-f0c7ee0098fe`, SHA-256 `f0c7ee0098fea45dfcb3692150b57ad812e58f0cc4d
 | `internal/cli/root.go` | 100.0% | 100.0% |
 | `internal/cli/run_command.go` | 100.0% | 100.0% |
 | `internal/content/prompt.go` | 100.0% | 100.0% |
+
+## Update 2026-10-07: R2a host backing accepted
+
+### Summary of changes
+
+Composed CLI/TUI hosts now provide real context snapshots, session metadata writes, active-tool advertisement and execution control, direct process execution, invocation-bound abort, run shutdown and manual verbatim compaction. Bare APIs and default contexts retain their original unavailable/empty contracts. Mailbox, registration/model controls and agent execution remain separate later phases.
+
+### Technical reasoning
+
+Session and lifecycle operations use generation guards and owned cancellation. Visible updates are generation-tagged jobs on the serial lifecycle dispatcher. Read getters clone nested content, argument bytes, usage and model data so co-handlers cannot mutate shared state. Compaction captures request scope and rechecks cancellation at the disk boundary. Callbacks run outside host locks, panic safely and are joined at teardown. Direct exec uses argv, existing environment/output hygiene, process-group cancellation and a bounded pipe-drain delay; it is not a sandbox.
+
+### Impact assessment
+
+Five previously declared SDK actions and real handler-context state are backed for CLI/TUI composition. Gateway composition remains outside this slice. Custom compaction instructions fail precisely through OnError rather than being silently ignored. Contained callback panics are counted, not falsely described as visible notices. No SDK signature, schema, provider driver or dependency change.
+
+### Validation steps
+
+Artifact `R2a-6785c984336c`, SHA-256 `6785c984336cf44fbbdaf3290e00c27f47e50157f410b1b977df75d8cfd2aa4f`, 30 files excluding traces, received repeated quality and focused security PASS after ownership corrections. Leader reran formatting, vet/build, fresh upstream tests for five affected packages, all affected sequential race tests, 10 repeated corrected regressions, real PTY host abort/shutdown/idle-compaction quit tests and four static release builds. Fifteen executable delta files reach 84.8-100% changed instrumented-line and 88.7-100% overlapping-block statement coverage (`/tmp/smidja-r2a-gated.cover`). Original tests, frozen SDK and protected subsystems remain unchanged; no go.sum. Known alpha MCP/session flakes remain reported; a newly observed unchanged MCP crash-test failure is not falsely claimed independently reproduced.

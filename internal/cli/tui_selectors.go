@@ -191,10 +191,17 @@ func (b *tuiBridge) applyModel(model string) {
 			return
 		}
 	}
+	if b.rd.host != nil {
+		b.rd.host.cancelPendingCompact()
+	}
 	b.rd.model = selected
 	b.rd.wireModel = wire
 	if b.rd.reprepare != nil {
 		b.rd.preparer = preparer
+	}
+	if b.rd.host != nil {
+		b.rd.host.attachPreparer(b.rd.preparer)
+		b.rd.host.setModel(b.rd.modelRegistry, selected, wire, b.rd.provider)
 	}
 	b.runner.Surface().SetModel(selected)
 	b.inform("model: " + selected)
@@ -204,6 +211,10 @@ func (b *tuiBridge) restoreModel(model, wire string, preparer *contextPreparerAd
 	b.rd.model = model
 	b.rd.wireModel = wire
 	b.rd.preparer = preparer
+	if b.rd.host != nil {
+		b.rd.host.attachPreparer(preparer)
+		b.rd.host.setModel(b.rd.modelRegistry, model, wire, b.rd.provider)
+	}
 }
 
 func (b *tuiBridge) selectTheme() {

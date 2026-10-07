@@ -7,6 +7,8 @@ import (
 	"github.com/digitalygo/smidja/sdk"
 )
 
+func MessageToSDK(m *agent.Message) sdk.Message { return messageToSDK(m) }
+
 func messageToSDK(m *agent.Message) sdk.Message {
 	if m == nil {
 		return sdk.Message{}

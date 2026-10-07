@@ -15,6 +15,12 @@ type HostContext func() sdk.HandlerContext
 
 type ContextDecorator func(signal context.Context, base sdk.HandlerContext) sdk.HandlerContext
 
+type SignalBoundContext interface {
+	sdk.HandlerContext
+
+	WithSignal(signal context.Context) sdk.HandlerContext
+}
+
 type Runtime struct {
 	registry *Registry
 	api      HostAPI
@@ -86,7 +92,11 @@ func (r *Runtime) handlerContext(signal context.Context) sdk.HandlerContext {
 	base := sdk.HandlerContext(&defaultContext{API: r.apiOr(), signal: signal})
 	if r.ctx != nil {
 		if provided := r.ctx(); provided != nil {
-			base = provided
+			if bound, ok := provided.(SignalBoundContext); ok {
+				base = bound.WithSignal(signal)
+			} else {
+				base = provided
+			}
 		}
 	}
 	r.mu.RLock()

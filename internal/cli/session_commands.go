@@ -205,6 +205,7 @@ type sessionDisplayState struct {
 	wireModel   string
 	history     []*agent.Message
 	entryIDs    []string
+	name        string
 }
 
 func (b *tuiBridge) captureSessionDisplayState() sessionDisplayState {
@@ -218,11 +219,19 @@ func (b *tuiBridge) captureSessionDisplayState() sessionDisplayState {
 		state.model = b.rd.model
 		state.wireModel = b.rd.wireModel
 	}
+	if b.rd != nil && b.rd.host != nil {
+		if handle := b.rd.host.snapshot(); handle != nil {
+			state.name = handle.name
+		}
+	}
 	return state
 }
 
 func (b *tuiBridge) installSessionDisplayState(next *activeSession) {
 	if b.rd != nil {
+		if b.rd.host != nil {
+			b.rd.host.schedulePendingCompactCancel()
+		}
 		b.rd.recorder = next.recorder
 		b.rd.sess = next.sess
 		b.rd.sessionPath = next.path
@@ -230,9 +239,14 @@ func (b *tuiBridge) installSessionDisplayState(next *activeSession) {
 		b.rd.detector = next.detector
 		b.rd.model = next.model
 		b.rd.wireModel = next.wireModel
+		if b.rd.host != nil {
+			b.rd.host.bindSession(next.sess, next.recorder, next.sess.ID(), next.path, b.rd.cwd, next.name)
+			b.rd.host.attachPreparer(next.preparer)
+		}
 	}
 	b.history = next.history
 	b.entryIDs = next.entryIDs
+	b.syncHostSession()
 }
 
 func (b *tuiBridge) restoreSessionDisplayState(state sessionDisplayState) {
@@ -244,9 +258,15 @@ func (b *tuiBridge) restoreSessionDisplayState(state sessionDisplayState) {
 		b.rd.detector = state.detector
 		b.rd.model = state.model
 		b.rd.wireModel = state.wireModel
+		if b.rd.host != nil && state.sess != nil {
+			b.rd.host.bindSession(state.sess, state.recorder, state.sess.ID(), state.sessionPath, b.rd.cwd, state.name)
+			b.rd.host.attachPreparer(state.preparer)
+			b.rd.host.setModel(b.rd.modelRegistry, state.model, state.wireModel, b.rd.provider)
+		}
 	}
 	b.history = state.history
 	b.entryIDs = state.entryIDs
+	b.syncHostSession()
 }
 
 func (b *tuiBridge) applyActiveSession(previous, next *activeSession) error {

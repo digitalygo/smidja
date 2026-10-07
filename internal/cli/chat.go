@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/digitalygo/smidja/internal/agent"
@@ -85,6 +83,7 @@ type runDeps struct {
 	controller     *sessionController
 	env            *sessionBuildEnv
 	resumedSession bool
+	host           *hostRuntime
 
 	prompts       content.PromptCatalog
 	promptAliases map[string]string
@@ -203,14 +202,32 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if runtime == nil {
 		runtime = extensions.NewRuntime(extensions.NewRegistry())
 	}
+	host := newHostRuntime(ctx, cwd, controller, catalog)
 	api := extensions.NewAPI(extensions.APIOptions{
 		Catalog:       catalog,
 		Commands:      commands,
 		ResolveConfig: cfg.Default,
 		UI:            uiRegistry,
+		Host:          host.hostOptions(),
 	})
+	host.bindAPI(api)
+	host.setExecLimits(time.Duration(cfg.ExecTimeoutSecs)*time.Second, cfg.MaxOutputBytes)
+	host.setExecCwd(cfg.WorkspaceRoot)
 	runtime.SetAPI(func() sdk.API { return api })
 	runtime.SetUIRegistry(uiRegistry)
+	runtime.SetContext(func() sdk.HandlerContext { return host.context() })
+
+	initialName := ""
+	if continuePath != "" {
+		if loader, lerr := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true}); lerr == nil {
+			initialName = sessionDisplayName(loader)
+		}
+	}
+	recorder := &sessionRecorder{sess}
+	if current := controller.Current(); current != nil && current.recorder != nil {
+		recorder = current.recorder
+	}
+	host.bindSession(sess, recorder, sess.ID(), sess.Path(), cwd, initialName)
 
 	snapshot, err := buildContentSnapshot(d, cfg.WorkspaceRoot, trustWorkspace)
 	if err != nil {
@@ -251,10 +268,6 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	defer mcpRt.Close()
 
-	if !useTUI {
-		_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
-		defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
-	}
 	modelReg := d.ModelRegistry
 	if modelReg == nil {
 		modelReg = models.NewRegistry()
@@ -293,6 +306,14 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	if providerID == "" {
 		providerID = openrouterProviderName
 	}
+	if !useTUI {
+		_ = hooks.SessionStart(ctx, string(sdk.SessionStartStartup))
+		defer hooks.SessionShutdown(ctx, string(sdk.SessionShutdownQuit))
+	}
+	host.setModel(modelReg, cfg.Model, cfg.Model, providerID)
+	host.setSystem(sysPrompt)
+	host.setWindow(window)
+	host.attachPreparer(preparer)
 	if continuePath != "" && prompt != "" {
 		if loader, lerr := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true}); lerr == nil {
 			if _, _, _, verr := projectModelHistoryWithIDs(loader); verr != nil {
@@ -348,9 +369,15 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		prompts:       promptCat,
 		promptAliases: promptAliases,
 		promptCommand: promptCommand,
+		host:          host,
 	}
 	rd.reprepare = func(model, wireModel string) (*contextPreparerAdapter, error) {
-		return newModelPreparer(*cfg, modelReg, model, wireModel, selector)
+		built, err := newModelPreparer(*cfg, modelReg, model, wireModel, selector)
+		if err != nil {
+			return nil, err
+		}
+		host.attachPreparer(built)
+		return built, nil
 	}
 	rd.controller = controller
 	rd.resumedSession = continuePath != ""
@@ -362,14 +389,25 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	}
 	lineUI := ui.New(d.Stdin, d.Stdout, d.Stderr, mode)
 
+	runCtx := ctx
+	if !useTUI {
+		var cancelRun context.CancelFunc
+		runCtx, cancelRun = context.WithCancel(ctx)
+		defer host.waitCallbacks()
+		defer host.waitCompacts()
+		defer host.shutdown()
+		host.bindRunContext(runCtx, cancelRun)
+		host.setLifecycle(hostLifecycle{shutdown: cancelRun})
+	}
+
 	if prompt != "" {
 		if continuePath != "" {
-			if err := runOnceContinued(ctx, rd, sess, prompt); err != nil {
+			if err := runOnceContinued(runCtx, rd, sess, prompt); err != nil {
 				return fail(d, err)
 			}
 			return nil
 		}
-		if err := runOnce(ctx, rd, prompt); err != nil {
+		if err := runOnce(runCtx, rd, prompt); err != nil {
 			return fail(d, err)
 		}
 		return nil
@@ -390,7 +428,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		}
 		return nil
 	}
-	if err := repl(ctx, lineUI, rd); err != nil {
+	if err := repl(runCtx, lineUI, rd); err != nil {
 		return fail(d, err)
 	}
 	return nil
@@ -559,8 +597,14 @@ func runOnce(ctx context.Context, d *runDeps, prompt string) error {
 	out := &trailingWriter{w: d.stdout}
 	deps := loopDeps(d, out)
 	d.attachProjectedEntryIDs(deps)
-	if _, err := runTurn(ctx, d, deps, nil, expanded); err != nil {
+	turnCtx, cancelTurn := context.WithCancel(ctx)
+	defer cancelTurn()
+	history, err := runTurn(withHostTurnCancel(turnCtx, cancelTurn), d, deps, nil, expanded)
+	if err != nil {
 		return err
+	}
+	if d.host != nil {
+		d.host.setMessages(history)
 	}
 	if !out.endsWithNewline() {
 		fmt.Fprintln(out.w)
@@ -592,8 +636,14 @@ func runOnceContinued(ctx context.Context, d *runDeps, sess *session.Session, pr
 	deps := loopDeps(&rd, out)
 	deps.SessionEntryIDs = entryIDs
 	rd.attachProjectedEntryIDs(deps)
-	if _, err := runTurn(ctx, &rd, deps, history, expanded); err != nil {
+	turnCtx, cancelTurn := context.WithCancel(ctx)
+	defer cancelTurn()
+	updated, err := runTurn(withHostTurnCancel(turnCtx, cancelTurn), &rd, deps, history, expanded)
+	if err != nil {
 		return err
+	}
+	if rd.host != nil {
+		rd.host.setMessages(updated)
 	}
 	if !out.endsWithNewline() {
 		fmt.Fprintln(out.w)
@@ -639,9 +689,14 @@ func repl(ctx context.Context, lineUI *ui.LineUI, d *runDeps) error {
 			continue
 		}
 		out := &trailingWriter{w: d.stdout}
-		history, err = runTurn(ctx, d, loopDeps(d, out), history, input)
+		turnCtx, cancelTurn := context.WithCancel(ctx)
+		history, err = runTurn(withHostTurnCancel(turnCtx, cancelTurn), d, loopDeps(d, out), history, input)
+		cancelTurn()
 		if err != nil {
 			return err
+		}
+		if d.host != nil {
+			d.host.setMessages(history)
 		}
 		if !out.endsWithNewline() {
 			fmt.Fprintln(d.stdout)
@@ -661,6 +716,11 @@ func (d *runDeps) wireModelID() string {
 }
 
 func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, input string) ([]*agent.Message, error) {
+	if d.host != nil {
+		d.host.setMessages(history)
+		d.host.beginTurn()
+		defer d.host.endTurn()
+	}
 	h, err := agent.RunTurn(ctx, deps, d.wireModelID(), d.system, history, input)
 	if err != nil {
 		var overflow *agent.ContextOverflowError
@@ -776,7 +836,7 @@ func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 		Client:            d.client,
 		Tools:             d.tools,
 		Catalog:           catalog,
-		Recorder:          d.recorder,
+		Recorder:          hostRecorder(d, d.recorder),
 		Stdout:            out,
 		OnThinking:        onThinking,
 		Preparer:          preparer,
@@ -857,91 +917,6 @@ func agentVerdict(v loopdetector.Verdict) agent.Verdict {
 	default:
 		return agent.VerdictNone
 	}
-}
-
-type contextPreparerAdapter struct {
-	live          *contextmanager.Manager
-	recovery      *contextmanager.Manager
-	forceTokens   int64
-	contextWindow int64
-	selectorModel string
-
-	mu      sync.Mutex
-	force   bool
-	entries []*agent.CompactionEntry
-}
-
-var _ agent.ContextPreparer = (*contextPreparerAdapter)(nil)
-
-func newContextPreparerAdapter(live *contextmanager.Manager, cfg contextmanager.Config) *contextPreparerAdapter {
-	recovery, err := contextmanager.New(cfg, nil)
-	if err != nil {
-		recovery = live
-	}
-	return &contextPreparerAdapter{
-		live:          live,
-		recovery:      recovery,
-		forceTokens:   int64(math.Ceil(cfg.SafetyCompactThreshold * float64(cfg.ContextWindowTokens))),
-		contextWindow: cfg.ContextWindowTokens,
-		selectorModel: cfg.SelectorModel,
-	}
-}
-
-func (a *contextPreparerAdapter) Prepare(ctx context.Context, req agent.ContextRequest) (agent.ContextResult, error) {
-	a.mu.Lock()
-	force := a.force
-	a.force = false
-	a.mu.Unlock()
-
-	var res agent.ContextResult
-	var err error
-	if force {
-		req.LastUsageInput = a.forceTokens
-		res, err = a.recovery.Prepare(ctx, req)
-	} else {
-		res, err = a.live.Prepare(ctx, req)
-	}
-	if err != nil {
-		return res, err
-	}
-	if res.Compaction != nil {
-		a.mu.Lock()
-		a.entries = append(a.entries, res.Compaction)
-		a.mu.Unlock()
-	}
-	return res, nil
-}
-
-func (a *contextPreparerAdapter) ObserveRequest(t time.Time) {
-	a.live.ObserveRequest(t)
-}
-
-func (a *contextPreparerAdapter) ObserveResponse(m *agent.AssistantMessage) {
-	a.live.ObserveResponse(m)
-}
-
-func (a *contextPreparerAdapter) forceSafety() {
-	if a == nil {
-		return
-	}
-	a.mu.Lock()
-	a.force = true
-	a.mu.Unlock()
-}
-
-func (a *contextPreparerAdapter) drain() []*agent.CompactionEntry {
-	if a == nil {
-		return nil
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	out := a.entries
-	a.entries = nil
-	return out
-}
-
-type compactionSink interface {
-	appendCompaction(*agent.CompactionEntry) error
 }
 
 type persistError struct {

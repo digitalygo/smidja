@@ -460,12 +460,17 @@ func revalidateAndExecute(ctx context.Context, deps *LoopDeps, call *ContentBloc
 			return ErrorResult("blocked on re-validation: " + dec.Reason), nil
 		}
 	}
-	return executeCall(ctx, *call, toolsByName), nil
+	return executeCall(ctx, deps, *call, toolsByName), nil
 }
 
-func executeCall(ctx context.Context, call ContentBlock, toolsByName map[string]Tool) Result {
+func executeCall(ctx context.Context, deps *LoopDeps, call ContentBlock, toolsByName map[string]Tool) Result {
 	tool, ok := toolsByName[call.Name]
-	if !ok {
+	if deps != nil && deps.Catalog != nil {
+		if active, hasActive := deps.Catalog.(ActiveToolCatalog); hasActive {
+			tool, ok = active.GetActive(call.Name)
+		}
+	}
+	if !ok || tool == nil {
 		return ErrorResult(fmt.Sprintf("unknown tool %q", call.Name))
 	}
 	if !json.Valid(call.Arguments) {

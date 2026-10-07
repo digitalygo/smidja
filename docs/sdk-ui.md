@@ -7,7 +7,7 @@ The extension-facing UI surface lives in `github.com/digitalygo/smidja/sdk`. Eve
 
 Both are reached through type assertions, so a UI value that only satisfies `sdk.UI` keeps compiling and behaving as before. The compile-time contract checks live in `sdk/p7_contract_test.go`. The new declarations add no imports, so the public SDK package stays stdlib-only with zero external dependencies.
 
-P7's source and adapters are implemented and independently gated on `feat/tui`. The installed binary and final runtime acceptance are tracked separately in the living TUI plan. The [SDK parity matrix](sdk-parity-matrix.md) tracks what is runtime-backed, what is print-mode only, and what stays deferred.
+P7's source and adapters are implemented and independently gated on `feat/tui`. The installed binary and final runtime acceptance are tracked separately in the living TUI plan. The [SDK parity matrix](sdk-parity-matrix.md) tracks what is runtime-backed, what is print-mode only, and what stays deferred. The composed host contexts and the backed session, tool, exec, and compaction actions are documented in [SDK runtime](sdk-runtime.md).
 
 ## Getting the optional interfaces
 

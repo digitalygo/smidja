@@ -42,6 +42,7 @@ Final gate details and the phase-by-phase execution ledger live in the plan unde
 - [Prompts](docs/prompts.md): prompt templates, invocation, argument expansion, and the expansion budget
 - [TUI](docs/tui.md): TTY selection, renderer modes, flags, sessions, search, images, trust, and sign-in
 - [Extension UI SDK](docs/sdk-ui.md): the optional `ExtendedUI` and `UIRegistrationAPI` surfaces, component lifecycle, renderers, editor and terminal hooks
+- [SDK runtime](docs/sdk-runtime.md): the composed extension host contexts, backed session and tool actions, direct exec bounds, and lifecycle rules
 - [Themes](docs/themes.md): theme files, required tokens, selection, and hot reload
 - [Keybindings](docs/keybindings.md): action IDs, defaults, and user overrides
 - [Transcript search](docs/transcript-search.md): search budgets and the wrap-boundary limitation
