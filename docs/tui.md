@@ -77,6 +77,14 @@ The tree browser is read-only. It shows branches, fold and unfold, labels, and t
 
 Deleting from `/sessions` works only for inactive sessions in the current project's session directory, only for regular files that pass the symlink and identity checks, and only after an explicit confirmation. On platforms without the anchored delete transaction the operation reports an error and deletes nothing.
 
+## Queued follow-ups
+
+`alt+enter` queues the editor text as a follow-up instead of sending it. The footer shows the queued count, and the pending list previews each queued message above the editor.
+
+At the end of the running turn, the TUI hands the queued messages to the host mailbox as follow-ups; the mailbox delivers them one at a time. Each delivered follow-up is persisted once and runs its own continuation turn, so queued text is accepted while a turn is still generating and never lands in the middle of a tool sequence. The dequeue binding, `alt+up` by default, restores every queued message into the editor for editing before it is delivered.
+
+The queue belongs to the active session. Starting, resuming, forking, or switching sessions drops queued follow-ups and adds a `dropped N queued follow-up message(s) on session switch` warning. Follow-ups are not delivered after the runner shuts down; the closed host reports the error instead. Key IDs are listed in the [keybindings documentation](keybindings.md).
+
 ## Prompt templates
 
 Resolved prompt templates join the slash-command surface. `/prompt` lists the available names as a transcript notice, `/prompt <name> [arguments]` runs a template, and every template name that does not collide with a host or extension command also works as a shorthand.
@@ -161,4 +169,4 @@ The terminal framework implements raw mode, size handling, and resize for Linux 
 
 ## What remains
 
-P7 is implemented in the worktree and still needs its final validation gates, publication, and reinstall; the installed binary predates it. The broader completion request additionally covers the 14 Extension API methods whose signatures are frozen but are not runtime-backed yet: `SetActiveTools`, `SendMessage`, `SendUserMessage`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, `Exec`, and `EmitCustomEvent`. Thirteen return an unavailable error and `Flags` returns an empty map. Extension keybinding registration stays outside the contract, and the deferred Pi events stay with their runtime waves. The [SDK parity matrix](sdk-parity-matrix.md) records each row.
+P0-P7 source and isolated installed acceptance are complete. Seven additional SDK actions are backed in the composed CLI/TUI host; seven remain assigned to the runtime-completion plan: `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent`. Agent content execution and final installation of the broader runtime head also remain. Real-provider acceptance requires user-configured Smidja credentials. Extension keybinding registration stays outside the contract, and the deferred Pi events stay with their runtime waves. The [SDK parity matrix](sdk-parity-matrix.md) records each row.

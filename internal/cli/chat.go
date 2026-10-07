@@ -236,6 +236,10 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	promptCat := content.NewPromptCatalog(snapshot)
 	skillOut := &switchWriter{target: d.Stdout}
 	promptCommand := registerPromptHostCommand(commands, promptCat, skillOut)
+	var promptAliases map[string]string
+	host.setPromptExpander(func(input string) (string, error) {
+		return (&runDeps{prompts: promptCat, promptAliases: promptAliases, promptCommand: promptCommand}).expandPromptInput(input)
+	})
 
 	if err := runtime.Start(); err != nil {
 		return fail(d, err)
@@ -247,7 +251,7 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		return fail(d, err)
 	}
 	registerSkillCommand(commands, skillCat, skillOut)
-	promptAliases := registerPromptAliases(commands, promptCat, promptShorthandReserved)
+	promptAliases = registerPromptAliases(commands, promptCat, promptShorthandReserved)
 
 	resolveEnv := func(key string) (string, bool) {
 		value := cfg.Default(key)
@@ -397,17 +401,27 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		defer host.waitCompacts()
 		defer host.shutdown()
 		host.bindRunContext(runCtx, cancelRun)
-		host.setLifecycle(hostLifecycle{shutdown: cancelRun})
+		host.setLifecycle(hostLifecycle{
+			shutdown: cancelRun,
+			runScheduled: func(turn hostScheduledTurn) {
+				runScheduledHostTurn(runCtx, rd, turn)
+			},
+		})
 	}
 
+	host.waitMailbox()
 	if prompt != "" {
 		if continuePath != "" {
-			if err := runOnceContinued(runCtx, rd, sess, prompt); err != nil {
+			err := runOnceContinued(runCtx, rd, sess, prompt)
+			host.waitMailbox()
+			if err != nil {
 				return fail(d, err)
 			}
 			return nil
 		}
-		if err := runOnce(runCtx, rd, prompt); err != nil {
+		err := runOnce(runCtx, rd, prompt)
+		host.waitMailbox()
+		if err != nil {
 			return fail(d, err)
 		}
 		return nil
@@ -428,7 +442,9 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		}
 		return nil
 	}
-	if err := repl(runCtx, lineUI, rd); err != nil {
+	err = repl(runCtx, lineUI, rd)
+	host.waitMailbox()
+	if err != nil {
 		return fail(d, err)
 	}
 	return nil
@@ -715,11 +731,25 @@ func (d *runDeps) wireModelID() string {
 	return d.wireModel
 }
 
-func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, input string) ([]*agent.Message, error) {
+func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, input string, scheduled ...hostScheduledTurn) (result []*agent.Message, resultErr error) {
 	if d.host != nil {
+		d.host.loopMu.Lock()
+		defer d.host.loopMu.Unlock()
+		if len(scheduled) > 0 && !d.host.scheduledTurnCurrent(scheduled[0]) {
+			return history, nil
+		}
+		projected, entryIDs := d.host.modelHistorySnapshot()
+		if projected != nil {
+			history = projected
+			deps.SessionEntryIDs = entryIDs
+		}
 		d.host.setMessages(history)
 		d.host.beginTurn()
-		defer d.host.endTurn()
+		defer func() {
+			if err := d.host.endTurn(ctx.Err() != nil); resultErr == nil && err != nil {
+				resultErr = err
+			}
+		}()
 	}
 	h, err := agent.RunTurn(ctx, deps, d.wireModelID(), d.system, history, input)
 	if err != nil {
@@ -736,6 +766,40 @@ func runTurn(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*a
 		return h, &persistError{err: perr}
 	}
 	return h, err
+}
+
+func runContinuation(ctx context.Context, d *runDeps, deps *agent.LoopDeps, history []*agent.Message, scheduled ...hostScheduledTurn) (result []*agent.Message, resultErr error) {
+	if d.host != nil {
+		d.host.loopMu.Lock()
+		defer d.host.loopMu.Unlock()
+		if len(scheduled) > 0 && !d.host.scheduledTurnCurrent(scheduled[0]) {
+			return history, nil
+		}
+		projected, entryIDs := d.host.modelHistorySnapshot()
+		if projected != nil {
+			history = projected
+			deps.SessionEntryIDs = entryIDs
+		}
+		d.host.setMessages(history)
+		d.host.beginTurn()
+		defer func() {
+			if err := d.host.endTurn(ctx.Err() != nil); resultErr == nil && err != nil {
+				resultErr = err
+			}
+		}()
+	}
+	updated, err := agent.ContinueTurn(ctx, deps, d.wireModelID(), d.system, history)
+	if err != nil {
+		var overflow *agent.ContextOverflowError
+		if errors.As(err, &overflow) && d.preparer != nil {
+			d.preparer.forceSafety()
+			updated, err = d.continueTurn(ctx, deps)
+		}
+	}
+	if persistErr := d.persistCompactions(); persistErr != nil {
+		return updated, &persistError{err: persistErr}
+	}
+	return updated, err
 }
 
 func (d *runDeps) continueTurn(ctx context.Context, deps *agent.LoopDeps) ([]*agent.Message, error) {
@@ -846,6 +910,9 @@ func loopDeps(d *runDeps, out io.Writer) *agent.LoopDeps {
 		Detector:          d.detector,
 		RetryPolicy:       d.retryPolicy,
 		RetryPolicySet:    d.retryPolicySet,
+	}
+	if d.host != nil {
+		deps.Mailbox = d.host.mailboxBoundary
 	}
 	return deps
 }

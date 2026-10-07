@@ -121,7 +121,7 @@ The render context carries the last frame `Width`, whether content is `Streaming
 
 Both live and replayed content dispatch to renderers:
 
-- Live custom messages arrive through the host delivery seam used by runner wiring (`DeliverCustomMessage`, `DeliverCustomEntry`); this is not the extension-facing `API.SendMessage`, which stays unavailable.
+- Live custom messages arrive through the host delivery seam used by runner wiring (`DeliverCustomMessage`, `DeliverCustomEntry`). A composed CLI/TUI host now backs the extension-facing `API.SendMessage` and `HandlerContext.SendMessage` through the per-session mailbox; the seam still renders the persisted entry, and the bare API keeps returning the unavailable error. Delivery modes and ordering are in [SDK runtime](sdk-runtime.md).
 - Replay reconstructs renderers from session entries, and the session projection distinguishes entry (`CustomKindEntry`) from message (`CustomKindMessage`) so each uses its own map.
 
 When no renderer matches, when the renderer returns nil, or when it panics, the host renders a fallback custom block. The label is the entry label or the custom type. The body is the message content, or for entry renderers the text with the string form of `Data` as the fallback when text is empty. Replacing or unregistering a renderer re-renders existing transcript rows and disposes the old components once.

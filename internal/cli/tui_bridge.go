@@ -93,13 +93,14 @@ func (h *tuiTurnHandle) cancelOnce() {
 const workerPanicNotice = "internal error: the last request failed unexpectedly"
 
 type tuiLifecycle struct {
-	mu         sync.Mutex
-	queued     *sync.Cond
-	stopping   bool
-	pending    []func()
-	active     *tuiTurnHandle
-	workerDone chan struct{}
-	onPanic    func()
+	mu             sync.Mutex
+	queued         *sync.Cond
+	stopping       bool
+	pending        []func()
+	sessionChanges int
+	active         *tuiTurnHandle
+	workerDone     chan struct{}
+	onPanic        func()
 
 	stopCh chan struct{}
 	gate   chan struct{}
@@ -197,6 +198,32 @@ func (l *tuiLifecycle) enqueue(job func()) bool {
 	l.pending = append(l.pending, job)
 	l.queued.Signal()
 	return true
+}
+
+func (l *tuiLifecycle) enqueueSessionChange(job func()) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.stopping {
+		return false
+	}
+	l.sessionChanges++
+	l.pending = append(l.pending, job)
+	l.queued.Signal()
+	return true
+}
+
+func (l *tuiLifecycle) finishSessionChange() {
+	l.mu.Lock()
+	if l.sessionChanges > 0 {
+		l.sessionChanges--
+	}
+	l.mu.Unlock()
+}
+
+func (l *tuiLifecycle) sessionChangePending() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.sessionChanges > 0
 }
 
 func (l *tuiLifecycle) beginShutdown() {
@@ -602,19 +629,7 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 		defer runtime.SetContextDecorator(nil)
 	}
 	if rd.host != nil {
-		rd.host.setLifecycle(hostLifecycle{
-			shutdown: runner.RequestExit,
-			dispatch: func(job func()) bool { return bridge.lifecycle.enqueue(job) },
-			entry: func(customType string, raw json.RawMessage) {
-				runner.DeliverCustomEntry(interactive.CustomEntryView{CustomType: customType, Data: raw, Text: string(raw)})
-			},
-			name: func(name string) {
-				if surface := runner.Surface(); surface != nil {
-					surface.SetSessionName(name)
-					surface.RequestRender()
-				}
-			},
-		})
+		rd.host.setLifecycle(bridge.tuiHostLifecycle(runner))
 		defer rd.host.setLifecycle(hostLifecycle{})
 	}
 	if skillOut != nil {
@@ -666,6 +681,41 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	return runErr
 }
 
+func (b *tuiBridge) tuiHostLifecycle(runner *ui.Runner) hostLifecycle {
+	return hostLifecycle{
+		shutdown: runner.RequestExit,
+		dispatch: func(job func()) bool { return b.lifecycle.enqueue(job) },
+		runScheduled: func(turn hostScheduledTurn) {
+			if turn.external {
+				b.runUserTurn(turn.text)
+				return
+			}
+			b.runScheduledContinuation(turn)
+		},
+		entry: func(customType string, raw json.RawMessage) {
+			runner.DeliverCustomEntry(interactive.CustomEntryView{CustomType: customType, Data: raw, Text: string(raw)})
+		},
+		message: func(entry *session.CustomMessageEntry) {
+			runner.DeliverCustomMessage(interactive.CustomEntryView{
+				CustomType: entry.CustomType,
+				Text:       rawContentText(entry.Content),
+				Data:       append(json.RawMessage(nil), entry.Details...),
+			})
+		},
+		userMessage: func(text string) {
+			if surface := runner.Surface(); surface != nil {
+				surface.AddUserMessage(text)
+			}
+		},
+		name: func(name string) {
+			if surface := runner.Surface(); surface != nil {
+				surface.SetSessionName(name)
+				surface.RequestRender()
+			}
+		},
+	}
+}
+
 func (b *tuiBridge) holdAdmission() {
 	b.lifecycle.holdAdmission()
 }
@@ -692,10 +742,52 @@ func (b *tuiBridge) wait() {
 }
 
 func (b *tuiBridge) submit(input string) {
-	b.lifecycle.enqueue(func() {
+	_, sessionChange := queuedSessionChange(input)
+	job := func() {
 		b.handle(input)
+		if sessionChange {
+			b.lifecycle.finishSessionChange()
+		}
+		b.scheduleEditorFollowUps()
 		if b.afterTurn != nil {
 			b.afterTurn()
+		}
+	}
+	if sessionChange {
+		b.lifecycle.enqueueSessionChange(job)
+		return
+	}
+	b.lifecycle.enqueue(job)
+}
+
+func queuedSessionChange(input string) (string, bool) {
+	trimmed := strings.TrimSpace(input)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", false
+	}
+	name, _ := splitCommandInput(trimmed)
+	switch name {
+	case "new", "fork", "resume", "sessions", "tree":
+		return name, true
+	default:
+		return name, false
+	}
+}
+
+func (b *tuiBridge) scheduleEditorFollowUps() {
+	if b.runner == nil || b.runner.Surface() == nil || b.runner.Surface().Editor().QueuedCount() == 0 {
+		return
+	}
+	b.lifecycle.enqueue(func() {
+		messages := b.runner.Surface().Editor().TakeQueued()
+		for _, text := range messages {
+			if b.rd != nil && b.rd.host != nil {
+				if err := b.rd.host.sendUserMessage(b.rd.host.snapshot(), nil, text, sdk.SendOptions{DeliverAs: sdk.DeliveryFollowUp}); err != nil {
+					b.runner.Surface().AddNotice(interactive.NoticeWarning, err.Error())
+				}
+				continue
+			}
+			b.handle(text)
 		}
 	})
 }
@@ -839,6 +931,70 @@ func (b *tuiBridge) runUserTurn(input string) {
 	}
 }
 
+func (b *tuiBridge) runScheduledContinuation(turn hostScheduledTurn) {
+	if b.rd == nil || b.rd.host == nil || !b.rd.host.scheduledTurnCurrent(turn) {
+		return
+	}
+	if err := b.refreshProjection(); err != nil {
+		b.runner.Surface().AddNotice(interactive.NoticeError, "session: cannot reload the active session: "+err.Error())
+		return
+	}
+	turnCtx, cancel := context.WithCancel(b.ctx)
+	turnCtx = withHostTurnCancel(turnCtx, cancel)
+	handle := &tuiTurnHandle{cancel: cancel}
+	b.lifecycle.trackTurn(handle)
+	defer b.lifecycle.completeTurn(handle)
+	defer b.syncCommandInventory()
+	b.runner.SetWorking(true)
+	defer b.runner.SetWorking(false)
+	scope := ui.NewTurnScope(b.runner.Surface(), b.runner.Active)
+	decorator := ui.NewHookDecorator(b.rd.hooks, scope)
+	boundary := len(b.history)
+	history, err := runContinuation(turnCtx, b.rd, b.loopDeps(scope, decorator), b.history, turn)
+	b.history = history
+	if reloadErr := b.refreshProjection(); reloadErr != nil {
+		b.runner.Surface().AddNotice(interactive.NoticeError, "session: cannot reload the active session: "+reloadErr.Error())
+	}
+	if turnCtx.Err() != nil {
+		scope.FinalizeAuthoritative(false, nil, "aborted", "")
+		if !scope.Opened() {
+			b.runner.Surface().AddNotice(interactive.NoticeWarning, "interrupted")
+		}
+		return
+	}
+	asst, ok := authoritativeSince(history, boundary)
+	if !ok {
+		if err != nil {
+			scope.FinalizeAuthoritative(false, nil, "error", err.Error())
+			if !scope.Opened() {
+				b.runner.Surface().AddNotice(interactive.NoticeWarning, err.Error())
+			}
+			return
+		}
+		scope.FinalizeAuthoritative(false, nil, "", "")
+		return
+	}
+	if usage, _, ok := lastAssistantUsageSince(history, boundary); ok {
+		b.runner.Surface().SetUsage(interactive.UsageSummary{
+			Input:      usage.Input,
+			Output:     usage.Output,
+			CacheRead:  usage.CacheRead,
+			CacheWrite: usage.CacheWrite,
+			Cost:       usage.Cost.Total,
+		})
+	}
+	reason := asst.StopReason
+	message := asst.ErrorMessage
+	if err != nil && reason == "" {
+		reason = "error"
+		message = err.Error()
+	}
+	scope.FinalizeAuthoritative(true, ui.AssistantParts(&agent.Message{Assistant: asst}), reason, message)
+	if err != nil {
+		b.runner.Surface().AddNotice(interactive.NoticeWarning, err.Error())
+	}
+}
+
 func (b *tuiBridge) refreshProjection() error {
 	if b.sessions == nil {
 		return nil
@@ -901,6 +1057,18 @@ func (b *tuiBridge) loopDeps(scope *ui.TurnScope, hooks agent.HookDispatcher) *a
 	}
 	if b.sessions != nil {
 		deps.RefreshSessionEntryIDs = b.refreshEntryIDs
+	}
+	if d.host != nil {
+		deps.Mailbox = func(ctx context.Context, history []*agent.Message, stopping, external bool) (agent.MailboxResult, error) {
+			if stopping && !b.lifecycle.sessionChangePending() {
+				for _, text := range b.runner.Surface().Editor().TakeQueued() {
+					if err := d.host.sendUserMessage(d.host.snapshot(), ctx, text, sdk.SendOptions{DeliverAs: sdk.DeliveryFollowUp}); err != nil {
+						return agent.MailboxResult{}, err
+					}
+				}
+			}
+			return d.host.mailboxBoundary(ctx, history, stopping, external)
+		}
 	}
 	return deps
 }

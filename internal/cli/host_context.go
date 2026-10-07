@@ -365,6 +365,20 @@ func (c *hostHandlerContext) LabelEntry(entryID, label string) error {
 	return c.host.labelEntry(c.state.handle, entryID, label)
 }
 
+func (c *hostHandlerContext) SendMessage(msg sdk.CustomMessage, opts sdk.SendOptions) error {
+	if c.state == nil {
+		return errHostClosed
+	}
+	return c.host.sendMessage(c.state.handle, c.signal, msg, opts)
+}
+
+func (c *hostHandlerContext) SendUserMessage(text string, opts sdk.SendOptions) error {
+	if c.state == nil {
+		return errHostClosed
+	}
+	return c.host.sendUserMessage(c.state.handle, c.signal, text, opts)
+}
+
 func (c *hostHandlerContext) Exec(command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error) {
 	return c.host.exec(c.signal, command, args, opts)
 }

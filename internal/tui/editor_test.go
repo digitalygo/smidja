@@ -262,6 +262,21 @@ func TestEditorQueueFollowUpDequeue(t *testing.T) {
 	editor.HandleInput("\x1b\r")
 }
 
+func TestEditorTakeQueuedPreservesOrder(t *testing.T) {
+	editor := newTestEditor()
+	for _, text := range []string{"first", "second"} {
+		editor.SetText(text)
+		editor.HandleInput("\x1b\r")
+	}
+	got := editor.TakeQueued()
+	if len(got) != 2 || got[0] != "first" || got[1] != "second" {
+		t.Fatalf("TakeQueued() = %v", got)
+	}
+	if editor.QueuedCount() != 0 || len(editor.TakeQueued()) != 0 {
+		t.Fatalf("queue was not drained: %v", editor.QueuedMessages())
+	}
+}
+
 func TestEditorExternalEditorAction(t *testing.T) {
 	editor := newTestEditor()
 	editor.SetText("original")

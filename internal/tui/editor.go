@@ -215,6 +215,19 @@ func (e *Editor) ClearQueued() int {
 	return count
 }
 
+func (e *Editor) TakeQueued() []string {
+	e.mu.Lock()
+	messages := append([]string(nil), e.queued...)
+	e.queued = nil
+	changed := e.buffer.Text()
+	onChange := e.onChange
+	e.mu.Unlock()
+	if len(messages) > 0 && onChange != nil {
+		onChange(changed)
+	}
+	return messages
+}
+
 func (e *Editor) SetClipboard(supported bool, write func(string)) {
 	e.mu.Lock()
 	e.clipboardSupported = supported

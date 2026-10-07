@@ -124,6 +124,14 @@ func (h *hostRuntime) shutdown() {
 		h.sessionMu.Lock()
 		h.closed.Store(true)
 		h.sessionMu.Unlock()
+		h.mailboxMu.Lock()
+		h.mailbox.steer = nil
+		h.mailbox.followUp = nil
+		h.mailbox.deferred = nil
+		h.mailbox.nextTurn = nil
+		h.mailbox.scheduled = nil
+		h.mailbox.continuationQueued = false
+		h.mailboxMu.Unlock()
 		h.closeCallbacks()
 		h.lifecycleMu.Lock()
 		cancel := h.cancelRun

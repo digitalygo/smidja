@@ -216,11 +216,13 @@ func (c *CommandCatalog) List() []sdk.CommandInfo {
 }
 
 type Host struct {
-	SetActiveTools func(names []string) error
-	AppendEntry    func(customType string, data any) error
-	SetSessionName func(name string) error
-	LabelEntry     func(entryID, label string) error
-	Exec           func(ctx context.Context, command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error)
+	SetActiveTools  func(names []string) error
+	AppendEntry     func(customType string, data any) error
+	SetSessionName  func(name string) error
+	LabelEntry      func(entryID, label string) error
+	SendMessage     func(msg sdk.CustomMessage, opts sdk.SendOptions) error
+	SendUserMessage func(text string, opts sdk.SendOptions) error
+	Exec            func(ctx context.Context, command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error)
 }
 
 type APIOptions struct {
@@ -297,11 +299,17 @@ func (a *api) Commands() []sdk.CommandInfo {
 }
 
 func (a *api) SendMessage(msg sdk.CustomMessage, opts sdk.SendOptions) error {
-	return unavailable("SendMessage")
+	if a.host == nil || a.host.SendMessage == nil {
+		return unavailable("SendMessage")
+	}
+	return a.host.SendMessage(msg, opts)
 }
 
 func (a *api) SendUserMessage(text string, opts sdk.SendOptions) error {
-	return unavailable("SendUserMessage")
+	if a.host == nil || a.host.SendUserMessage == nil {
+		return unavailable("SendUserMessage")
+	}
+	return a.host.SendUserMessage(text, opts)
 }
 
 func (a *api) AppendEntry(customType string, data any) error {

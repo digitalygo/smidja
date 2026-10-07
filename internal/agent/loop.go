@@ -39,6 +39,8 @@ type LoopDeps struct {
 
 	RefreshSessionEntryIDs func(history []*Message) ([]string, error)
 
+	Mailbox func(ctx context.Context, history []*Message, stopping bool, external bool) (MailboxResult, error)
+
 	RetryPolicy RetryPolicy
 
 	RetryPolicySet bool
@@ -50,6 +52,13 @@ type LoopDeps struct {
 	OnRetryScheduled func(attempt, maxAttempts int, delayMs int64, errorMessage string)
 
 	OnRetryFinished func(success bool, attempt int, finalError string)
+}
+
+type MailboxResult struct {
+	Messages  []*Message
+	Delivered bool
+	Continue  bool
+	PollAgain bool
 }
 
 var (
@@ -119,7 +128,7 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 	}
 	history = append(history, &Message{User: userMsg})
 
-	return runTurnLoop(ctx, deps, model, system, history)
+	return runTurnLoop(ctx, deps, model, system, history, true)
 }
 
 func ContinueTurn(ctx context.Context, deps *LoopDeps, model string, system string, history []*Message) ([]*Message, error) {
@@ -129,10 +138,10 @@ func ContinueTurn(ctx context.Context, deps *LoopDeps, model string, system stri
 	if deps.Client == nil {
 		return history, errors.New("agent: nil client")
 	}
-	return runTurnLoop(ctx, deps, model, system, history)
+	return runTurnLoop(ctx, deps, model, system, history, false)
 }
 
-func runTurnLoop(ctx context.Context, deps *LoopDeps, model string, system string, history []*Message) ([]*Message, error) {
+func runTurnLoop(ctx context.Context, deps *LoopDeps, model string, system string, history []*Message, external bool) ([]*Message, error) {
 	onText := func(delta string) {
 		if deps.Stdout != nil {
 			io.WriteString(deps.Stdout, delta)
@@ -164,6 +173,19 @@ func runTurnLoop(ctx context.Context, deps *LoopDeps, model string, system strin
 		if err := ctx.Err(); err != nil {
 			return history, fmt.Errorf("agent: %w", err)
 		}
+		for deps.Mailbox != nil {
+			result, mailboxErr := deps.Mailbox(ctx, history, false, external)
+			if mailboxErr != nil {
+				return history, fmt.Errorf("agent: deliver mailbox message: %w", mailboxErr)
+			}
+			if result.Messages != nil {
+				history = result.Messages
+			}
+			if !result.PollAgain {
+				break
+			}
+		}
+		external = false
 
 		entryIDs := deps.SessionEntryIDs
 		if deps.RefreshSessionEntryIDs != nil {
@@ -298,7 +320,25 @@ func runTurnLoop(ctx context.Context, deps *LoopDeps, model string, system strin
 			return history, fmt.Errorf("agent: provider error: %s", finalMsg.Assistant.ErrorMessage)
 		}
 		if finalMsg.Assistant.StopReason != "toolUse" {
-			return history, nil
+			for deps.Mailbox != nil {
+				result, mailboxErr := deps.Mailbox(ctx, history, true, false)
+				if mailboxErr != nil {
+					return history, fmt.Errorf("agent: deliver mailbox message: %w", mailboxErr)
+				}
+				if result.Messages != nil {
+					history = result.Messages
+				}
+				if result.Continue {
+					break
+				}
+				if !result.PollAgain {
+					return history, nil
+				}
+			}
+			if deps.Mailbox == nil {
+				return history, nil
+			}
+			continue
 		}
 		if len(calls) == 0 {
 			return history, nil

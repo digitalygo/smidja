@@ -197,3 +197,21 @@ Five previously declared SDK actions and real handler-context state are backed f
 ### Validation steps
 
 Artifact `R2a-6785c984336c`, SHA-256 `6785c984336cf44fbbdaf3290e00c27f47e50157f410b1b977df75d8cfd2aa4f`, 30 files excluding traces, received repeated quality and focused security PASS after ownership corrections. Leader reran formatting, vet/build, fresh upstream tests for five affected packages, all affected sequential race tests, 10 repeated corrected regressions, real PTY host abort/shutdown/idle-compaction quit tests and four static release builds. Fifteen executable delta files reach 84.8-100% changed instrumented-line and 88.7-100% overlapping-block statement coverage (`/tmp/smidja-r2a-gated.cover`). Original tests, frozen SDK and protected subsystems remain unchanged; no go.sum. Known alpha MCP/session flakes remain reported; a newly observed unchanged MCP crash-test failure is not falsely claimed independently reproduced.
+
+## Update 2026-10-07: R2b scheduler race and delivery accepted
+
+### Summary of changes
+
+The composed host now backs `SendMessage` and `SendUserMessage` with a per-session owned mailbox and actual model-loop boundaries. Editor follow-ups are delivered, not merely counted. Registration/model/thinking controls and agent execution remain later work.
+
+### Technical reasoning
+
+Two isolated candidates received identical contracts at `bb86387`. Both passed independent build/test/race checks; A was rejected for four conformance gaps. B preserved context/signal binding, one-item queue ordering, live Display delivery and authoritative session projection. Its late stop-boundary token-zero defect was corrected before acceptance. No losing source was grafted.
+
+### Impact assessment
+
+Custom messages preserve model context regardless of Display, persist exactly once before visibility and resume with valid IDs/tool pairs. Next-turn messages remain memory-only until injection. Sends never synchronously wait on their own FIFO worker; generation/cancellation/token guards prevent cross-session and ghost turns. Shared bool and idle-user semantics are documented explicitly.
+
+### Validation steps
+
+Artifact `R2b-65d07e6ef500`, SHA-256 `65d07e6ef50055b993b06dc760f0947465f9c4ae0875694a22ec9c465888aac2`, 17 files, passed quality and focused security review. The first security member failed required absolute-manifest verification; its provenance was rejected and the sequential fallback verified all 17 exact hashes before PASS. Leader fresh upstream tests, affected sequential race, 10 repeated continuation/send/editor regressions and four static builds pass. Ten production files reach 81.8-100% changed instrumented-line and 87-100% overlapping-block statement coverage. An additional unchanged MCP mid-flight test passed 100 baseline repetitions and is not labeled proven pre-existing. Only recorded new R2b race paths are eligible for cleanup after accepted integration. Documentation-only exactness corrections preserve executable hashes.

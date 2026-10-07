@@ -1,8 +1,8 @@
 # Smidja SDK runtime
 
-The extension SDK runtime composes a per-session host view behind the frozen `sdk` contracts. A host binding adds behavior; callers without one keep the defaults: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, and `Exec` return `extensions.ErrUnavailable` (`extensions: API method not available in this release: <name>`), and the fallback handler context returns empty values.
+The extension SDK runtime composes a per-session host view behind the frozen `sdk` contracts. A host binding adds behavior; callers without one keep the defaults: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `Exec`, `SendMessage`, and `SendUserMessage` return `extensions.ErrUnavailable` (`extensions: API method not available in this release: <name>`), and the fallback handler context returns empty values.
 
-R2a is the current runtime slice. Its source is in the worktree; publication and installation are tracked separately, and the installed binary remains P7. The [SDK parity matrix](sdk-parity-matrix.md) holds the row-level dispositions, and the [extension UI SDK](sdk-ui.md) covers the UI surface.
+R2a is published at `bb86387`. The R2b delivery source is uncommitted in the retained candidate worktree; MAIN still carries R2a only, and the installed binary remains P7 without either slice. The [SDK parity matrix](sdk-parity-matrix.md) holds the row-level dispositions, and the [extension UI SDK](sdk-ui.md) covers the UI surface.
 
 ## Composed contexts
 
@@ -85,13 +85,60 @@ Process and output rules:
 
 There is no sandbox. The command runs with the user's privileges, the workspace root is only the starting directory, and the process can read, write, or connect anywhere the user can. The environment filter keeps provider credentials out of child processes; it is not isolation.
 
+## Message delivery
+
+`SendMessage` and `SendUserMessage` are backed when a host is bound. A handler context delivers against the session handle and dispatch signal it captured; the API delivers against the current handle and the owned run context. A send from a replaced handle fails with the stale-session error, a send after shutdown fails with the closed-host error, and a canceled signal or run fails with `extensions: message delivery canceled: <cause>`. No send runs a model turn inline: it persists the delivery or enqueues a turn, and the host dispatches that turn through its callback scheduler, the TUI lifecycle worker or a tracked goroutine in print and line mode.
+
+`SendMessage` requires a non-empty custom type, and `Details` must be JSON-marshalable. `SendUserMessage` requires non-empty text. Both honor `ExpandPromptTemplates`, which defaults to false: with the zero value the content is delivered as written, and with true it is expanded through the same expander as the `/prompt` path. A host without an expander fails with `extensions: prompt template expansion is unavailable`.
+
+Validation failures:
+
+- empty custom type: `extensions: SendMessage requires a non-empty custom message type`
+- empty user text: `extensions: SendUserMessage requires non-empty text`
+- unknown delivery mode: `extensions: unknown delivery mode "<mode>"`
+- user send during an active turn without a mode: `extensions: SendUserMessage during an active turn requires an explicit steer, followUp, or nextTurn delivery mode`
+- non-JSON details: `extensions: SendMessage details must be valid JSON: <cause>`
+
+### Delivery modes
+
+`SendOptions.TriggerTurn` is shared by both methods. It is inert for `SendUserMessage`: an idle user send always starts a turn, and an active user send is governed by `DeliverAs` alone. It is also ignored by `DeliverAs: nextTurn`, which always buffers.
+
+| Host state | Options | Result |
+| --- | --- | --- |
+| idle | `SendUserMessage`, any options including `nextTurn` | External user turn starts |
+| idle | `SendMessage` with `DeliverAs: nextTurn` | Buffered in memory, `TriggerTurn` ignored |
+| idle | `SendMessage`, other modes, `TriggerTurn` false | Persisted, no turn |
+| idle | `SendMessage`, other modes, `TriggerTurn` true | Continuation turn starts with the message |
+| active | `SendUserMessage` without `DeliverAs` | Error, explicit mode required |
+| active | `DeliverAs: nextTurn` | Buffered in memory until the next external turn, `TriggerTurn` ignored |
+| active | `DeliverAs: followUp` | Queued; delivered at the stop boundary |
+| active | `DeliverAs: steer` (the custom default) or empty custom, `TriggerTurn` true, or any user steer | Delivered before the next model request, after tool results |
+| active | `DeliverAs: steer` or empty custom, `TriggerTurn` false | Deferred to turn end, no continuation |
+
+Delivery order is FIFO within each queue. Steering is polled before every model request, and tool results are already recorded by then, so a steer sent from a tool-result handler arrives after its tool result. At the stop boundary the host checks steer first, then follow-up, then deferred deliveries. Follow-ups are polled at the stop boundary one at a time, and each accepted follow-up queues the next continuation. After a stop-boundary delivery that continues the turn, including a follow-up, the host skips one steer-poll slot at the next request boundary. A steer arriving during that window waits one boundary; it is not lost or duplicated.
+
+The stop boundary and the turn end are separate. Deferred deliveries are persisted after the turn finishes and never observe the model request that was already in flight. A continuation carries a generation-scoped token; only the newest owned continuation runs, and a message that arrives while the loop is in its final stop poll claims a fresh continuation, so exactly one continuation follows it and stale scheduled jobs are skipped.
+
+### Persistence and projection
+
+An injected delivery writes exactly one existing session entry: a custom message entry for `SendMessage` and a user message entry for `SendUserMessage`. Next-turn deliveries stay in memory until the next external turn injects them, and injection persists them the same way. The host then reloads the session and rebuilds the model history from the file, so a resumed session shows each message once, entry ids stay aligned, and tool call and result pairs remain valid.
+
+`Display` controls display only. A visible custom message reaches the TUI renderer path; `Display: false` messages are still part of the model history and are skipped by TUI replay. Model history renders custom messages as `[custom <type> <id>] <content>`.
+
+### Delivery lifecycle
+
+- A canceled turn drops pending steer, follow-up, and deferred deliveries and invalidates queued continuations. Buffered `nextTurn` deliveries stay.
+- A session change resets the mailbox with the new generation, so buffered next-turn content is dropped with everything else.
+- Shutdown clears every queue, including `nextTurn`.
+- Scheduled turns are asynchronous. A provider failure in a TUI continuation appears as a warning notice, and a canceled continuation settles as interrupted. In print and line mode the scheduler writes `smidja: scheduled message: <err>` to stderr. `SendMessage` and `SendUserMessage` return after persisting or enqueueing, not after the turn result.
+
 ## Abort and shutdown
 
-`Abort()` cancels the turn that owns the dispatch signal. A context captured during an earlier turn carries that turn's cancel function and cannot abort a newer one. A context created outside a turn carries no cancel, so `Abort` does nothing.
+`Abort()` cancels the turn that owns the dispatch signal. A canceled turn drops pending steer, follow-up, and deferred deliveries and invalidates queued continuations; buffered next-turn deliveries stay until the session changes or the host shuts down. A context captured during an earlier turn carries that turn's cancel function and cannot abort a newer one. A context created outside a turn carries no cancel, so `Abort` does nothing.
 
 `Shutdown()` owns the run and is idempotent:
 
-- it marks the host closed, cancels the owned run context, and joins running exec processes through that context
+- it marks the host closed, cancels the owned run context, joins running exec processes through that context, and clears every mailbox queue
 - pending and running compaction jobs settle with a truthful error instead of committing late work
 - in the TUI it requests the runner exit; teardown joins the callbacks before the host stops
 
@@ -112,4 +159,4 @@ Callback panics are recovered and counted on the host. The host does not raise a
 
 ## Deferred surface
 
-R2a backs the five methods above. The rest of the frozen API keeps its unavailable behavior: `SendMessage` and `SendUserMessage` stay for the R2b mailbox slice, and `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent` stay for later waves. The command-extra and event tables are unchanged from P7.
+R2a backs five methods and R2b adds the two messaging methods, for seven runtime-backed methods on a composed host. The rest of the frozen API keeps its unavailable behavior: `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent` stay for the R3 wave, and the gateway builds no host binding, so its extension surfaces keep the bare fallback. The command-extra and event tables are unchanged from P7.

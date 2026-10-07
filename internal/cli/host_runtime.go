@@ -82,10 +82,13 @@ type hostSessionHandle struct {
 }
 
 type hostLifecycle struct {
-	shutdown func()
-	dispatch func(func()) bool
-	entry    func(customType string, raw json.RawMessage)
-	name     func(name string)
+	shutdown     func()
+	dispatch     func(func()) bool
+	runScheduled func(hostScheduledTurn)
+	entry        func(customType string, raw json.RawMessage)
+	message      func(*session.CustomMessageEntry)
+	userMessage  func(text string)
+	name         func(name string)
 }
 
 type hostRuntime struct {
@@ -110,11 +113,17 @@ type hostRuntime struct {
 	execTimeout  time.Duration
 	execMaxBytes int64
 
-	sessionMu sync.Mutex
-	closed    atomic.Bool
+	sessionMu  sync.Mutex
+	deliveryMu sync.Mutex
+	closed     atomic.Bool
 
 	turnMu     sync.Mutex
 	turnActive bool
+	loopMu     sync.Mutex
+
+	mailboxMu sync.Mutex
+	mailbox   hostMailbox
+	expander  func(string) (string, error)
 
 	compactMu     sync.Mutex
 	compactJobs   map[*hostCompactJob]struct{}
@@ -199,6 +208,12 @@ func (h *hostRuntime) hostOptions() *extensions.Host {
 		LabelEntry: func(entryID, label string) error {
 			return h.labelEntry(h.snapshot(), entryID, label)
 		},
+		SendMessage: func(msg sdk.CustomMessage, opts sdk.SendOptions) error {
+			return h.sendMessage(nil, nil, msg, opts)
+		},
+		SendUserMessage: func(text string, opts sdk.SendOptions) error {
+			return h.sendUserMessage(nil, nil, text, opts)
+		},
 		Exec: func(ctx context.Context, command string, args []string, opts sdk.ExecOptions) (*sdk.ExecResult, error) {
 			return h.exec(ctx, command, args, opts)
 		},
@@ -231,6 +246,9 @@ func (h *hostRuntime) bindSession(sess *session.Session, recorder agent.Recorder
 	}
 	generation := h.generation
 	h.mu.Unlock()
+	h.mailboxMu.Lock()
+	h.mailbox = hostMailbox{generation: generation}
+	h.mailboxMu.Unlock()
 	if !h.closed.Load() {
 		failures = h.settleJobsLocked(func(job *hostCompactJob) bool {
 			return job.handle == nil || job.handle.generation != generation
@@ -253,6 +271,12 @@ func (h *hostRuntime) setEntryIDs(entryIDs []string) {
 	h.mu.Lock()
 	h.entryIDs = append([]string(nil), entryIDs...)
 	h.mu.Unlock()
+}
+
+func (h *hostRuntime) modelHistorySnapshot() ([]*agent.Message, []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]*agent.Message(nil), h.messages...), append([]string(nil), h.entryIDs...)
 }
 
 func (h *hostRuntime) setModel(reg *models.Registry, modelID, wireModel, provider string) {
@@ -312,6 +336,7 @@ func (h *hostRuntime) setLifecycle(lifecycle hostLifecycle) {
 	h.lifecycleMu.Lock()
 	h.lifecycle = lifecycle
 	h.lifecycleMu.Unlock()
+	h.scheduleMailbox()
 }
 
 func copyHostHandle(handle *hostSessionHandle) *hostSessionHandle {
@@ -334,29 +359,59 @@ func (h *hostRuntime) beginTurn() {
 	h.turnMu.Unlock()
 }
 
-func (h *hostRuntime) endTurn() {
+func (h *hostRuntime) endTurn(canceled ...bool) error {
+	wasCanceled := len(canceled) > 0 && canceled[0]
 	var (
 		adapter *contextPreparerAdapter
 		opts    sdk.CompactOptions
-		ok      bool
+		compact bool
 	)
 	h.turnMu.Lock()
-	h.turnActive = false
 	adapter = h.currentPreparer()
 	if adapter != nil {
-		opts, ok = adapter.takeCompact()
+		opts, compact = adapter.takeCompact()
 	}
+	var deliveryErr error
+	h.mailboxMu.Lock()
+	h.turnActive = false
+	if wasCanceled {
+		h.mailbox.steer = nil
+		h.mailbox.followUp = nil
+		h.mailbox.deferred = nil
+		h.mailbox.continuationQueued = false
+		h.mailbox.skipSteerOnce = false
+		h.invalidateContinuationLocked()
+	} else if len(h.mailbox.steer) > 0 || len(h.mailbox.followUp) > 0 {
+		h.queueContinuationLocked()
+	}
+	h.mailboxMu.Unlock()
 	h.turnMu.Unlock()
-	if !ok {
-		return
+	if !wasCanceled {
+		for {
+			h.mailboxMu.Lock()
+			delivery, remaining, found := popHostDelivery(h.mailbox.deferred)
+			h.mailbox.deferred = remaining
+			h.mailboxMu.Unlock()
+			if !found {
+				break
+			}
+			if _, err := h.persistDelivery(delivery, false); err != nil {
+				deliveryErr = err
+				break
+			}
+		}
 	}
-	if h.closed.Load() {
-		h.reportCompactFailures([]compactFailure{{opts: opts, err: errHostClosed}})
-		return
+	h.scheduleMailbox()
+	if compact {
+		if h.closed.Load() {
+			h.reportCompactFailures([]compactFailure{{opts: opts, err: errHostClosed}})
+		} else {
+			h.dispatchCompactJob(h.captureCompactRequest(nil, opts), func(job *hostCompactJob) {
+				h.runIdleCompact(nil, adapter, job)
+			})
+		}
 	}
-	h.dispatchCompactJob(h.captureCompactRequest(nil, opts), func(job *hostCompactJob) {
-		h.runIdleCompact(nil, adapter, job)
-	})
+	return deliveryErr
 }
 
 func (h *hostRuntime) abort(signal context.Context) {
