@@ -117,29 +117,8 @@ func run(args []string, d *Deps) error {
 		return runSubcommand(args[0], args[1:], d)
 	}
 
-	fs := flag.NewFlagSet("smidja", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.Usage = func() {}
-	var (
-		prompt       string
-		model        string
-		system       string
-		provider     string
-		continuePath string
-		tuiModeFlag  string
-		useThemeFlag string
-		version      bool
-	)
-	fs.StringVar(&prompt, "p", "", "run one turn with the given prompt and exit")
-	fs.StringVar(&model, "model", "", "override the configured model")
-	fs.StringVar(&system, "system", "", "override the default system prompt")
-	fs.StringVar(&provider, "provider", "", "select the provider driver (manifest id or OAuth provider)")
-	fs.StringVar(&continuePath, "continue", "", "resume the session at the given path or id")
-	fs.StringVar(&tuiModeFlag, "tui-mode", "", "select the interactive renderer (regular|fullscreen)")
-	fs.StringVar(&useThemeFlag, "use-theme", "", "set the interactive theme (name or lightTheme/darkTheme)")
-	fs.BoolVar(&version, "version", false, "print the version and exit")
-	var allowWorkspaceMCP bool
-	fs.BoolVar(&allowWorkspaceMCP, "allow-workspace-mcp", false, "spawn MCP servers defined in the workspace .smidja/mcp.json")
+	var opts rootOptions
+	fs := newRootFlagSet(&opts)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage(d.Stderr)
@@ -149,14 +128,14 @@ func run(args []string, d *Deps) error {
 		printUsage(d.Stderr)
 		return err
 	}
-	if version {
+	if opts.version {
 		fmt.Fprintf(d.Stdout, "smidja %s\n", versionFor(d))
 		return nil
 	}
-	if err := validateTUIModeFlag(tuiModeFlag, d); err != nil {
+	if err := validateTUIModeFlag(opts.tuiModeFlag, d); err != nil {
 		return err
 	}
-	if err := validateThemeFlag(useThemeFlag, d); err != nil {
+	if err := validateThemeFlag(opts.useThemeFlag, d); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
@@ -165,12 +144,8 @@ func run(args []string, d *Deps) error {
 		printUsage(d.Stderr)
 		return err
 	}
-	if provider != "" && model == "" && d.Env("SMIDJA_MODEL") == "" {
-		if def, ok := providerDefaultModel(provider); ok {
-			model = def
-		}
-	}
-	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP, continuePath, tuiModeFlag, useThemeFlag)
+	defaultProviderModel(&opts, d)
+	return runChat(d, opts.prompt, opts.model, opts.system, opts.provider, opts.allowWorkspaceMCP, opts.continuePath, opts.tuiModeFlag, opts.useThemeFlag)
 }
 
 func validateTUIModeFlag(value string, d *Deps) error {
@@ -245,7 +220,7 @@ func runSubcommand(name string, args []string, d *Deps) error {
 	case "gateway":
 		return runGateway(args, d)
 	case "run":
-		return fail(d, fmt.Errorf("%s: not implemented yet", name))
+		return runRun(args, d)
 	default:
 		return fail(d, fmt.Errorf("unknown subcommand %q", name))
 	}
@@ -291,7 +266,8 @@ subcommands:
   import   import Pi sessions into the session store
   pkg      manage optional packages (install, list, inspect, activate,
            deactivate, update, verify, uninstall)
-  run      run a single turn, not implemented yet
+  run      run one turn with a prompt and exit; the prompt is either the
+           positional argument or -p prompt
   update   update the harness binary from GitHub releases
   version  print the version; use --json for the full build identity
 `)

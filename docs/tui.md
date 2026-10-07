@@ -77,6 +77,17 @@ The tree browser is read-only. It shows branches, fold and unfold, labels, and t
 
 Deleting from `/sessions` works only for inactive sessions in the current project's session directory, only for regular files that pass the symlink and identity checks, and only after an explicit confirmation. On platforms without the anchored delete transaction the operation reports an error and deletes nothing.
 
+## Prompt templates
+
+Resolved prompt templates join the slash-command surface. `/prompt` lists the available names as a transcript notice, `/prompt <name> [arguments]` runs a template, and every template name that does not collide with a host or extension command also works as a shorthand.
+
+- `/prompt` and its shorthands appear in `/help`, the command inventory, and editor autocomplete.
+- The canonical `/prompt` command is registered before extensions register theirs, so an extension command named `prompt` is reachable as `/prompt2`.
+- Names reserved for built-in commands, including the future `/agent`, never become shorthands; explicit `/prompt <name>` still runs them.
+- Workspace `.smidja/prompts` files join the workspace trust decision, the same as workspace skills and instructions.
+
+Argument parsing, expansion rules, and the expansion budget are documented in [prompt templates](prompts.md).
+
 ## Transcript search
 
 Search opens in fullscreen mode with the `tui.altScreen.search` binding, `ctrl+shift+f` by default, and indexes the visible rendered transcript rather than live scroll state.

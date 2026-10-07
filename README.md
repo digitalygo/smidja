@@ -39,6 +39,7 @@ Final gate details and the phase-by-phase execution ledger live in the plan unde
 
 - [Auth](docs/auth.md): how provider credentials work, `smidja auth` commands, where tokens live
 - [Settings](docs/settings.md): the settings files, supported fields, and configuration precedence
+- [Prompts](docs/prompts.md): prompt templates, invocation, argument expansion, and the expansion budget
 - [TUI](docs/tui.md): TTY selection, renderer modes, flags, sessions, search, images, trust, and sign-in
 - [Extension UI SDK](docs/sdk-ui.md): the optional `ExtendedUI` and `UIRegistrationAPI` surfaces, component lifecycle, renderers, editor and terminal hooks
 - [Themes](docs/themes.md): theme files, required tokens, selection, and hot reload

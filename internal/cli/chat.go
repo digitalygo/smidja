@@ -85,6 +85,10 @@ type runDeps struct {
 	controller     *sessionController
 	env            *sessionBuildEnv
 	resumedSession bool
+
+	prompts       content.PromptCatalog
+	promptAliases map[string]string
+	promptCommand string
 }
 
 func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP bool, continuePath, tuiModeFlag, themeFlag string) error {
@@ -207,21 +211,26 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	})
 	runtime.SetAPI(func() sdk.API { return api })
 	runtime.SetUIRegistry(uiRegistry)
-	if err := runtime.Start(); err != nil {
-		return fail(d, err)
-	}
-	hooks := runtime.Dispatcher()
 
 	snapshot, err := buildContentSnapshot(d, cfg.WorkspaceRoot, trustWorkspace)
 	if err != nil {
 		return fail(d, err)
 	}
+	promptCat := content.NewPromptCatalog(snapshot)
+	skillOut := &switchWriter{target: d.Stdout}
+	promptCommand := registerPromptHostCommand(commands, promptCat, skillOut)
+
+	if err := runtime.Start(); err != nil {
+		return fail(d, err)
+	}
+	hooks := runtime.Dispatcher()
+
 	skillCat, err := snapshotSkillCatalog(snapshot)
 	if err != nil {
 		return fail(d, err)
 	}
-	skillOut := &switchWriter{target: d.Stdout}
 	registerSkillCommand(commands, skillCat, skillOut)
+	promptAliases := registerPromptAliases(commands, promptCat, promptShorthandReserved)
 
 	resolveEnv := func(key string) (string, bool) {
 		value := cfg.Default(key)
@@ -336,6 +345,9 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 		modelRegistry: modelReg,
 		provider:      providerID,
 		uiRegistry:    uiRegistry,
+		prompts:       promptCat,
+		promptAliases: promptAliases,
+		promptCommand: promptCommand,
 	}
 	rd.reprepare = func(model, wireModel string) (*contextPreparerAdapter, error) {
 		return newModelPreparer(*cfg, modelReg, model, wireModel, selector)
@@ -540,10 +552,14 @@ func modelWindow(reg *models.Registry, model string) int64 {
 }
 
 func runOnce(ctx context.Context, d *runDeps, prompt string) error {
+	expanded, err := d.expandPromptInput(prompt)
+	if err != nil {
+		return err
+	}
 	out := &trailingWriter{w: d.stdout}
 	deps := loopDeps(d, out)
 	d.attachProjectedEntryIDs(deps)
-	if _, err := runTurn(ctx, d, deps, nil, prompt); err != nil {
+	if _, err := runTurn(ctx, d, deps, nil, expanded); err != nil {
 		return err
 	}
 	if !out.endsWithNewline() {
@@ -553,6 +569,10 @@ func runOnce(ctx context.Context, d *runDeps, prompt string) error {
 }
 
 func runOnceContinued(ctx context.Context, d *runDeps, sess *session.Session, prompt string) error {
+	expanded, err := d.expandPromptInput(prompt)
+	if err != nil {
+		return err
+	}
 	loader, err := session.LoadWithOptions(sess.Path(), session.LoadOptions{Strict: true})
 	if err != nil {
 		return err
@@ -572,7 +592,7 @@ func runOnceContinued(ctx context.Context, d *runDeps, sess *session.Session, pr
 	deps := loopDeps(&rd, out)
 	deps.SessionEntryIDs = entryIDs
 	rd.attachProjectedEntryIDs(deps)
-	if _, err := runTurn(ctx, &rd, deps, history, prompt); err != nil {
+	if _, err := runTurn(ctx, &rd, deps, history, expanded); err != nil {
 		return err
 	}
 	if !out.endsWithNewline() {

@@ -4,7 +4,7 @@ created_at: 2026-10-06
 files_edited: [sdk/, internal/extensions/, internal/extensionui/, internal/tui/, internal/tui/interactive/, internal/ui/, internal/cli/, internal/config/, internal/content/, README.md, docs/sdk-ui.md, docs/tui.md, docs/themes.md, docs/keybindings.md, docs/settings.md, docs/auth.md, docs/sdk-parity-matrix.md, docs/tui-handoff.md, docs/transcript-search.md]
 updated_at: 2026-10-07
 rationale: [Resume preserved P5 work without discarding it, Complete P6 configuration and trusted interactive startup, Preserve print and non-TTY contracts]
-supporting_docs: [substrate/traces/plans/2026-09-14-smidja-tui-plan.md, docs/tui-handoff.md, substrate/traces/plans/2026-08-24-smidja-harness-plan.md]
+supporting_docs: [substrate/traces/plans/2026-09-14-smidja-tui-plan.md, substrate/traces/plans/2026-10-07-smidja-runtime-completion-plan.md, docs/tui-handoff.md, substrate/traces/plans/2026-08-24-smidja-harness-plan.md]
 ---
 
 # Smidja TUI implementation
@@ -135,3 +135,47 @@ Profile `/tmp/smidja-p7-independent-gated.cover` instruments upstream dependenci
 | `internal/ui/extension_modal.go` | 97.8% | 98.6% |
 | `internal/ui/extension_runtime.go` | 86.4% | 89.5% |
 | `internal/ui/tui_runner.go` | 100.0% | 100.0% |
+
+## Update 2026-10-07: P7 publication and installed acceptance
+
+### Summary of changes
+
+P7 is published and installed at `80f29353f48116a8c4191709064f19d4402ef718`, version `v0.3.0-tui.1`, origin `github.com/digitalygo/smidja`. Installed SHA-256 is `a5188a8ad33ee295590924788926cbb1e74275288d2f14a857ccf68b62738a70`.
+
+### Technical reasoning
+
+Actual installed-binary product flows and a separately compiled public SDK consumer are independently tested. The consumer does not substitute for the installed identity or a live-provider pass.
+
+### Impact assessment
+
+P0-P7 technical work and isolated acceptance are complete. Real-provider acceptance remains blocked by absent Smidja settings/auth files and the default OpenRouter environment key. Broader runtime work has its own [living plan](../plans/2026-10-07-smidja-runtime-completion-plan.md), preserving the TUI baseline.
+
+### Validation steps
+
+The leader read the harnesses in full and independently passed 116 checks across regular (17), fullscreen core (9), model selector (14), sessions (28), fullscreen UI (26), and a separate public SDK consumer (22). Wire IDs prove model switching; replay precedes requests; forks preserve originals and have valid chains; actual theme colors, dialogs, search, Markdown and image fallback pass. The consumer proves registrations, custom frames, transforms, hooks and modal completion. Main, origin, PR and installed commit match. All test resources are removed. Report: `/tmp/smidja-p7-independent-installed-report.json`.
+
+## Update 2026-10-07: R1 run and prompt runtime accepted
+
+### Summary of changes
+
+R1 implements `smidja run` and consumes resolved prompt templates in one-shot, line and TUI paths. Publication follows these accepted gates; the P7 installed binary is not yet R1 evidence.
+
+### Technical reasoning
+
+Shared root options reuse existing one-shot machinery. Canonical `/prompt` registers before extension Setup; collisions preserve the extension under its numeric alias. Expansion is pure text, with an incremental, lazy 1 MiB local budget and no recursive shell, environment or file evaluation.
+
+### Impact assessment
+
+Prompt content is runtime-consumed. Agent definitions and core SDK host backing remain later phases. No SDK signature, session format, provider driver, dependency or non-TUI trust-policy change.
+
+### Validation steps
+
+Artifact `R1-f0c7ee0098fe`, SHA-256 `f0c7ee0098fea45dfcb3692150b57ad812e58f0cc4d29ba568a2df1c465c008c`, 14 files excluding traces. Quality and focused security both PASS. Leader reran formatting/vet/build, uncached upstream CLI/content tests, full affected race, real PTY no-TUI/collision tests and four static builds. An actual temporary binary verified expanded wire and persisted text, tool/stream output and no alternate-screen entry. Full-suite failures remain alpha-reproduced MCP/session flakes.
+
+| R1 file | Changed instrumented lines | Overlapping-block statements |
+| --- | --- | --- |
+| `internal/cli/chat.go` | 90.0% | 96.7% |
+| `internal/cli/prompt_command.go` | 98.0% | 98.7% |
+| `internal/cli/root.go` | 100.0% | 100.0% |
+| `internal/cli/run_command.go` | 100.0% | 100.0% |
+| `internal/content/prompt.go` | 100.0% | 100.0% |

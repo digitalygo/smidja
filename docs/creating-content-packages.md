@@ -214,7 +214,7 @@ Defaults sit at the bottom of the config precedence, above only the compiled cor
 Markdown files under `skills`, `prompts`, and `agents` share the same constraints: no path segment may start with a dot, each file is capped at 100 KiB, and content must be valid UTF-8.
 
 - Skills are live: `skills/**/*.md` files become `/skill` entries, named by their path under the skills root minus the `.md` suffix.
-- Prompts are validated and carried but have no runtime surface yet.
+- Prompts are consumed: `/prompt` lists the resolved names or runs a template with text-only argument expansion, and non-conflicting names also register as shorthand commands. Print mode and `smidja run` expand a `/prompt` invocation before the turn and persist the expanded text. See [prompt templates](prompts.md) for the argument, expansion, and budget rules. The runtime consumption is implemented in the worktree and awaits its final validation gates and publication; the installed binary predates it.
 - Agents are validated and carried; `smidja pkg inspect` lists them as deferred until the subagent runtime consumes them.
 
 Content is resolved per tier: bundle, then trusted workspace, then user content in `~/.smidja`, then active packages, then core defaults. A package never overrides the user's own content at the same name.
