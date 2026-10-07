@@ -14,15 +14,15 @@ last_updated_at: 2026-10-07
 
 ## Current execution snapshot
 
-- **Status:** In progress. R1 and R2 are published; corrected R3 registration/model controls are independently accepted and ready for publication.
+- **Status:** In progress. R1-R3 are published; corrected R4 agent execution is independently accepted and ready for publication.
 - **Baseline identity:** `2026-10-07-smidja-runtime-completion-plan`, version 1, authored by the orchestrator after read-only repository analysis.
 - **Execution baseline:** Approved branch `feat/tui` at `80f29353f48116a8c4191709064f19d4402ef718`, matching origin and open PR 1 against `alpha`. Main worktree was clean before these trace updates.
-- **Active phase:** R3: hosted model/thinking controls and per-host provider, flag and custom-event registration.
-- **Last verified checkpoint:** 2026-10-07T13:46:10+02:00, corrected R3 independent tests and quality/security gates accepted.
-- **Last successful checks:** R1 formatting, vet, build, uncached upstream tests, affected race tests, real PTY collision/no-TUI checks, four static builds and actual temporary-binary wire/persistence checks pass. Five executable delta files reach 90-100% changed-line and 96.7-100% overlapping-block statement coverage. Quality and focused security verdicts are PASS.
-- **Open blockers:** No R3 code-review blocker remains. R4 agent execution and final runtime installation/acceptance remain unfinished. Live-provider credentials and genuine external creator acceptance remain absent.
+- **Active phase:** R4: resolved agent definitions, isolated execution and parent/tool integration.
+- **Last verified checkpoint:** 2026-10-07T19:46:19+02:00, complete corrected R4 independent gates accepted.
+- **Last successful checks:** R4 formatting, diff checks, vet/build, fresh affected/upstream tests, full affected race, ten reactivation/nested/cancellation/transport/generation regressions, real PTY abort/cleanup and four static builds pass. Eleven executable delta files reach 83.8-100% changed instrumented-line and 87.5-100% overlapping-block statement coverage. Repeated quality and focused security verdicts are PASS.
+- **Open blockers:** No R4 code-review blocker remains. Final audit/install/acceptance is pending; live-provider credentials and genuine external creator acceptance remain external limitations.
 - **Required approvals and gates:** Preserve the approved branch and PR, no merge/tag/release/package publication, no other repository modifications. Every behavioral slice needs independent delta tests, upstream coverage at least 80%, delegated quality judgment, focused security review when applicable, commit/push and exact remote/PR readback. Installation is only the authorized local test binary; tests use temporary homes and isolated fixtures.
-- **Next action:** Implement R3 with optional host bindings, exactly-once Setup flag discovery and per-host registries, capability-aware reasoning and truthful request-wire tests; preserve all old unbound contracts.
+- **Next action:** Correct verified R4 child wire IDs, nested capability inheritance, child storage/lock lifetime, parent-hook isolation and direct-command cancellation/turn ownership; rerun whole-delta gates before publication.
 
 ## Planner baseline
 
@@ -244,7 +244,46 @@ last_updated_at: 2026-10-07
 
 ### R4 execution checkpoints
 
-No checkpoints yet.
+#### Checkpoint 2026-10-07T14:23:50+02:00: R3 publication verified and agent execution boundary fixed
+
+- **Event:** Accepted R3 is published as `24df52e6883b5a07e2be8f98cea134eedf180510`, `feat(sdk): complete model and extension registries`.
+- **Planner prediction:** Agent Markdown content becomes executable through isolated child state, not the existing selector package masquerading as a runtime.
+- **Subagent claims:** None for R4 implementation yet.
+- **Orchestrator finding:** Reuse existing resolver tiers and trust, parent current model/client and active catalog, loop/context manager and recorder. Agent metadata is a documented bounded plain frontmatter subset; no shell/env/code evaluation or arbitrary package load. Child tools can only reduce parent-active capability, model overrides must match the existing selected transport, and recursion depth is a local safety control rather than a global round/token cap. Child sessions are separate and not normal parent session-browser entries; parent records only bounded result/child identity. `/agent` must be canonical before Setup collision handling, like `/prompt`.
+- **Independently verified facts:** Main, origin and OPEN PR 1 match `24df52e`; main worktree is clean. Existing content snapshots already contain AgentRef data with UTF-8/name/symlink/size validation; `internal/subagent` remains a compaction selector. All 14 assigned hosted SDK actions are now backed, while gateway/bare contexts retain honest unavailable behavior. Installed binary remains P7 until final runtime installation.
+- **Decision and impact:** One bounded executor integration writer reuses known primitives without a new provider or session schema. Explicit `/agent name task` and model-callable `subagent` use the same executor; every coding child has its own history/recorder/context management and cancellation. Unknown/malformed/incompatible/over-depth requests fail precisely and no credential is embedded in definition metadata or result/session/logs.
+- **Next action:** Delegate R4 source/tests, then accurate agent docs and independent quality/security/runtime verification.
+
+
+#### Checkpoint 2026-10-07T17:04:00+02:00: R4 resumption and semantic blockers verified
+
+- **Event:** User reconfirmed continuation. Preserve the complete uncommitted R4 worker delta and leader trace; R4 remains unaccepted.
+- **Planner prediction:** Isolated child model/session/context state, monotonically decreasing tool capabilities and cooperative lifetime ownership.
+- **Subagent claims:** R4 implements source parsing, commands, model-callable delegation, nested depth controls and isolated recorders; prior normal/race tests pass. Read-only analysis identifies five material blind spots and a frozen-client coherence risk.
+- **Orchestrator finding:** Direct source confirms display IDs are used instead of native wire IDs, nested executors reuse root capabilities rather than the immediate child's restricted catalog, storage creates a parent-visible file then renames without updating session path/lock, and child dispatch reuses parent extension contexts/API. Direct commands do not acquire host turn ownership and already-canceled requests can create session artifacts. Existing compaction display matches the parent's synthetic representation, so that suspicion is refuted rather than invented as a blocker.
+- **Independently verified facts:** Main/origin/OPEN PR 1 remain at 24df52e; pull is already up to date. DRC/EXP/CONTRIBUTING are absent, status baseline is ignored, preserved files match the worker scope. Prior independent normal and race tests plus real PTY cleanup pass but do not prove these uncovered cases. Chezmoi update returned zero; no repository or credential setting was changed by this sync.
+- **Decision and impact:** Correct to the existing isolation contract without new child extension APIs: child loops must not invoke the root extension dispatcher with parent mutation authority. Keep internal progress callbacks, parent extension hooks on the parent loop and external parent-active tool revalidation. Add strong tests for absent parent hook leakage rather than retain a test dependent on that bug. Create/open locked sessions directly under controlled child storage, never transiently in the parent browser directory. Resolve current compatible transport per child invocation and preserve protected schemas/drivers and zero dependencies.
+- **Next action:** One bounded correction writer, then whole R4 independent tests, coverage, quality and security review.
+
+#### Checkpoint 2026-10-07T19:04:00+02:00: R4 quality passes but delegation reactivation blocks security
+
+- **Event:** Corrected R4 passes independent deterministic verification and quality PASS; focused security reports BLOCKED with one proven depth/ancestry bypass.
+- **Planner prediction:** Nested capabilities and recursion accounting remain anchored to the immediate caller even across live tool toggles.
+- **Subagent claims:** The exact 27-file snapshot is verified. When builtin subagent is inactive at child construction, no nested wrapper is created; later reactivation lets Get/GetActive/Tools fall through to the root builtin that snapshots depth zero and an empty ancestry.
+- **Orchestrator finding:** Accept the finding as a correction to the existing nested safety contract, not a new requirement. Preserve extension overrides, but the executor's own host-bound delegation tool must never be passed through to a child without depth/ancestry threading.
+- **Independently verified facts:** Artifact R4-392dc6e17482 has manifest SHA-256 392dc6e174825470736da300bfb27a98b9d22be79bb1797ae139743886521332, 27 files excluding traces. Formatting, vet/build, fresh upstream two-package coverage, full affected race, ten repeated nested/cancel/transport/generation cases, upstream packages, real PTY abort/cleanup and four static builds pass. Eleven production files measure 83.8-100% changed instrumented-line and 87.5-100% overlapping-block statement coverage. The latest full suite failure is only the alpha-reproduced MCP restart flake. Security verifies all hashes/membership; its prose mangles the supplied digest despite independently computing the correct one, which does not invalidate the concrete source finding.
+- **Decision and impact:** Quality cursor remains at published R3. Bound or refuse the builtin delegation fallback in all catalog lookup/advertising paths across inactive-to-active transitions, test cycle/depth/system-chain integrity and preserve arbitrary extension overrides. Rerun both reviews on the unchanged R4 delta plus correction.
+- **Next action:** Bounded delegation reactivation correction, then repeat independent gates and both judgments.
+
+#### Checkpoint 2026-10-07T19:46:19+02:00: R4 reactivation correction accepted
+
+- **Event:** Complete R4 plus bounded M1 correction passes repeated quality PASS and security PASS, with exact provenance.
+- **Planner prediction:** Child wire IDs, isolated state, immediate-parent capabilities, stable recursion accounting and cooperative ownership remain real behavior.
+- **Subagent claims:** One substitution helper returns only a depth-scoped builtin wrapper, constructs it lazily across inactive-to-active toggles and preserves non-builtin extension overrides. Nested catalogs cannot fall back to root. Four regression tests fail when the root fallback is restored.
+- **Orchestrator finding:** Directly inspected all production paths and the targeted fix. Original semantic gaps are closed: locked direct child storage, native wire/continuations, nested live tool revalidation, truthful reasoning seam, no root dispatcher hooks, generation-scoped presentation and joined watchers. Source is organized by executor versus storage responsibility; no tests were thinned. Strong external-disable-mid-child coverage replaces the new test that depended on unsafe parent hook dispatch.
+- **Independently verified facts:** Accepted artifact R4-73c629342d64, SHA-256 73c629342d6410a2ff184cb403e66487caf6bd8bf8fdf522514e5dfcf0867436, 27 files excluding traces, all hashes and exact membership verified by both reviewers. Fresh leader normal/upstream, full affected sequential race, ten repeated reactivation/nested/cancel/transport cases, real PTY abort/cleanup, formatting/vet/build and four static builds pass. Profile /tmp/smidja-r4-gated-final.cover OR-merges unique column-aware blocks; 11 production files measure 83.8-100% changed instrumented-line and 87.5-100% overlapping-block statements. Latest full-suite failure remains only the alpha-reproduced MCP restart flake. No original tracked test is changed or skipped; environment-guarded new filesystem tests have explicit platform/permission reasons and were accepted. Protected schemas/drivers/SDK/dependencies unchanged, no go.sum. Documentation-only status refresh follows accepted source, without changing executable hashes.
+- **Decision and impact:** Accept and publish R4. Keep installed identity at P7 until R5; do not conflate source acceptance with installation or live-provider/creator acceptance. R5 fixes stale prompt/package-inspect dispositions and rechecks all final artifacts.
+- **Next action:** Commit/push feat(agents): execute isolated coding agents, verify PR/remote equality, then final audit, accurate docs and installed runtime acceptance.
 
 ### R5 execution checkpoints
 

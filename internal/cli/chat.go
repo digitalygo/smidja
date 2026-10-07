@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/digitalygo/smidja/internal/agent"
+	"github.com/digitalygo/smidja/internal/agents"
 	"github.com/digitalygo/smidja/internal/config"
 	"github.com/digitalygo/smidja/internal/content"
 	"github.com/digitalygo/smidja/internal/contextmanager"
@@ -410,6 +411,32 @@ func runChat(d *Deps, prompt, model, system, provider string, allowWorkspaceMCP 
 	rd.controller = controller
 	rd.resumedSession = continuePath != ""
 	rd.persistModel = newModelPersisterWithProviders(controller, cfg, providerRegistry, providerID, sysPrompt, catalog, toolSet, cfg.WorkspaceRoot, func() string { return snapshot.Fingerprint() })
+
+	agentCat := agents.NewCatalog(snapshot)
+	childExec, err := newChildExecutor(childExecutorConfig{
+		catalog:       agentCat,
+		parentCatalog: catalog,
+		sessionsRoot:  store.Root(),
+		cwd:           cwd,
+		cfg:           cfg,
+		modelReg:      modelReg,
+		providers:     providerRegistry,
+		baseClient:    client,
+		baseSeam:      baseSeam,
+		rootProvider:  providerID,
+		d:             d,
+		host:          host,
+		retryPolicy:   rd.retryPolicy,
+	})
+	if err != nil {
+		return fail(d, err)
+	}
+	bootstrap.agentSlot.set(func(ctx sdk.CommandContext, args string) error {
+		return handleAgentCommand(ctx, agentCat, childExec, host, skillOut, args)
+	})
+	bootstrap.subagentSlot.set(func(ctx context.Context, name, task string) agent.Result {
+		return runHostSubagent(ctx, childExec, host, name, task)
+	})
 
 	mode := sdk.ModeInteractive
 	if prompt != "" {

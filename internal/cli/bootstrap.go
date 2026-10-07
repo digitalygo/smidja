@@ -34,6 +34,9 @@ type extensionBootstrap struct {
 	toolsRegistered bool
 	promptSlot      *promptCommandSlot
 	promptCommand   string
+	agentSlot       *agentCommandSlot
+	agentCommand    string
+	subagentSlot    *subagentToolSlot
 }
 
 const customEventDrainJoinTimeout = 5 * time.Second
@@ -87,6 +90,10 @@ func bootstrapExtensions(d *Deps) (*extensionBootstrap, error) {
 		toolsRegistered = true
 	}
 	commands := extensions.NewCommandCatalog()
+	agentSlot := newAgentCommandSlot()
+	agentCommand := agentSlot.bind(commands)
+	subagentSlot := newSubagentToolSlot()
+	subagentSlot.bind(catalog)
 	uiRegistry := extensionui.NewRegistry()
 	flags := extensions.NewFlagRegistry(coreExtensionFlagNames...)
 	providers := extensions.NewProviderRegistry(reservedProviderNames()...)
@@ -141,6 +148,9 @@ func bootstrapExtensions(d *Deps) (*extensionBootstrap, error) {
 		toolsRegistered: toolsRegistered,
 		promptSlot:      promptSlot,
 		promptCommand:   promptCommand,
+		agentSlot:       agentSlot,
+		agentCommand:    agentCommand,
+		subagentSlot:    subagentSlot,
 	}, nil
 }
 

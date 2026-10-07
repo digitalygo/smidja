@@ -1,7 +1,7 @@
 ---
 status: completed
 created_at: 2026-10-06
-files_edited: [sdk/, internal/extensions/, internal/extensionui/, internal/tui/, internal/tui/interactive/, internal/ui/, internal/cli/, internal/config/, internal/content/, README.md, docs/sdk-ui.md, docs/tui.md, docs/themes.md, docs/keybindings.md, docs/settings.md, docs/auth.md, docs/sdk-parity-matrix.md, docs/tui-handoff.md, docs/transcript-search.md]
+files_edited: [sdk/, internal/extensions/, internal/extensionui/, internal/tui/, internal/tui/interactive/, internal/ui/, internal/cli/, internal/config/, internal/content/, internal/agents/, internal/agent/, internal/models/, internal/openrouter/, internal/tools/exec_direct.go, README.md, docs/agents.md, docs/prompts.md, docs/sdk-runtime.md, docs/sdk-ui.md, docs/tui.md, docs/themes.md, docs/keybindings.md, docs/settings.md, docs/auth.md, docs/sdk-parity-matrix.md, docs/tui-handoff.md, docs/transcript-search.md]
 updated_at: 2026-10-07
 rationale: [Resume preserved P5 work without discarding it, Complete P6 configuration and trusted interactive startup, Preserve print and non-TTY contracts]
 supporting_docs: [substrate/traces/plans/2026-09-14-smidja-tui-plan.md, substrate/traces/plans/2026-10-07-smidja-runtime-completion-plan.md, docs/tui-handoff.md, substrate/traces/plans/2026-08-24-smidja-harness-plan.md]
@@ -233,3 +233,35 @@ ThinkingDefault accurately represents provider control. Explicit request reasoni
 ### Validation steps
 
 Artifact `R3-6fcb8f8f49d3`, SHA-256 `6fcb8f8f49d351745709b140131f22c444b174fd05653c4a35550f10c2fbfe4a`, 45 files excluding traces, passed exact quality and focused security PASS with all file hashes verified. Leader reran formatting, vet/build, fresh six-package upstream tests, complete affected sequential race, 10 repeated model/mandatory/resume/event-close/flood/Setup-rollback regressions and four static builds. Twenty-six production files reach 83.3-100% changed instrumented-line and 88.9-100% overlapping-block statement coverage (`/tmp/smidja-r3-final.cover`). The latest full-suite failure is only the alpha-reproduced MCP restart flake. No original test was weakened, no ordinary code comments, no protected driver/schema or dependency change; no go.sum.
+
+## Update 2026-10-07: R4 agent runtime accepted
+
+### Summary of changes
+
+Resolved agent Markdown content is executable through `/agent` and the model-callable subagent tool. Child sessions, history, preparers, reasoning and recursion accounting are isolated; tools can only decrease relative to the immediate parent's live active view.
+
+### Technical reasoning
+
+Reuse existing content/trust, model wire/factory, loop, context manager and session primitives. Create and strictly open locked child files directly in the controlled subagent-sessions subtree, never transiently in the parent browser directory. Child loops do not reuse the parent extension dispatcher/API; internal progress remains available. Owned command turns, generation cancellation and delivery jobs prevent stale or canceled success. A security-blocking reactivation fallback was fixed by always substituting or denying the builtin delegation tool rather than resetting ancestry/depth through the root tool.
+
+### Impact assessment
+
+Agent packages are runtime-consumed; no new provider dialect, schema, required SDK signature or global turn/token cap. Native wire IDs and nested reasoning reach actual requests. Results are bounded and full artifacts private. Compiled extensions retain parent hooks and trusted overrides; independent child extension hosts are not claimed. Final installation and audit remain R5 work, and external/live acceptance remains explicit.
+
+### Validation steps
+
+Artifact R4-73c629342d64, SHA-256 `73c629342d6410a2ff184cb403e66487caf6bd8bf8fdf522514e5dfcf0867436`, 27 files excluding traces, passed repeated exact quality and focused security PASS. All hashes/membership verified. Leader reran formatting, vet/build, fresh affected/upstream tests, complete affected sequential race, ten repeated reactivation/nested/cancel/transport/generation cases, real PTY abort/cleanup and four static builds. Old tests were not weakened/deleted/skipped, stdlib-only dependencies unchanged, no go.sum. The latest full-suite failure is only the alpha-reproduced MCP restart flake.
+
+| R4 file | Changed instrumented lines | Overlapping-block statements |
+| --- | --- | --- |
+| internal/agents/catalog.go | 96.8% | 97.9% |
+| internal/agents/child_session.go | 83.8% | 88.1% |
+| internal/agents/definition.go | 87.2% | 89.8% |
+| internal/agents/executor.go | 89.2% | 91.4% |
+| internal/agents/tool.go | 93.5% | 95.1% |
+| internal/cli/agent_command.go | 86.5% | 89.4% |
+| internal/cli/agent_executor.go | 92.6% | 93.5% |
+| internal/cli/bootstrap.go | 100.0% | 100.0% |
+| internal/cli/chat.go | 92.0% | 87.5% |
+| internal/cli/host_model.go | 100.0% | 100.0% |
+| internal/cli/host_runtime.go | 87.3% | 92.0% |

@@ -305,7 +305,7 @@ func newModelPersisterWithProviders(controller *sessionController, cfg *config.C
 }
 
 func providerEntryClient(d *Deps, host *hostRuntime, registry *extensions.ProviderRegistry, provider string) (agent.Client, bool) {
-	if registry == nil || strings.TrimSpace(provider) == "" {
+	if d == nil || registry == nil || strings.TrimSpace(provider) == "" {
 		return nil, false
 	}
 	entry, ok := registry.Lookup(provider)

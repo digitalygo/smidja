@@ -120,6 +120,7 @@ type hostRuntime struct {
 
 	mu            sync.Mutex
 	generation    uint64
+	genDone       chan struct{}
 	handle        *hostSessionHandle
 	messages      []*agent.Message
 	entryIDs      []string
@@ -187,6 +188,7 @@ func newHostRuntime(ctx context.Context, cwd string, controller *sessionControll
 		controller:  controller,
 		catalog:     catalog,
 		compactJobs: map[*hostCompactJob]struct{}{},
+		genDone:     make(chan struct{}),
 		runCtx:      runCtx,
 		cancelRun:   cancelRun,
 	}
@@ -341,6 +343,10 @@ func (h *hostRuntime) bindSession(sess *session.Session, recorder agent.Recorder
 	h.mu.Lock()
 	if !h.closed.Load() {
 		h.generation++
+		if h.genDone != nil {
+			close(h.genDone)
+		}
+		h.genDone = make(chan struct{})
 		h.handle = &hostSessionHandle{
 			generation: h.generation,
 			sess:       sess,
@@ -556,6 +562,70 @@ func (h *hostRuntime) endTurn(canceled ...bool) error {
 		}
 	}
 	return deliveryErr
+}
+
+func (h *hostRuntime) sessionGenerationDone(handle *hostSessionHandle) <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if handle == nil || h.handle == nil || h.handle.generation != handle.generation {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+	return h.genDone
+}
+
+func watchSessionGeneration(done <-chan struct{}, cancel context.CancelFunc) func() {
+	if done == nil || cancel == nil {
+		return func() {}
+	}
+	finished := make(chan struct{})
+	settled := make(chan struct{})
+	go func() {
+		defer close(settled)
+		select {
+		case <-done:
+			cancel()
+		case <-finished:
+		}
+	}()
+	return func() {
+		close(finished)
+		<-settled
+	}
+}
+
+func (h *hostRuntime) runOwnedAgentTurn(signal context.Context, run func(context.Context) error) (resultErr error) {
+	if signal == nil {
+		signal = context.Background()
+	}
+	if err := signal.Err(); err != nil {
+		return err
+	}
+	h.loopMu.Lock()
+	defer h.loopMu.Unlock()
+	if h.closed.Load() {
+		return errHostClosed
+	}
+	handle := h.snapshot()
+	if handle == nil {
+		return errHostClosed
+	}
+	merged, cancel := mergeContext(signal, h.runContext())
+	defer cancel()
+	stopWatch := watchSessionGeneration(h.sessionGenerationDone(handle), cancel)
+	defer stopWatch()
+	turnCtx := withHostTurnCancel(merged, cancel)
+	h.beginTurn()
+	defer func() {
+		if err := h.endTurn(turnCtx.Err() != nil); resultErr == nil && err != nil {
+			resultErr = err
+		}
+	}()
+	if err := turnCtx.Err(); err != nil {
+		return err
+	}
+	return run(turnCtx)
 }
 
 func (h *hostRuntime) abort(signal context.Context) {

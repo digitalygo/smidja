@@ -4,7 +4,7 @@ Smidja has two interactive frontends. The TUI renders the transcript, editor, di
 
 ## Status
 
-Phases P0 to P7 of the TUI workstream are implemented on `feat/tui`. P6 at `b091d74` passed installed-binary checks in regular and fullscreen modes. P7's additive SDK adapters have passed independent tests and quality/security review. R2a and R2b are published through `52dd418`; the R3 runtime controls are uncommitted in the worktree, their gate has not run, nothing beyond `52dd418` is published, and the installed binary remains P7. Final installation and expanded runtime acceptance are tracked in the living TUI plan. The [SDK parity matrix](sdk-parity-matrix.md) tracks each row, and the [extension UI SDK documentation](sdk-ui.md) documents the surface.
+Phases P0 to P7 of the TUI workstream are implemented on `feat/tui`. P6 at `b091d74` passed installed-binary checks in regular and fullscreen modes. P7's additive SDK adapters have passed independent tests and quality/security review. R1 to R3 are published and synchronized through `24df52e`, and the R1 to R4 technical implementation is accepted after independent quality and security PASS. R4 agent content execution, including the `/agent` command and the model-callable `subagent` tool, is implemented in the uncommitted worktree; nothing beyond `24df52e` is published, and the installed binary remains P7 until the final R5 installation and audit. Final installation and expanded runtime acceptance are tracked in the living TUI plan. The [SDK parity matrix](sdk-parity-matrix.md) tracks each row, and the [extension UI SDK documentation](sdk-ui.md) documents the surface.
 
 ## Starting the TUI
 
@@ -91,10 +91,14 @@ Resolved prompt templates join the slash-command surface. `/prompt` lists the av
 
 - `/prompt` and its shorthands appear in `/help`, the command inventory, and editor autocomplete.
 - The canonical `/prompt` command is registered before extensions register theirs, so an extension command named `prompt` is reachable as `/prompt2`.
-- Names reserved for built-in commands, including the future `/agent`, never become shorthands; explicit `/prompt <name>` still runs them.
+- Names reserved for built-in commands, including `/agent`, never become shorthands; explicit `/prompt <name>` still runs them.
 - Workspace `.smidja/prompts` files join the workspace trust decision, the same as workspace skills and instructions.
 
 Argument parsing, expansion rules, and the expansion budget are documented in [prompt templates](prompts.md).
+
+## Agents
+
+`/agent` lists the resolved agent definitions and `/agent <name> <task>` runs one in an isolated child session. The TUI shows a subagent block while the child runs, with tool progress lines and a success or failure status, and Esc cancels the child through the owned turn. Definitions, the model-callable `subagent` tool, and the isolation guarantees are documented in [agents](agents.md). Print mode and `smidja run` keep `/agent ...` as literal input.
 
 ## Transcript search
 
@@ -169,4 +173,4 @@ The terminal framework implements raw mode, size handling, and resize for Linux 
 
 ## What remains
 
-P0-P7 source and isolated installed acceptance are complete. Fourteen SDK actions are backed in the composed CLI/TUI host: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `Exec`, `SendMessage`, `SendUserMessage`, `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent`. Agent content execution (R4) and final installation of the broader runtime head remain. Real-provider acceptance requires user-configured Smidja credentials and is not claimed. Extension keybinding registration stays outside the contract, and the 27 deferred Pi events stay with their runtime waves. The [SDK runtime](sdk-runtime.md) page documents the composed host rules, and the [SDK parity matrix](sdk-parity-matrix.md) records each row.
+P0-P7 source and isolated installed acceptance are complete. Fourteen SDK actions are backed in the composed CLI/TUI host: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `Exec`, `SendMessage`, `SendUserMessage`, `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent`. R4 agent content execution is implemented in the uncommitted worktree and accepted after independent quality and security PASS; final R5 installation and audit of the broader runtime head remain. Real-provider acceptance requires user-configured Smidja credentials and is not claimed. Extension keybinding registration stays outside the contract, and the 27 deferred Pi events stay with their runtime waves. The [SDK runtime](sdk-runtime.md) page documents the composed host rules, and the [SDK parity matrix](sdk-parity-matrix.md) records each row.

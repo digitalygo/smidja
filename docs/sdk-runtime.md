@@ -2,7 +2,7 @@
 
 The extension SDK runtime composes a per-session host view behind the frozen `sdk` contracts. On a composed CLI or TUI host, fourteen `sdk.API` methods run with real behavior: `SetActiveTools`, `AppendEntry`, `SetSessionName`, `LabelEntry`, `Exec`, `SendMessage`, `SendUserMessage`, `SetModel`, `SetThinkingLevel`, `RegisterProvider`, `RemoveProvider`, `RegisterFlag`, `Flags`, and `EmitCustomEvent`. A host binding adds the behavior; a bare API keeps the defaults: the error-returning methods above return `extensions.ErrUnavailable` (`extensions: API method not available in this release: <name>`), `Flags` returns an empty map placeholder, and the fallback handler context returns empty values. Custom event subscriptions are a separate optional interface, not part of the frozen `sdk.API`.
 
-R2a is published at `bb86387` and R2b at `52dd418`. The R3 corrected source is uncommitted in the retained candidate worktree; the R3 gate has not run, nothing beyond `52dd418` is published, and the installed binary remains P7. The [SDK parity matrix](sdk-parity-matrix.md) holds the row-level dispositions, and the [extension UI SDK](sdk-ui.md) covers the UI surface.
+R1 to R3 are published and synchronized through `24df52e`, and the R1 to R4 technical implementation is accepted after independent quality and security PASS. R4 agent content execution is implemented in the uncommitted worktree; nothing beyond `24df52e` is published, and the installed binary remains P7 until the final R5 installation and audit. The [SDK parity matrix](sdk-parity-matrix.md) holds the row-level dispositions with the accepted counts unchanged: 49 core and 16 print-mode rows implemented, 37 deferred. The agents runtime is behavior, not an `sdk.API` method, so it adds no parity row. The [extension UI SDK](sdk-ui.md) covers the UI surface.
 
 ## Composed contexts
 
@@ -257,7 +257,7 @@ The event bus is not the 27 typed Pi events. Those rows stay deferred to their o
 
 ## Abort and shutdown
 
-`Abort()` cancels the turn that owns the dispatch signal. A canceled turn drops pending steer, follow-up, and deferred deliveries and invalidates queued continuations; buffered next-turn deliveries stay until the session changes or the host shuts down. A context captured during an earlier turn carries that turn's cancel function and cannot abort a newer one. A context created outside a turn carries no cancel, so `Abort` does nothing.
+`Abort()` cancels the turn that owns the dispatch signal. A canceled turn drops pending steer, follow-up, and deferred deliveries and invalidates queued continuations; buffered next-turn deliveries stay until the session changes or the host shuts down. A context captured during an earlier turn carries that turn's cancel function and cannot abort a newer one. A context created outside a turn carries no cancel, so `Abort` does nothing. A direct `/agent` run owns the same turn slot, so `Abort`, a session rebind, and shutdown cancel its child stream the same way, and a canceled run persists no result.
 
 `Shutdown()` owns the run and is idempotent:
 
@@ -288,5 +288,5 @@ All fourteen declared API methods above are runtime-backed on a composed CLI or 
 - the bare API and the gateway build no host binding, so all fourteen keep the unavailable behavior and `Flags` keeps returning an empty map
 - `registerShortcut` has no SDK method and no current plan; extension keybinding registration stays outside the contract
 - the 27 deferred Pi events stay with their runtime waves and are not dispatched
-- agent content execution, the R4 phase, is not implemented; the existing subagent package is a compaction selector, not a coding-agent executor
+- agent content execution runs in the uncommitted R4 worktree: `/agent` and the model-callable `subagent` tool resolve definitions and run them in isolated child sessions, without adding an `sdk.API` method or a parity row. The existing `internal/subagent` package remains the compaction selector, not a coding-agent executor. See [agents](agents.md).
 - real-provider acceptance still needs user-configured credentials, and no live provider or external acceptance result is claimed here

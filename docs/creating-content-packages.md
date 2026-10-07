@@ -214,8 +214,8 @@ Defaults sit at the bottom of the config precedence, above only the compiled cor
 Markdown files under `skills`, `prompts`, and `agents` share the same constraints: no path segment may start with a dot, each file is capped at 100 KiB, and content must be valid UTF-8.
 
 - Skills are live: `skills/**/*.md` files become `/skill` entries, named by their path under the skills root minus the `.md` suffix.
-- Prompts are consumed: `/prompt` lists the resolved names or runs a template with text-only argument expansion, and non-conflicting names also register as shorthand commands. Print mode and `smidja run` expand a `/prompt` invocation before the turn and persist the expanded text. See [prompt templates](prompts.md) for the argument, expansion, and budget rules. The runtime consumption is implemented in the worktree and awaits its final validation gates and publication; the installed binary predates it.
-- Agents are validated and carried; `smidja pkg inspect` lists them as deferred until the subagent runtime consumes them.
+- Prompts are consumed: `/prompt` lists the resolved names or runs a template with text-only argument expansion, and non-conflicting names also register as shorthand commands. Print mode and `smidja run` expand a `/prompt` invocation before the turn and persist the expanded text. See [prompt templates](prompts.md) for the argument, expansion, and budget rules. The runtime consumption is implemented and accepted on the branch; the installed binary predates it.
+- Agents are consumed by the subagent runtime: `/agent` runs a named definition and the model-callable `subagent` tool delegates to one in an isolated child session. See [agents](agents.md). The runtime consumption is implemented and accepted on the branch; the installed binary predates it, so its `smidja pkg inspect` still shows the legacy deferred label, whose refresh is planned for R5 installation. The label does not describe the accepted R4 runtime.
 
 Content is resolved per tier: bundle, then trusted workspace, then user content in `~/.smidja`, then active packages, then core defaults. A package never overrides the user's own content at the same name.
 
