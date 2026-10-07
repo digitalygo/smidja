@@ -4,7 +4,7 @@ A prompt template is a markdown file that smidja resolves from the same content 
 
 ## Status
 
-Prompt templates are consumed by the runtime: `/prompt` lists the resolved names or runs a template with text-only argument expansion, non-conflicting names register as shorthand commands, and print mode and `smidja run` expand a `/prompt` invocation before the turn. Agent definitions resolve through the same content tiers and are executable through the agents runtime described in [agents](agents.md). The installed binary remains the P7 baseline and predates this runtime. The extension SDK host actions are documented separately in [SDK runtime](sdk-runtime.md).
+Prompt templates are consumed by the runtime: `/prompt` lists the resolved names or runs a template with text-only argument expansion, non-conflicting names register as shorthand commands, and print mode and `smidja run` expand a `/prompt` invocation before the turn. Agent definitions resolve through the same content tiers and are executable through the agents runtime described in [agents](agents.md), which the installed local test binary includes. The extension SDK host actions are documented separately in [SDK runtime](sdk-runtime.md).
 
 ## Where templates come from
 

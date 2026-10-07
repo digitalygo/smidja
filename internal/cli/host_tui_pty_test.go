@@ -176,3 +176,88 @@ func TestTUIRealPTYHostAbortAndShutdown(t *testing.T) {
 		t.Fatalf("alt screen lifecycle was not clean:\n%q", full)
 	}
 }
+
+func TestTUIRealPTYInitialThinkingLabelMatchesProviderDefault(t *testing.T) {
+	master, slave := smokePTYOpen(t)
+	capture := &smokePTYCapture{master: master}
+	workspace := t.TempDir()
+	home := t.TempDir()
+	store := wiringStore(t)
+	sess, err := store.Create(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	registry := models.NewRegistry()
+	registry.Register("test/model", models.ModelInfo{
+		ID:            "test/model",
+		ContextWindow: 4096,
+		Provider:      "openrouter",
+		Reasoning:     models.ReasoningInfo{Known: true, Supported: true, EffortSelection: true},
+	})
+	hookRuntime := extensions.NewRuntime(extensions.NewRegistry())
+	catalog := extensions.NewToolCatalog()
+	host := newHostRuntime(context.Background(), workspace, nil, catalog)
+	api := extensions.NewAPI(extensions.APIOptions{Catalog: catalog, Host: host.hostOptions()})
+	host.bindAPI(api)
+	host.setModelRegistry(registry)
+	host.setModel(registry, "test/model", "test/model", "openrouter")
+	host.setReasoningSeam(true)
+	host.setSystem("be terse")
+	host.setWindow(128000)
+	host.bindSession(sess, &sessionRecorder{sess}, sess.ID(), sess.Path(), workspace, "")
+	hookRuntime.SetAPI(func() sdk.API { return api })
+	hookRuntime.SetContext(func() sdk.HandlerContext { return host.context() })
+	if err := hookRuntime.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var depsStderr bytes.Buffer
+	var rdStdout bytes.Buffer
+	var rdStderr bytes.Buffer
+	deps := &Deps{
+		Env:    envFrom(nil),
+		Getwd:  func() (string, error) { return workspace, nil },
+		Home:   func() string { return home },
+		Stdin:  slave,
+		Stdout: slave,
+		Stderr: &depsStderr,
+	}
+	rd := &runDeps{
+		model:       "test/model",
+		system:      "be terse",
+		sessionPath: sess.Path(),
+		client:      &capturingClient{},
+		recorder:    &sessionRecorder{sess},
+		stdout:      &rdStdout,
+		stderr:      &rdStderr,
+		hooks:       hookRuntime.Dispatcher(),
+		catalog:     catalog,
+		commands:    extensions.NewCommandCatalog(),
+		host:        host,
+		handlerContext: func(signal context.Context) sdk.HandlerContext {
+			return hookRuntime.HandlerContext(signal)
+		},
+	}
+	lineUI := ui.New(deps.Stdin, deps.Stdout, deps.Stderr, sdk.ModeInteractive)
+	factory := func(io.Reader, io.Writer) tui.Terminal {
+		return tui.NewProcessTerminal(slave, slave)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runTUI(context.Background(), deps, rd, lineUI, ui.TUIModeFullscreen, workspace, workspace, nil, factory, hookRuntime, nil)
+	}()
+	capture.waitFor(t, tui.AltScreenEnter, 5*time.Second)
+	capture.waitFor(t, "test/model • default", 5*time.Second)
+	if strings.Contains(capture.snapshot(), "test/model • off") {
+		t.Fatalf("initial footer claimed reasoning was off:\n%q", capture.snapshot())
+	}
+	smokePTYWrite(t, master, "/quit\r")
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runTUI: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runTUI did not exit after /quit")
+	}
+}

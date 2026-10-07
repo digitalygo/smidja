@@ -640,6 +640,7 @@ func runTUI(ctx context.Context, d *Deps, rd *runDeps, lineUI *ui.LineUI, mode u
 	surface.SetWorkspace(workspace)
 	surface.SetSessionName(rd.sessionPath)
 	surface.SetRenderMetadata(interactive.RenderMetadata{Cwd: workspace, SessionID: rd.sessionPath, Model: rd.model})
+	bridge.syncThinkingLabel()
 	if initial != nil {
 		bridge.replaySession(initial)
 	}
@@ -723,6 +724,15 @@ func (b *tuiBridge) tuiHostLifecycle(runner *ui.Runner) hostLifecycle {
 				surface.SetThinkingLevel(level)
 			}
 		},
+	}
+}
+
+func (b *tuiBridge) syncThinkingLabel() {
+	if b == nil || b.rd == nil || b.rd.host == nil || b.runner == nil {
+		return
+	}
+	if surface := b.runner.Surface(); surface != nil {
+		surface.SetThinkingLevel(string(b.rd.host.currentThinking()))
 	}
 }
 

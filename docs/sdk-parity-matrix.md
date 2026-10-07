@@ -13,8 +13,9 @@ implemented on `feat/tui`: custom components, message, entry, and
 Markdown renderers, an editor component factory, autocomplete providers,
 terminal input hooks, header, footer, and component widgets, editor
 accessors, theme enumeration, and tools-expanded state. P7 source and
-adapters passed independent code and review gates; installation and
-final runtime acceptance are tracked separately in the living TUI plan. Existing
+adapters passed independent code and review gates, and final runtime
+acceptance passed against the installed local test binary; the branch is
+not merged. Existing
 `sdk.UI` signatures are unchanged; the new surface is optional through
 `sdk.ExtendedUI` and `sdk.UIRegistrationAPI`, documented in
 [extension UI SDK](sdk-ui.md).
@@ -36,9 +37,9 @@ context keeps its empty values, and the gateway builds no host binding.
 `registerShortcut` is the only remaining signature-frozen row without a
 runtime path, and it still has no SDK method.
 
-R1 to R4 are implemented and published on `feat/tui` through `fc5b7dc`.
-The final R5 installation and acceptance are pending, so the installed
-binary remains the P7 baseline without this runtime.
+R1 to R5 are implemented on `feat/tui`, and the installed local test
+binary includes the runtime. The branch is not merged, and [pull request
+#1](https://github.com/digitalygo/smidja/pull/1) is open.
 
 ## Disposition legend
 

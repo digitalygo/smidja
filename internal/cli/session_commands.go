@@ -244,6 +244,7 @@ func (b *tuiBridge) installSessionDisplayState(next *activeSession) {
 			b.rd.host.attachPreparer(next.preparer)
 			provider := modelProviderFor(b.rd.providers, b.rd.provider, next.model)
 			b.rd.host.setModel(b.rd.modelRegistry, next.model, next.wireModel, provider)
+			b.syncThinkingLabel()
 		}
 	}
 	b.history = next.history
@@ -264,6 +265,7 @@ func (b *tuiBridge) restoreSessionDisplayState(state sessionDisplayState) {
 			b.rd.host.bindSession(state.sess, state.recorder, state.sess.ID(), state.sessionPath, b.rd.cwd, state.name)
 			b.rd.host.attachPreparer(state.preparer)
 			b.rd.host.setModel(b.rd.modelRegistry, state.model, state.wireModel, b.rd.provider)
+			b.syncThinkingLabel()
 		}
 	}
 	b.history = state.history

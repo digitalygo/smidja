@@ -2,7 +2,13 @@
 
 ## Current state (2026-10-07)
 
-P0 to P7 are implemented on `feat/tui`, and the runtime completion slices R1 to R4 are published through `fc5b7dc`. The installed binary remains the P7 baseline and predates the runtime completion; final R5 installation and acceptance are pending. Current surface documentation is in [Smidja TUI](tui.md), [Agents](agents.md), [SDK runtime](sdk-runtime.md), and the [SDK parity matrix](sdk-parity-matrix.md). The [living TUI plan](../substrate/traces/plans/2026-09-14-smidja-tui-plan.md) holds the P0-P7 baseline and checkpoints, and the [runtime completion plan](../substrate/traces/plans/2026-10-07-smidja-runtime-completion-plan.md) holds the R1-R5 execution ledger.
+P0 to P7 are implemented on `feat/tui`, and the runtime completion slices R1 to R5 are implemented on the same branch. The R5 closure refreshed agent availability labels and completed installed acceptance. The local test binary is installed at `/home/luca/.local/bin/smidja`: version `v0.3.0-tui.1`, static `CGO_ENABLED=0`, origin `github.com/digitalygo/smidja`, built with `-trimpath` and `vcs.modified=false`. Source acceptance was verified at checkpoint `0e83d72531c235163e335a241ca3baf6832cf5f6`; it is a historical checkpoint, and a metadata-only reinstall after the doc-only closure commits changes only the embedded revision, not the runtime.
+
+Independent acceptance ran 197 checks across 9 scenarios, all first pass with no retries: 7 scenarios against the actual installed binary and 2 against compiled public SDK consumer bundles outside the worktree. All model traffic used local fixtures only, with no live provider credentials and no Pi credential reuse. Live-provider and external creator acceptance remain pending. The branch is not merged: [pull request #1](https://github.com/digitalygo/smidja/pull/1) is open. `smidja update` replaces this local prerelease with the public release, so wait until user testing concludes before updating. Final identity and readback live in the pull request, the TUI operation record, and the living plans.
+
+Affected-package race tests passed, along with vet, build, gofmt, and the four static release builds; the latest full suite shows only the known alpha flakes `internal/mcp.TestListToolsRetryOnceAfterRestart` and `internal/session.TestListNewestFirst`, outside the delta. Per-file coverage on the affected execution paths measured 80.2% to 100%, and the R5 label refresh measured 100%. The runtime completion introduced no dependency additions and no `go.sum`, and no protected-schema, driver, or root-package changes.
+
+Current surface documentation is in [Smidja TUI](tui.md), [Agents](agents.md), [Prompts](prompts.md), [SDK runtime](sdk-runtime.md), [Creating content packages](creating-content-packages.md), and the [SDK parity matrix](sdk-parity-matrix.md). The [TUI operation record](../substrate/traces/operations/2026-10-06-smidja-tui-implementation.md) holds the implementation record, the [living TUI plan](../substrate/traces/plans/2026-09-14-smidja-tui-plan.md) holds the P0-P7 baseline and checkpoints, and the [runtime completion plan](../substrate/traces/plans/2026-10-07-smidja-runtime-completion-plan.md) holds the R1-R5 execution ledger.
 
 Everything after this note is the September 2026 historical record. Its published SHAs, phase status, installed-binary identity, and process, provider, and quota notes describe that moment. They are preserved as history and are superseded by the current state above and the living plans.
 
@@ -93,7 +99,7 @@ A real PTY test used a temporary deterministic OpenRouter-compatible fixture. It
 
 Coverage at the final wiring gate was 90.3% for TUI, 96.5% for interactive, 97.2% for UI, and 86.9% for CLI. The quality and security verdicts were PASS.
 
-The locally installed binary still comes from this commit:
+At this checkpoint the locally installed binary came from this commit:
 
 ```text
 path: /home/luca/.local/bin/smidja
@@ -375,11 +381,11 @@ The previous hourly monitor job was `c2aff3066c5a`. It is paused. Resume or repl
 - Mandatory reviewer loops found real lifecycle, terminal, security, and concurrency defects. Keep them when quota permits, but do not let an unavailable optional reviewer erase or strand a deterministically verified phase.
 - The published branch is large: 76,342 inserted lines across 251 files. Most of that is behavior-mapped test coverage. Review and publication should use immutable file manifests or exact commit SHAs rather than a mutable worktree.
 
-## Current limitations and cautions
+## Historical limitations and cautions (September 2026)
 
 - Candidate A passes the focused package suite, but P5 has not passed its final full, race, coverage, quality, security, publication, or installed-binary gates.
 - Candidate B is incomplete and untested as a whole.
-- The installed binary is older than the published branch and must not be used as evidence for P3 or P4 behavior.
+- The installed binary at that time was older than the published branch and must not be used as evidence for P3 or P4 behavior.
 - GitHub reports no CI checks for the pull request. Local validation is the only recorded executable evidence so far.
-- The main worktree includes an uncommitted living-plan update describing P4 publication and P5 architecture. Preserve and commit it with the next accepted phase.
+- The main worktree at that time included an uncommitted living-plan update describing P4 publication and P5 architecture.
 - Known historical flakes included `internal/mcp.TestListToolsRetryOnceAfterRestart` and `internal/session.TestListNewestFirst`; later phase gates did pass the complete suite. Reproduce any recurrence on `origin/alpha` before classifying it as pre-existing.

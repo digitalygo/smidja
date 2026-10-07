@@ -14,15 +14,15 @@ last_updated_at: 2026-10-07
 
 ## Current execution snapshot
 
-- **Status:** In progress. R1-R4 are published and synchronized; R5 label/docs audit is accepted and final installation is next.
+- **Status:** In progress. R1-R5 source is published and installed acceptance passes; the final truthful initial-thinking display correction is accepted and awaits publication/reinstall.
 - **Baseline identity:** `2026-10-07-smidja-runtime-completion-plan`, version 1, authored by the orchestrator after read-only repository analysis.
 - **Execution baseline:** Approved branch `feat/tui` at `80f29353f48116a8c4191709064f19d4402ef718`, matching origin and open PR 1 against `alpha`. Main worktree was clean before these trace updates.
 - **Active phase:** R5: final audit, source publication, exact installed identity and actual-process acceptance.
-- **Last verified checkpoint:** 2026-10-07T20:44:04+02:00, R4 publication and R5 label/audit independently verified.
+- **Last verified checkpoint:** 2026-10-07T21:31:42+02:00, first installed 197-check acceptance and final thinking-display correction independently verified.
 - **Last successful checks:** R4 formatting, diff checks, vet/build, fresh affected/upstream tests, full affected race, ten reactivation/nested/cancellation/transport/generation regressions, real PTY abort/cleanup and four static builds pass. Eleven executable delta files reach 83.8-100% changed instrumented-line and 87.5-100% overlapping-block statement coverage. Repeated quality and focused security verdicts are PASS.
 - **Open blockers:** No R4 code-review blocker remains. Final audit/install/acceptance is pending; live-provider credentials and genuine external creator acceptance remain external limitations.
 - **Required approvals and gates:** Preserve the approved branch and PR, no merge/tag/release/package publication, no other repository modifications. Every behavioral slice needs independent delta tests, upstream coverage at least 80%, delegated quality judgment, focused security review when applicable, commit/push and exact remote/PR readback. Installation is only the authorized local test binary; tests use temporary homes and isolated fixtures.
-- **Next action:** Publish the accepted R5 agent-label/docs corrections, atomically install the exact clean pushed head, and independently execute all final actual-binary/public-SDK scenarios before closure.
+- **Next action:** Publish the accepted initial-thinking display correction and closure docs, install the new exact pushed head, and repeat all 197 installed-process checks before the trace-only final closure.
 
 ## Planner baseline
 
@@ -297,6 +297,16 @@ last_updated_at: 2026-10-07
 - **Decision and impact:** Publish coherent final source/docs corrections, then install and execute independent acceptance with no automatic P7 retry on the first full run. Any failed check remains visible and must be investigated rather than accepted from smoke self-report. The only remaining expected external constraints are configured-provider credentials and a genuinely external creator.
 - **Next action:** Commit/push chore(cli): refresh agent availability labels, install exact head with /tmp/smidja-runtime-install-20261007.sh, and run /tmp/smidja-runtime-acceptance-20261007.py against the installed binary and separate SDK consumers.
 
+
+#### Checkpoint 2026-10-07T21:31:42+02:00: installed runtime acceptance and truthful display correction
+
+- **Event:** R5 source-label/docs work is published and installed at 0e83d72531c235163e335a241ca3baf6832cf5f6. The complete installed battery passes; one final display-only inconsistency discovered in its frames is corrected and gated.
+- **Planner prediction:** Prove actual installed behavior, not only internal test factories, with independent identity and clean resources.
+- **Subagent claims:** Installer verifies static release flags, unique backup and atomic replacement; temporary acceptance tooling adds runtime flows while preserving P7 checks and separating SDK consumers. The label correction syncs initial and activated/restored session surfaces to actual host thinking state.
+- **Orchestrator finding:** Both scripts were read completely and the leader ran the full harness against the actual installed target with automatic retries disabled. Initial footer off was misleading while the host returned ThinkingDefault and the request omitted reasoning; the correction reuses the existing display setter without changing request behavior, enums or bare Footer defaults. This restores agreed truthful display rather than adding scope.
+- **Independently verified facts:** First installed binary SHA-256 335660ef3f1b2e2c223e1262cf7767595fb454c101494336a839727eeea729ae, exact version v0.3.0-tui.1, origin github.com/digitalygo/smidja and source commit 0e83d72, CGO zero/static/trimpath/vcs.modified=false. Report /tmp/smidja-runtime-independent-first-installed-report.json SHA-256 738d7afd3e35105c9d4d762d4ffdcf8dd5066876836d0ceb84f9ff222500c1cf passes 197 checks across nine scenarios on the first attempt, zero retries/failures; seven are installed-binary scenarios and two distinct public SDK consumers. Owned sandboxes/consumer trees/processes are gone. Full affected aggregate race passes; unchanged release script builds all four static targets with verified checksums. Latest uncached full suite fails only alpha-reproduced MCP restart and session timestamp-order flakes. Thinking artifact R5-thinking-f892aad7b7bb, SHA-256 f892aad7b7bbe0ee83c64269ed2247357628dd13273e61911a9e81a88a96706c, four files, has quality PASS, fresh CLI/UI/TUI normal/race and actual initial-label PTY PASS; changed blocks are 100% covered. Security N/A for purely UI labels with no new foundational/API/secret behavior.
+- **Decision and impact:** Keep known baseline flakes explicit and do not borrow credentials. Publish the tiny truthful display correction with completed public docs, reinstall and rerun the unchanged full acceptance battery. Do not attribute earlier installed checks to the uninstalled correction.
+- **Next action:** Publish fix(tui): reflect the host thinking state, then exact-head install and full no-retry acceptance.
 
 ## Plan-variation ledger
 

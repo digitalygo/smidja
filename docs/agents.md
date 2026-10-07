@@ -4,7 +4,7 @@ An agent definition is a markdown file that gives a child assistant its own iden
 
 ## Status
 
-Agent execution is implemented on the `feat/tui` branch and published through `fc5b7dc`. The runtime adds behavior, not an `sdk.API` method, so the SDK parity counts stay at 49 core and 16 print-mode rows implemented with 37 deferred. The installed binary remains the P7 baseline and predates this runtime, so it has no `/agent` command and no `subagent` tool; final installation and acceptance are pending. Live-provider credentials and external creator acceptance are still pending, and this page claims no live-provider result.
+Agent execution is implemented on the `feat/tui` branch and included in the installed local test binary: the `/agent` command and the model-callable `subagent` tool run definitions in isolated child sessions. The branch is not merged, and [pull request #1](https://github.com/digitalygo/smidja/pull/1) is open. The runtime adds behavior, not an `sdk.API` method, so the SDK parity counts stay at 49 core and 16 print-mode rows implemented with 37 deferred. Acceptance ran against local fixtures only; live-provider credentials and external creator acceptance are still pending, and this page claims no live-provider result.
 
 ## Where definitions come from
 
@@ -210,7 +210,6 @@ The independent gate covered the whole 27-file R4 artifact (review manifest SHA-
 
 ## Limits
 
-- The installed binary remains the P7 baseline and does not include the agents runtime: it has no `/agent` command and no host `subagent` tool until the final installation.
 - The `/agent` command is not available in print mode or `smidja run`; those paths treat the input as literal prompt text.
 - `smidja pkg inspect` lists a package's agent files as plain relative filenames, whether the package is active or only installed. The listing is not validation and does not promise the definitions run; the subagent runtime consumes agent content only while the package is active.
 - External provider credentials and external creator acceptance are pending, so no live-provider run is claimed here.
