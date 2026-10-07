@@ -1,7 +1,7 @@
 ---
 document_type: mycelium-plan
 plan_id: 2026-10-07-smidja-runtime-completion-plan
-status: in-progress
+status: completed
 created_at: 2026-10-07
 planner: orchestrator
 baseline_version: 1
@@ -14,15 +14,15 @@ last_updated_at: 2026-10-07
 
 ## Current execution snapshot
 
-- **Status:** In progress. R1-R5 source is published and installed acceptance passes; the final truthful initial-thinking display correction is accepted and awaits publication/reinstall.
+- **Status:** Completed for the assigned technical R1-R5 scope. Source, installation and independent acceptance are verified; genuine external/live criteria remain explicitly unperformed.
 - **Baseline identity:** `2026-10-07-smidja-runtime-completion-plan`, version 1, authored by the orchestrator after read-only repository analysis.
 - **Execution baseline:** Approved branch `feat/tui` at `80f29353f48116a8c4191709064f19d4402ef718`, matching origin and open PR 1 against `alpha`. Main worktree was clean before these trace updates.
-- **Active phase:** R5: final audit, source publication, exact installed identity and actual-process acceptance.
-- **Last verified checkpoint:** 2026-10-07T21:31:42+02:00, first installed 197-check acceptance and final thinking-display correction independently verified.
+- **Active phase:** None. Technical phases R1-R5 are complete; only external acceptance and doc-only publication identity readback remain.
+- **Last verified checkpoint:** 2026-10-07T21:41:26+02:00, corrected installed source and all 197 acceptance checks independently pass.
 - **Last successful checks:** R4 formatting, diff checks, vet/build, fresh affected/upstream tests, full affected race, ten reactivation/nested/cancellation/transport/generation regressions, real PTY abort/cleanup and four static builds pass. Eleven executable delta files reach 83.8-100% changed instrumented-line and 87.5-100% overlapping-block statement coverage. Repeated quality and focused security verdicts are PASS.
-- **Open blockers:** No R4 code-review blocker remains. Final audit/install/acceptance is pending; live-provider credentials and genuine external creator acceptance remain external limitations.
+- **Open blockers:** None for assigned technical code. A real-provider test needs user-configured credentials; external creator acceptance needs an independent actor. No such acceptance is claimed.
 - **Required approvals and gates:** Preserve the approved branch and PR, no merge/tag/release/package publication, no other repository modifications. Every behavioral slice needs independent delta tests, upstream coverage at least 80%, delegated quality judgment, focused security review when applicable, commit/push and exact remote/PR readback. Installation is only the authorized local test binary; tests use temporary homes and isolated fixtures.
-- **Next action:** Publish the accepted initial-thinking display correction and closure docs, install the new exact pushed head, and repeat all 197 installed-process checks before the trace-only final closure.
+- **Next action:** Publish this trace-only closure, rebuild/reinstall with its final metadata identity and repeat the unchanged acceptance battery. Update/read back PR 1 at that final SHA; do not merge or update the local prerelease before user testing.
 
 ## Planner baseline
 
@@ -308,6 +308,16 @@ last_updated_at: 2026-10-07
 - **Decision and impact:** Keep known baseline flakes explicit and do not borrow credentials. Publish the tiny truthful display correction with completed public docs, reinstall and rerun the unchanged full acceptance battery. Do not attribute earlier installed checks to the uninstalled correction.
 - **Next action:** Publish fix(tui): reflect the host thinking state, then exact-head install and full no-retry acceptance.
 
+#### Checkpoint 2026-10-07T21:41:26+02:00: complete corrected installed runtime accepted
+
+- **Event:** The last executable correction is committed/pushed as 3811f638e61326bba30d7e91c3d75b3120fa7010, fix(tui): reflect the host thinking state, installed and independently accepted. R1-R5 technical phases are complete.
+- **Planner prediction:** Close with exact published/installed identity, actual process behavior, accurate limitations and no live temporary resources.
+- **Subagent claims:** Installer atomically replaces only the authorized local binary, with a unique backup and verified static identity. No claim from a worker substitutes for acceptance.
+- **Orchestrator finding:** The leader reran the full unchanged battery against the installed target with no automatic retries. Real frames now show fixture/model-one • default rather than false off. Two public SDK consumer bundles remain explicitly separate from the installed-binary attribution. Every assigned source feature is implemented; intentional future Pi waves and gateway/bare availability contracts are not unfinished assigned work.
+- **Independently verified facts:** Main/origin/OPEN PR 1 and installed identity agree at 3811f638e61326bba30d7e91c3d75b3120fa7010; worktree is clean. Installed SHA-256 655674c5c5fa2365414f083f9662ccbb9255b35f73087c1530dace58c4ab6a9b, version v0.3.0-tui.1, origin github.com/digitalygo/smidja, static CGO zero, trimpath and clean VCS metadata. Report /tmp/smidja-runtime-independent-corrected-installed-report.json has SHA-256 29d14f61f8667bb7a9bc6f88d8fb14aec97ba69358010801506c831a85700e6e and passes 197 checks/9 scenarios first attempt, zero retries/failures. Owned temp and consumer directories are absent, no test process remains. Final aggregate affected race and four checked release builds pass. The complete uncached suite retains only independently baseline-proven MCP restart and session timestamp-order failures. All per-slice executable delta files reach at least 80% in both metrics; final labels are 100%; Markdown N/A.
+- **Decision and impact:** Close technical scope without pretending the fixtures prove real-provider or independent-creator acceptance. Publish the final trace-only record and refresh embedded metadata to its new HEAD; code is unchanged, and the final PR/report records exact identity after another full battery. No merge, tag, release, dependency addition or package publication.
+- **Next action:** Doc-only closure publication, metadata-only reinstall, final 197-check no-retry rerun and PR evidence/readback.
+
 ## Plan-variation ledger
 
 No variations yet.
@@ -316,12 +326,12 @@ No variations yet.
 
 ### Final outcome
 
-Not complete.
+R1-R5 assigned technical work is complete. The final executable source checkpoint is 3811f638e61326bba30d7e91c3d75b3120fa7010, committed, pushed, installed and independently accepted. The trace-only closure commit is followed by an exact-head metadata reinstall and PR/report readback, not a code change. Real-provider and independent external-creator acceptance remain explicitly outside this technical closure and unperformed.
 
 ### Quality and security evidence
 
-Not started for runtime-completion slices. P7 accepted baseline evidence is in the separate TUI plan.
+R1, R2a, R2b, R3 and R4 have independent deterministic evidence and exact quality/focused-security PASS in their checkpoints, including rejected findings and correction loops. R5 label and truthful-display slices have quality PASS and 100% delta coverage; focused security N/A because these slices change only UI/copy presentation. Source-level static builds, fresh upstream tests and final aggregate race pass. Latest full-suite failures are only the alpha-reproduced MCP/session flakes; no test was weakened to hide them. Final corrected installed acceptance is 197 checks with attribution and limitations recorded above.
 
 ### Operation record
 
-The existing TUI operation record owns completed P5-P7 slices. Runtime completion will append its verified outcomes or use a separate record only if combining history would confuse scope.
+The [Smidja TUI implementation operation record](../operations/2026-10-06-smidja-tui-implementation.md) preserves completed P5-P7 history and appended R1-R5 evidence. Public docs and PR 1 expose the current technical availability without duplicating the immutable planner baseline.

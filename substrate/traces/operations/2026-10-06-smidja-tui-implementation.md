@@ -265,3 +265,45 @@ Artifact R4-73c629342d64, SHA-256 `73c629342d6410a2ff184cb403e66487caf6bd8bf8fdf
 | internal/cli/chat.go | 92.0% | 87.5% |
 | internal/cli/host_model.go | 100.0% | 100.0% |
 | internal/cli/host_runtime.go | 87.3% | 92.0% |
+
+## Update 2026-10-07: R5 technical closure and installed runtime
+
+### Summary of changes
+
+All assigned P0-P7 and R1-R5 technical work is published and installed on feat/tui; PR 1 remains open against alpha, unmerged. R5 corrects legacy package-inspect agent labels, stale availability docs and the initial provider-default thinking display. The original broad harness ecosystem still needs genuine external-creator acceptance, and live-provider acceptance still needs configured credentials.
+
+### Technical reasoning
+
+Source acceptance and installed identity are separate evidence. The actual binary uses release-shape flags, static CGO zero, trimpath and a clean VCS revision. Two separately compiled public SDK consumer bundles prove public composition without falsely attributing extensions to the core installed binary. Test credentials are synthetic and traffic stays on isolated local fixtures, not another harness's credentials or a real provider.
+
+### Impact assessment
+
+Current source checkpoint is 3811f638e61326bba30d7e91c3d75b3120fa7010, after the final truthful-display fix. This trace-only closure is followed by a metadata-only reinstall to its final HEAD and PR/report readback; runtime source is unchanged. All 14 assigned hosted SDK actions are real, prompt/agent content is consumed, and the parity matrix explicitly keeps 37 future capabilities deferred (49 core +16 print-mode implemented out of 102). Bare/gateway and unsupported platform/transport contracts remain honest. No schema, provider-driver, root-package-system or dependency rewrite belongs to these slices. `smidja update` replaces the local prerelease with the public release; wait for user testing.
+
+### Validation steps
+
+- Leader independently read generated installer and acceptance scripts completely, then ran the full installed battery with automatic retries disabled.
+- Corrected installed source: version v0.3.0-tui.1, origin github.com/digitalygo/smidja, commit 3811f638e61326bba30d7e91c3d75b3120fa7010, SHA-256 655674c5c5fa2365414f083f9662ccbb9255b35f73087c1530dace58c4ab6a9b. Go metadata proves static CGO zero, trimpath and vcs.modified=false.
+- Report /tmp/smidja-runtime-independent-corrected-installed-report.json, SHA-256 29d14f61f8667bb7a9bc6f88d8fb14aec97ba69358010801506c831a85700e6e: 197 checks, nine scenarios, zero failures/retries, all first pass. Seven scenarios exercise the installed binary, two exercise distinct public SDK consumers. Counts are regular 17, fullscreen core 9, model selector 14, sessions 28, fullscreen UI 26, UI SDK consumer 22, run/prompt 17, agents 26 and runtime SDK consumer 38.
+- Real flows prove multiline streaming/read tools, model-wire changes, replay/fork/new-session chains, colors/dialogs/search/Markdown/image fallback, pure-text template expansion and no TUI in one-shot mode, direct and nested agent child files, live capability restriction, SDK flags/events/snapshots/exec/session writes/delivery/reasoning max/off/default and private custom-provider routing.
+- Last executable artifact R5-thinking-f892aad7b7bb, manifest SHA-256 f892aad7b7bbe0ee83c64269ed2247357628dd13273e61911a9e81a88a96706c, four source/test files: quality PASS, fresh CLI/UI/TUI normal and sequential race, real initial-label PTY PASS. Changed display blocks are 100% covered. R5 package label blocks are also 100% covered, with exact JSON and active/inactive filename tests; artifact R5-label-5e0b39a757c4 has SHA-256 5e0b39a757c45906dd69eac75b078b0e6550772b223237ae183abb43cafa1334 and quality PASS. Security N/A for these UI/copy-only slices.
+- Final aggregate affected-package race, formatting, vet/build and all four static release builds/checksums pass. Every executable phase has at least 80% per-file delta coverage; docs and declarations N/A. The latest uncached complete suite fails only baseline-proven internal/mcp.TestListToolsRetryOnceAfterRestart and internal/session.TestListNewestFirst. These are not hidden, skipped or fixed in unrelated work.
+- No owned test process, fixture server, descriptor, sandbox or consumer tree remains. Main/origin/PR/install equality is verified at the source checkpoint and refreshed after doc-only publication. Protected session/provider/gateway/package/updater paths and go.mod are unchanged; no go.sum. The `.github/.ai-telemetry-ignore` difference from alpha predates this completion session.
+
+### Rendered frame excerpt
+
+This sanitized text comes from the actual corrected installed agent scenario, not a mocked component:
+
+```text
+[subagent outer tier=workspace origin=<workspace>/.smidja/agents depth=1
+model=fixture/model-one]
+fixture outer answer 81
+[subagent session: <session-dir>/subagent-sessions/<parent-id>/<cwd-shard>/<child>.jsonl]
+fixture root followup answer 83
+fixture/model-one • default
+ctrl+o tools · shift+tab thinking · ctrl+l model
+```
+
+### Explicit acceptance limits
+
+Fixture coverage is not a live-provider pass or an external clean-room creator. The live installed nested chain reaches depth two; the absolute depth-four and cycle refusal boundaries are covered by R4 tests, not claimed as separate five-level installed scenarios. All required hosted methods have composed tests; this public consumer battery does not exhaust every API/mode combination. Linux is executed; Darwin/arm64 targets are cross-compiled, not run on this workstation. Historical P5 alternative worktrees remain preserved and are not active unfinished product phases.

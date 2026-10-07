@@ -17,12 +17,12 @@ last_updated_at: 2026-10-07
 - **Status:** P0-P7 technical implementation, publication and isolated installed-runtime acceptance are complete. Final real-provider acceptance is blocked by missing Smidja credential configuration, not an unimplemented TUI phase.
 - **Baseline identity:** `2026-09-14-smidja-tui-plan`, baseline version 1, planner handoff date 2026-09-14.
 - **Execution baseline:** Current session resumed from `5d15ed0` on approved `feat/tui`, preserving unfinished P5. P6 code and docs are gated against published P5 baseline `1a9f71a83a212105f1c98e433d842f3a03a5a8d9`.
-- **Active phase:** Final configured-provider acceptance. Broader runtime-completion work continues in its separate living plan.
-- **Last verified checkpoint:** Checkpoint 2026-10-07T02:51:14+02:00, published P7 installed binary and separate public SDK consumer passed 116 independently rerun acceptance checks.
+- **Active phase:** Final configured-provider acceptance only. Broader R1-R5 technical work is complete in its separate living plan.
+- **Last verified checkpoint:** Checkpoint 2026-10-07T21:41:26+02:00, complete corrected runtime at 3811f638e61326bba30d7e91c3d75b3120fa7010 and two separate public SDK consumers pass 197 independently rerun checks.
 - **Last successful checks:** P7 formatting, diff checks, vet, build, fresh upstream-instrumented tests, complete affected race suite, 10 repeated real-wrapper/editor/OSC8 regression sets, four static release builds and 14 PTY tests passed. All 28 executable delta files reach 83.9-100% changed instrumented-line and 85-100% overlapping-block statement coverage. Full-suite failures remain the independently alpha-reproduced MCP/session flakes.
-- **Open blockers:** The real configured-model request/change/request criterion has not been exercised: Smidja settings/auth files and the default OpenRouter environment key were absent when inspected. Local fixtures prove model switching and actual wire IDs, not a live-provider pass. External ecosystem acceptance belongs to the harness plan and still requires an independent creator. Full-suite attempts expose unchanged MCP restart and session timestamp-order flakes, independently reproduced on untouched `origin/alpha`; all P5 delta tests pass. External ecosystem acceptance still requires an independent creator.
+- **Open blockers:** The real configured-model request/change/request criterion remains unperformed without user-configured Smidja credentials. Local fixtures prove real wire IDs and model switching, not a live-provider pass. External ecosystem acceptance belongs to the harness plan and still needs an independent creator. Known alpha MCP restart and session timestamp-order flakes are out-of-scope signals; all mapped delta tests and aggregate affected race tests pass.
 - **Required approvals and gates:** Deterministic validation and delegated quality judgment after each executable phase; focused security review for foundational terminal, input, filesystem, hook, and public SDK slices; push and pull request readback after each phase; local install and smoke test after minimal P2 wiring and again in P6; no merge.
-- **Next action:** Obtain user-configured Smidja provider credentials before the small real-provider acceptance check. Do not borrow Pi credentials or create an auth record without authorization. Continue assigned technical runtime work through `substrate/traces/plans/2026-10-07-smidja-runtime-completion-plan.md` and rerun installed acceptance after its final head.
+- **Next action:** Obtain user-configured Smidja provider credentials for the small live acceptance check; do not borrow Pi credentials or create auth records. The completed runtime plan publishes its trace-only closure and refreshes final installed metadata/PR readback without code changes.
 
 ## Planner baseline
 
@@ -551,6 +551,16 @@ git diff origin/alpha -- go.mod | wc -l
 - **Decision and impact:** Mark P0-P7 implementation phases complete and keep final live acceptance explicitly blocked. The broad follow-up has its own immutable baseline and ledger rather than altering this one. Updating PR evidence and final installed identity will include later runtime completion.
 - **Next action:** Execute the runtime-completion plan; complete the live criterion only with genuinely configured credentials.
 
+#### Checkpoint 2026-10-07T21:41:26+02:00: runtime completion preserves and extends installed TUI acceptance
+
+- **Event:** R1-R5 source, publication and installed-process acceptance are complete at the corrected source checkpoint 3811f638e61326bba30d7e91c3d75b3120fa7010. All P0-P7 technical phases remain accepted.
+- **Planner prediction:** The final binary must preserve the TUI behavior and identity gates as additional runtime work lands, while genuine live/provider criteria remain separate.
+- **Subagent claims:** The separate runtime plan records prompt/run, hosted SDK actions/mailbox/registries, isolated agent execution and final label corrections with all required quality/security outcomes.
+- **Orchestrator finding:** Both temporary scripts were read in full and the actual installed battery independently rerun without retries. Actual-binary scenarios and public SDK consumers remain distinct. The last correction fixes a misleading initial off label with no request/API semantic change; frames now show provider default truthfully.
+- **Independently verified facts:** Main/origin/OPEN PR 1 and installed metadata match 3811f63, version v0.3.0-tui.1, origin github.com/digitalygo/smidja. Static installed SHA-256 655674c5c5fa2365414f083f9662ccbb9255b35f73087c1530dace58c4ab6a9b. Report /tmp/smidja-runtime-independent-corrected-installed-report.json SHA-256 29d14f61f8667bb7a9bc6f88d8fb14aec97ba69358010801506c831a85700e6e passes all 197 checks in nine scenarios on the first attempt. All mapped normal/upstream and final affected aggregate race checks pass, four static release checksums verify, zero dependencies added/go.sum absent, and test resources are removed. Full suite exposes only baseline-proven MCP/session flakes.
+- **Decision and impact:** Keep this plan blocked solely for genuine live acceptance rather than claim fixtures replace it. Its immutable planner baseline and all prior checkpoints stay intact. The runtime plan closes assigned technical work and appends final metadata-only publication evidence to PR 1; nothing is merged/released.
+- **Next action:** Trace-only closure/readback, then wait for authorized configured-provider and external creator acceptance.
+
 ## Plan-variation ledger
 
 ### Variation V-001: resume from Hermes-selected P0 without another race
@@ -620,11 +630,11 @@ git diff origin/alpha -- go.mod | wc -l
 
 ### Final outcome
 
-P0-P7 technical implementation is committed, pushed and independently installed-runtime verified at `80f29353f48116a8c4191709064f19d4402ef718`. Nothing is merged or released. Final configured-provider acceptance is blocked by absent credentials; local fixtures do not waive that criterion. Additional runtime work is tracked in the separate runtime-completion plan.
+P0-P7 and the separately tracked R1-R5 technical work are committed, pushed and independently installed-runtime verified at source checkpoint 3811f638e61326bba30d7e91c3d75b3120fa7010. Nothing is merged or released. A trace-only closure updates embedded commit metadata afterward, with final identity readback in PR 1. Configured-provider acceptance remains blocked without credentials; local fixtures do not waive that criterion.
 
 ### Quality and security evidence
 
-Every accepted executable slice has independent deterministic evidence and delegated quality/security PASS recorded in its checkpoint. P5, P6 and P7 review manifests and per-file coverage are preserved in the linked operation record. Known alpha MCP/session flakes remain honestly reported outside these deltas. Final isolated acceptance passes 116 checks with actual-binary and public-SDK-consumer attribution separated.
+Every accepted executable slice has independent deterministic evidence and delegated quality/security PASS recorded in its checkpoint. P5, P6 and P7 review manifests and per-file coverage are preserved in the linked operation record. Known alpha MCP/session flakes remain honestly reported outside these deltas. Final isolated acceptance passes 197 checks with actual-binary and public-SDK-consumer attribution separated; the original P7 116-check result remains preserved in its historical checkpoint.
 
 ### Operation record
 
