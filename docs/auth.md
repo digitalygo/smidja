@@ -114,6 +114,14 @@ openrouter-oauth         oauth     configured (store)
 
 The status values are `configured (env)`, `configured (store)`, `configured (env + store)`, and `not configured`. The `env` part reflects the provider environment variable, the `store` part the entry in `~/.smidja/auth.json`.
 
+## Startup sign-in in the TUI
+
+The interactive TUI runs the provider login flow during startup when a supported OAuth provider is selected and no credential is found. This covers the store keys from the table above, such as `openrouter-oauth`, `anthropic-oauth`, `codex`, `xai-subscription`, and `kimi-coding-oauth`, plus the friendly names `anthropic`, `codex`, `xai`, and `kimi`. The plain `openrouter` id and name are not part of this flow: they use the API-key client and resolve through `OPENROUTER_API_KEY`, so missing that key fails at request time instead of prompting. API-key providers without an OAuth login also fail at request time when their key is missing.
+
+The sign-in dialog shows the provider, the verification URL and user code for device flows, or waits for the browser callback, and accepts a pasted authorization code through masked input. Press `Esc` or `ctrl+c` to cancel. The flow has a five-minute deadline; a cancel, timeout, or failure stores nothing and ends the startup. On success smidja writes the credential to `~/.smidja/auth.json` and continues into the session. Credentials never render in the dialog frames.
+
+The prompt appears only on a real interactive TTY start. Print mode (`-p`) and non-TTY sessions never run it; they resolve credentials the same way as the rest of smidja and fail at request time when none is configured.
+
 ## Selecting a provider at runtime
 
 The chat commands accept a provider override:
@@ -130,6 +138,12 @@ Without `-provider`, smidja uses the default OpenRouter client built from the co
 - OAuth access tokens are refreshed lazily inside the retry loop's produce path: each request resolves the token from the store, refreshes it before expiry through the provider's refresh endpoint, and persists the refreshed entry back.
 
 When `-provider` is given and neither `-model` nor `SMIDJA_MODEL` is set, the model defaults to the provider's default model. Set `-model` explicitly to override it.
+
+## Extension-registered providers
+
+Extensions can register a provider at runtime through the SDK. These registrations are in memory for the run only and never touch `~/.smidja/auth.json`. The API key lives in the runtime registry, is sent to the configured endpoint as `Authorization: Bearer <key>`, and never appears in session files, logs, flag values, the system prompt, or error messages. Validation errors redact URL user info, query strings, and fragments before they are reported.
+
+Only the `openai-completions` dialect is accepted. Registered models join the model registry and the `/model` selector, and their turns route to `<base URL>/chat/completions` through the same completions client used by the built-in providers. Removing the provider that backs the active or pending model is refused until another model is selected.
 
 ## Tokens never leave the machine
 

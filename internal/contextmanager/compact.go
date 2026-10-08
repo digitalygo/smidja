@@ -37,12 +37,14 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 
 	var cands []*agent.Message
 	var candRefs []string
+	var candIndexes []int
 	for i := 0; i < keepStart; i++ {
 		if messages[i] == nil || pinnedMessage(messages[i], pinned) {
 			continue
 		}
 		cands = append(cands, messages[i])
 		candRefs = append(candRefs, refs[i])
+		candIndexes = append(candIndexes, i)
 	}
 	if len(cands) == 0 {
 		return messages, nil, nil
@@ -105,6 +107,25 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 		}
 	}
 
+	partners := toolPairPartners(messages)
+	keptIdx := make([]bool, len(messages))
+	for i := range messages {
+		if i >= keepStart || messages[i] == nil || pinnedMessage(messages[i], pinned) {
+			keptIdx[i] = true
+		}
+	}
+	for j, ref := range candRefs {
+		if _, ok := keptSet[ref]; ok {
+			keptIdx[candIndexes[j]] = true
+		}
+	}
+	keptIdx = closeToolPairs(keptIdx, partners)
+	for j, index := range candIndexes {
+		if keptIdx[index] {
+			keptSet[candRefs[j]] = struct{}{}
+		}
+	}
+
 	var dropped []string
 	for _, r := range candRefs {
 		if _, ok := keptSet[r]; !ok {
@@ -115,29 +136,25 @@ func (m *Manager) compact(ctx context.Context, system string, messages []*agent.
 		return messages, nil, nil
 	}
 
+	anchor := compactionAnchor(keptIdx, partners)
+	if anchor < 0 {
+		return messages, nil, nil
+	}
+
 	keptMsgs := make([]*agent.Message, 0, len(messages)-len(dropped))
-	firstKept := ""
 	for i := 0; i < keepStart; i++ {
 		msg := messages[i]
 		if msg == nil || pinnedMessage(msg, pinned) {
 			keptMsgs = append(keptMsgs, msg)
-			if firstKept == "" {
-				firstKept = refs[i]
-			}
 			continue
 		}
 		if _, ok := keptSet[refs[i]]; !ok {
 			continue
 		}
 		keptMsgs = append(keptMsgs, msg)
-		if firstKept == "" {
-			firstKept = refs[i]
-		}
 	}
 	keptMsgs = append(keptMsgs, messages[keepStart:]...)
-	if firstKept == "" && len(keptMsgs) > 0 && keepStart < len(messages) {
-		firstKept = refs[keepStart]
-	}
+	firstKept := refs[anchor]
 
 	var summary json.RawMessage
 	var err error
@@ -205,6 +222,93 @@ func pinnedMessage(msg *agent.Message, pinned map[agent.ToolCallID]struct{}) boo
 		}
 	}
 	return false
+}
+
+func toolPairPartners(messages []*agent.Message) map[int][]int {
+	callIndex := make(map[string]int)
+	resultIndex := make(map[string]int)
+	for i, message := range messages {
+		if message == nil {
+			continue
+		}
+		if message.Assistant != nil {
+			for _, block := range message.Assistant.Content {
+				if block.Type != agent.BlockTypeToolCall || block.ID == "" {
+					continue
+				}
+				if _, exists := callIndex[block.ID]; !exists {
+					callIndex[block.ID] = i
+				}
+			}
+		}
+		if message.ToolResult != nil && message.ToolResult.ToolCallID != "" {
+			if _, exists := resultIndex[message.ToolResult.ToolCallID]; !exists {
+				resultIndex[message.ToolResult.ToolCallID] = i
+			}
+		}
+	}
+	partners := make(map[int][]int)
+	for id, call := range callIndex {
+		result, ok := resultIndex[id]
+		if !ok || result == call {
+			continue
+		}
+		partners[call] = append(partners[call], result)
+		partners[result] = append(partners[result], call)
+	}
+	return partners
+}
+
+func closeToolPairs(kept []bool, partners map[int][]int) []bool {
+	queue := make([]int, 0, len(kept))
+	for index, ok := range kept {
+		if ok {
+			queue = append(queue, index)
+		}
+	}
+	for len(queue) > 0 {
+		index := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		for _, partner := range partners[index] {
+			if !kept[partner] {
+				kept[partner] = true
+				queue = append(queue, partner)
+			}
+		}
+	}
+	return kept
+}
+
+func compactionAnchor(kept []bool, partners map[int][]int) int {
+	anchor := -1
+	for index, ok := range kept {
+		if ok {
+			anchor = index
+			break
+		}
+	}
+	if anchor < 0 {
+		return -1
+	}
+	for {
+		reduced := false
+		for index, list := range partners {
+			for _, partner := range list {
+				low, high := index, partner
+				if low > high {
+					low, high = high, low
+				}
+				if low < anchor && anchor <= high {
+					anchor = low
+					reduced = true
+				}
+			}
+		}
+		if !reduced {
+			break
+		}
+	}
+	return anchor
 }
 
 func chunkCandidates(cands []*agent.Message, candRefs []string, chunkTokens int64) [][]subagent.Candidate {

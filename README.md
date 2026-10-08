@@ -25,6 +25,8 @@ Content precedence, highest first: bundle > trusted workspace > user content in 
 
 Fasi 0-4 are complete, and the Fase 5 technical creator tooling is now available: the creator guides for compiled bundles and content packages plus the public [smidja-bundle-template](https://github.com/digitalygo/smidja-bundle-template) are published, the public [smidja-packages](https://github.com/digitalygo/smidja-packages) package catalog is available for discovery, and real external clean-room creator validation is still pending.
 
+The interactive TUI is a separate workstream on the `feat/tui` branch. Phases P0 to P7 and the runtime completion slices R1 to R5 are implemented there. P7 adds the extension-facing UI surface: custom components, message, entry, and Markdown renderers, a custom editor, autocomplete providers, terminal input hooks, footer and header hooks, editor text accessors, theme enumeration, and tools-expanded state. The runtime completion adds one-shot `smidja run` and prompt templates, the composed extension host contexts and delivery mailbox, the model, thinking, provider, flag, and event controls, isolated agent execution through `/agent` and the model-callable `subagent` tool, and the R5 agent availability label refresh. The local test binary is installed with this runtime and passed independent acceptance against local fixtures, with no live provider credentials and no reuse of Pi credentials. Final identity and readback live in the pull request, the operation record, and the living plans. The work is not merged into `alpha`: [pull request #1](https://github.com/digitalygo/smidja/pull/1) is open. `smidja update` replaces this local prerelease with the public release, so wait until user testing concludes before updating. Print mode and non-TTY sessions keep the legacy line interface. See the [SDK parity matrix](docs/sdk-parity-matrix.md) for what is runtime-backed and what stays deferred, and the [SDK runtime](docs/sdk-runtime.md) page for the composed host rules.
+
 - Fase 0 (spike): a working Go harness on OpenRouter with streaming, tools, and Pi-aligned JSONL sessions, benchmarked against Pi (see `docs/benchmarks/phase-0.md`).
 - Fase 1 (internal MVP): smart context management, extension hooks, `smidja import` for Pi sessions, and deterministic self-update.
 - Fase 2 (distribution): extended providers through the API-key manifest and OAuth flows, the GitHub release pipeline, the brew formula, and `smidja pkg` installs from public repositories.
@@ -37,6 +39,14 @@ Final gate details and the phase-by-phase execution ledger live in the plan unde
 
 - [Auth](docs/auth.md): how provider credentials work, `smidja auth` commands, where tokens live
 - [Settings](docs/settings.md): the settings files, supported fields, and configuration precedence
+- [Prompts](docs/prompts.md): prompt templates, invocation, argument expansion, and the expansion budget
+- [Agents](docs/agents.md): agent definition files, the `/agent` command, the model-callable subagent tool, child session isolation, and bounded results
+- [TUI](docs/tui.md): TTY selection, renderer modes, flags, sessions, search, images, trust, and sign-in
+- [Extension UI SDK](docs/sdk-ui.md): the optional `ExtendedUI` and `UIRegistrationAPI` surfaces, component lifecycle, renderers, editor and terminal hooks
+- [SDK runtime](docs/sdk-runtime.md): the composed extension host contexts, backed session, tool, model, thinking, provider, flag, and event actions, direct exec bounds, and lifecycle rules
+- [Themes](docs/themes.md): theme files, required tokens, selection, and hot reload
+- [Keybindings](docs/keybindings.md): action IDs, defaults, and user overrides
+- [Transcript search](docs/transcript-search.md): search budgets and the wrap-boundary limitation
 - [Brew tap](docs/brew.md): installing and upgrading through the public [digitalygo/homebrew-smidja](https://github.com/digitalygo/homebrew-smidja) tap
 - [Providers manifest](docs/providers-manifest.md): the frozen API-key provider catalogue
 - [Creating compiled bundles](docs/creating-bundles.md): the bundle template, the `sdk.Bundle` contract, build identity, and release assets

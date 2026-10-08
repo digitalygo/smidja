@@ -78,6 +78,10 @@ type ToolCatalog interface {
 	Get(name string) (Tool, bool)
 }
 
+type ActiveToolCatalog interface {
+	GetActive(name string) (Tool, bool)
+}
+
 type RetryPolicy struct {
 	Enabled bool
 

@@ -8,4 +8,7 @@
 # Local secrets
 /.env
 
+# Agent workspace state
+substrate/traces/status/
+
 tmp/

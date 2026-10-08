@@ -219,7 +219,7 @@ func runGatewayServer(d *Deps, opts gatewayServerOptions) error {
 		window = modelWindow(modelReg, cfg.Model)
 	}
 	selector := subagent.NewOpenRouterSelector(client)
-	preparer, err := newContextPreparer(*cfg, window, selector)
+	preparer, err := newContextPreparer(*cfg, window, cfg.Model, selector)
 	if err != nil {
 		return fail(d, err)
 	}

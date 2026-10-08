@@ -112,6 +112,7 @@ func (r CatalogRecord) Info() ModelInfo {
 		ID:            fullID,
 		ContextWindow: lenientInt64(r.ContextWindow),
 		Provider:      provider,
+		Reasoning:     parseReasoningMetadata(r.Reasoning, nil),
 	}
 }
 

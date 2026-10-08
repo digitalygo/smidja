@@ -38,6 +38,10 @@ type Settings struct {
 	CompactionEnabled *bool
 
 	ModelsCatalogURL *string
+
+	Theme *string
+
+	TUIMode *string
 }
 
 func ParseSettings(data []byte) (*Settings, error) {
@@ -60,6 +64,12 @@ func ParseSettings(data []byte) (*Settings, error) {
 		return nil, err
 	}
 	if out.ModelsCatalogURL, err = settingsString(fields, "modelsCatalogUrl"); err != nil {
+		return nil, err
+	}
+	if out.Theme, err = settingsTheme(fields); err != nil {
+		return nil, err
+	}
+	if out.TUIMode, err = settingsTUIMode(fields); err != nil {
 		return nil, err
 	}
 	if out.Retry, err = settingsRetry(fields); err != nil {
@@ -127,6 +137,12 @@ func (s *Settings) envMap() map[string]string {
 	}
 	if s.ModelsCatalogURL != nil {
 		m[envModelsCatalogURL] = *s.ModelsCatalogURL
+	}
+	if s.Theme != nil {
+		m[envTheme] = *s.Theme
+	}
+	if s.TUIMode != nil {
+		m[envTUIMode] = *s.TUIMode
 	}
 	if s.Retry.Enabled != nil {
 		m[envRetry] = strconv.FormatBool(*s.Retry.Enabled)
@@ -244,6 +260,37 @@ func settingsObject(fields map[string]json.RawMessage, key string) (map[string]j
 		return nil, fmt.Errorf("field %q: want an object", key)
 	}
 	return sub, nil
+}
+
+func settingsTheme(fields map[string]json.RawMessage) (*string, error) {
+	value, err := settingsString(fields, "theme")
+	if err != nil || value == nil {
+		return nil, err
+	}
+	setting, err := ParseThemeSetting(*value)
+	if err != nil {
+		return nil, fmt.Errorf("field %q: %w", "theme", err)
+	}
+	trimmed := strings.TrimSpace(*value)
+	if setting.Empty() {
+		trimmed = ""
+	}
+	return &trimmed, nil
+}
+
+func settingsTUIMode(fields map[string]json.RawMessage) (*string, error) {
+	value, err := settingsString(fields, "tuiMode")
+	if err != nil || value == nil {
+		return nil, err
+	}
+	mode, err := normalizeTUIMode(*value)
+	if err != nil {
+		return nil, fmt.Errorf("field %q: %w", "tuiMode", err)
+	}
+	if mode == "" {
+		return nil, nil
+	}
+	return &mode, nil
 }
 
 func settingsRetry(fields map[string]json.RawMessage) (RetrySettings, error) {

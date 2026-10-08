@@ -761,6 +761,8 @@ func TestCompactNothingToCompact(t *testing.T) {
 
 func TestCompactPinnedCandidatesProtected(t *testing.T) {
 	msgs := []*agent.Message{
+		userMsg(strings.Repeat("o", 300)),
+		userMsg(strings.Repeat("o", 300)),
 		asstCall("pin1", "read", `{}`),
 		toolResult("pin1", "read", strings.Repeat("P", 300), false),
 		asstCall("gone1", "read", `{}`),
@@ -790,11 +792,17 @@ func TestCompactPinnedCandidatesProtected(t *testing.T) {
 	if !res.Compacted {
 		t.Fatalf("expected compaction")
 	}
-	if res.Messages[0] != msgs[0] || res.Messages[1] != msgs[1] {
+	if res.Messages[0] != msgs[2] || res.Messages[1] != msgs[3] {
 		t.Fatalf("pinned pair must survive: got %p %p", res.Messages[0], res.Messages[1])
 	}
 	if res.Messages[1].ToolResult.Content[0].Text == PrunePlaceholder {
 		t.Fatalf("pinned result pruned")
+	}
+	if res.Messages[2] != msgs[4] {
+		t.Fatalf("splitting fallback must keep the tool call beside its kept result")
+	}
+	if res.Messages[3].ToolResult == nil || res.Messages[3].ToolResult.ToolCallID != "gone1" {
+		t.Fatalf("the kept result must remain paired with the kept call")
 	}
 }
 

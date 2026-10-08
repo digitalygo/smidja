@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/digitalygo/smidja/internal/agent"
 	"github.com/digitalygo/smidja/internal/buildinfo"
@@ -17,6 +18,7 @@ import (
 	"github.com/digitalygo/smidja/internal/packages"
 	"github.com/digitalygo/smidja/internal/providers/oauth"
 	"github.com/digitalygo/smidja/internal/session"
+	"github.com/digitalygo/smidja/internal/ui"
 	"github.com/digitalygo/smidja/internal/update"
 	"github.com/digitalygo/smidja/sdk"
 )
@@ -115,25 +117,15 @@ func run(args []string, d *Deps) error {
 		return runSubcommand(args[0], args[1:], d)
 	}
 
-	fs := flag.NewFlagSet("smidja", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.Usage = func() {}
-	var (
-		prompt       string
-		model        string
-		system       string
-		provider     string
-		continuePath string
-		version      bool
-	)
-	fs.StringVar(&prompt, "p", "", "run one turn with the given prompt and exit")
-	fs.StringVar(&model, "model", "", "override the configured model")
-	fs.StringVar(&system, "system", "", "override the default system prompt")
-	fs.StringVar(&provider, "provider", "", "select the provider driver (manifest id or OAuth provider)")
-	fs.StringVar(&continuePath, "continue", "", "resume the session at the given path or id")
-	fs.BoolVar(&version, "version", false, "print the version and exit")
-	var allowWorkspaceMCP bool
-	fs.BoolVar(&allowWorkspaceMCP, "allow-workspace-mcp", false, "spawn MCP servers defined in the workspace .smidja/mcp.json")
+	bootstrap, err := bootstrapExtensions(d)
+	if err != nil {
+		return fail(d, err)
+	}
+	defer bootstrap.close()
+
+	var opts rootOptions
+	fs := newRootFlagSet(&opts)
+	bootstrap.flags.Apply(fs)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage(d.Stderr)
@@ -143,9 +135,16 @@ func run(args []string, d *Deps) error {
 		printUsage(d.Stderr)
 		return err
 	}
-	if version {
+	bootstrap.flags.Capture(fs)
+	if opts.version {
 		fmt.Fprintf(d.Stdout, "smidja %s\n", versionFor(d))
 		return nil
+	}
+	if err := validateTUIModeFlag(opts.tuiModeFlag, d); err != nil {
+		return err
+	}
+	if err := validateThemeFlag(opts.useThemeFlag, d); err != nil {
+		return err
 	}
 	if fs.NArg() > 0 {
 		err := fmt.Errorf("unexpected argument %q", fs.Arg(0))
@@ -153,12 +152,30 @@ func run(args []string, d *Deps) error {
 		printUsage(d.Stderr)
 		return err
 	}
-	if provider != "" && model == "" && d.Env("SMIDJA_MODEL") == "" {
-		if def, ok := providerDefaultModel(provider); ok {
-			model = def
-		}
+	defaultProviderModel(&opts, d)
+	return runChat(d, opts.prompt, opts.model, opts.system, opts.provider, opts.allowWorkspaceMCP, opts.continuePath, opts.tuiModeFlag, opts.useThemeFlag, bootstrap)
+}
+
+func validateTUIModeFlag(value string, d *Deps) error {
+	if _, err := ui.ParseTUIMode(value); err != nil {
+		fmt.Fprintf(d.Stderr, "smidja: %v\n", err)
+		printUsage(d.Stderr)
+		return err
 	}
-	return runChat(d, prompt, model, system, provider, allowWorkspaceMCP, continuePath)
+	return nil
+}
+
+func validateThemeFlag(value string, d *Deps) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	if _, err := config.ParseThemeSetting(value); err != nil {
+		wrapped := fmt.Errorf("smidja: --use-theme: %w", err)
+		fmt.Fprintf(d.Stderr, "%v\n", wrapped)
+		printUsage(d.Stderr)
+		return wrapped
+	}
+	return nil
 }
 
 func versionFor(d *Deps) string {
@@ -211,7 +228,7 @@ func runSubcommand(name string, args []string, d *Deps) error {
 	case "gateway":
 		return runGateway(args, d)
 	case "run":
-		return fail(d, fmt.Errorf("%s: not implemented yet", name))
+		return runRun(args, d)
 	default:
 		return fail(d, fmt.Errorf("unknown subcommand %q", name))
 	}
@@ -237,6 +254,15 @@ flags:
   -model string   override the configured model (default: SMIDJA_MODEL)
   -provider id    select the provider driver (default: openrouter)
   -system string  override the default system prompt
+  -tui-mode mode  select the interactive renderer (regular|fullscreen)
+                  (default: regular or the configured tuiMode; used only
+                  when stdin and stdout are terminals, otherwise the line
+                  interface is used)
+  -use-theme name[/name]
+                  set the interactive theme for this run: a single theme
+                  name, or lightTheme/darkTheme to follow the terminal
+                  background (used only when stdin and stdout are
+                  terminals)
   -version        print "smidja <version>" and exit
   -allow-workspace-mcp
                   spawn MCP servers defined in .smidja/mcp.json
@@ -248,7 +274,8 @@ subcommands:
   import   import Pi sessions into the session store
   pkg      manage optional packages (install, list, inspect, activate,
            deactivate, update, verify, uninstall)
-  run      run a single turn, not implemented yet
+  run      run one turn with a prompt and exit; the prompt is either the
+           positional argument or -p prompt
   update   update the harness binary from GitHub releases
   version  print the version; use --json for the full build identity
 `)

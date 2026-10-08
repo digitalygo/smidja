@@ -166,7 +166,7 @@ func runPkgInspect(args []string, d *Deps) error {
 	}
 	fmt.Fprintf(d.Stdout, "files: %d\n", info.Files)
 	for _, a := range info.Agents {
-		fmt.Fprintf(d.Stdout, "agent: %s (deferred)\n", a)
+		fmt.Fprintf(d.Stdout, "agent: %s\n", a)
 	}
 	return nil
 }
@@ -504,8 +504,8 @@ commands:
                     print the config defaults diff and offer to activate it
   list [--json]     list installed packages, marking the active ones
   inspect <id> [--version v] [--json]
-                    show manifest details; agent files are listed as
-                    deferred until the subagent runtime lands
+                    show manifest details; the subagent runtime consumes
+                    agent files only while the package is active
   activate <id> [--version v]
                     activate an installed package
   deactivate <id> [--version v]

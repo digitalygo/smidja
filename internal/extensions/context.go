@@ -43,6 +43,8 @@ func (c *defaultContext) SystemPrompt() string { return "" }
 
 type noopUI struct{}
 
+var NoopUI sdk.UI = noopUI{}
+
 var _ sdk.UI = noopUI{}
 
 func (noopUI) Notify(string, sdk.NotifyKind) {}

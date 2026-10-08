@@ -62,7 +62,7 @@ func TestParseSettingsEmptyObject(t *testing.T) {
 func TestParseSettingsIgnoresUnsupportedFields(t *testing.T) {
 	s, err := ParseSettings([]byte(`{
 		"unknownTop": 42,
-		"theme": {"dark": true},
+		"unknownThemeConfig": {"dark": true},
 		"retry": {"enabled": true, "bogus": "x"},
 		"compaction": {"enabled": false, "model": "m"}
 	}`))
@@ -88,6 +88,8 @@ func TestParseSettingsRejectsNullValues(t *testing.T) {
 		{"defaultModel null", `{"defaultModel": null}`, `field "defaultModel": must not be null`},
 		{"sessionDir null", `{"sessionDir": null}`, `field "sessionDir": must not be null`},
 		{"modelsCatalogUrl null", `{"modelsCatalogUrl": null}`, `field "modelsCatalogUrl": must not be null`},
+		{"theme null", `{"theme": null}`, `field "theme": must not be null`},
+		{"tuiMode null", `{"tuiMode": null}`, `field "tuiMode": must not be null`},
 		{"retry null", `{"retry": null}`, `field "retry": must not be null`},
 		{"compaction null", `{"compaction": null}`, `field "compaction": must not be null`},
 		{"retry.enabled null", `{"retry": {"enabled": null}}`, `field "retry.enabled": must not be null`},
@@ -111,7 +113,7 @@ func TestParseSettingsRejectsNullValues(t *testing.T) {
 func TestParseSettingsIgnoresUnknownNullValues(t *testing.T) {
 	s, err := ParseSettings([]byte(`{
 		"unknownTop": null,
-		"theme": null,
+		"unknownTheme": null,
 		"retry": {"enabled": true, "bogus": null},
 		"compaction": {"enabled": false, "model": null}
 	}`))

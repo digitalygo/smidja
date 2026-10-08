@@ -14,6 +14,7 @@ type InstructionsOptions struct {
 	WorkspaceRoot string
 	UserHome      string
 	MaxBytes      int64
+	SkipWorkspace bool
 }
 
 type Instructions struct {
@@ -45,12 +46,14 @@ func DiscoverInstructions(cwd string, opts InstructionsOptions) (Instructions, e
 			break
 		}
 	}
-	if p, ok := findProjectInstructions(cwd, opts.WorkspaceRoot); ok {
-		content, err := readBounded(p, max)
-		if err != nil {
-			return Instructions{}, err
+	if !opts.SkipWorkspace {
+		if p, ok := findProjectInstructions(cwd, opts.WorkspaceRoot); ok {
+			content, err := readBounded(p, max)
+			if err != nil {
+				return Instructions{}, err
+			}
+			instr.Project = content
 		}
-		instr.Project = content
 	}
 	if opts.UserHome != "" {
 		global := filepath.Join(opts.UserHome, ".smidja", "AGENTS.md")
@@ -59,6 +62,11 @@ func DiscoverInstructions(cwd string, opts InstructionsOptions) (Instructions, e
 		}
 	}
 	return instr, nil
+}
+
+func HasProjectInstructions(cwd, workspaceRoot string) bool {
+	_, ok := findProjectInstructions(cwd, workspaceRoot)
+	return ok
 }
 
 func (i Instructions) Suffix() string {

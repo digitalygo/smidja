@@ -43,6 +43,8 @@ const (
 	envContextKeepRecentMessages  = "SMIDJA_CONTEXT_KEEP_RECENT_MESSAGES"
 	envContextSelectorChunkTokens = "SMIDJA_CONTEXT_SELECTOR_CHUNK_TOKENS"
 	envContextSelectorModel       = "SMIDJA_CONTEXT_SELECTOR_MODEL"
+	envTheme                      = "SMIDJA_THEME"
+	envTUIMode                    = "SMIDJA_TUI_MODE"
 )
 
 type Config struct {
@@ -91,6 +93,10 @@ type Config struct {
 	ContextSelectorChunkTokens int64
 
 	ContextSelectorModel string
+
+	Theme string
+
+	TUIMode string
 
 	env             func(string) string
 	dotenv          map[string]string
@@ -192,6 +198,15 @@ func LoadWithSources(env func(string) string, getwd func() (string, error), home
 		return def
 	}
 
+	themeValue := strings.TrimSpace(value(envTheme, ""))
+	if _, err := ParseThemeSetting(themeValue); err != nil {
+		return nil, fmt.Errorf("config: %s: %w", envTheme, err)
+	}
+	tuiModeValue, err := normalizeTUIMode(value(envTUIMode, tuiModeRegular))
+	if err != nil {
+		return nil, fmt.Errorf("config: %s: %w", envTUIMode, err)
+	}
+
 	return &Config{
 		Model:                      value(envModel, defaultModel),
 		Provider:                   value(envProvider, ""),
@@ -216,6 +231,8 @@ func LoadWithSources(env func(string) string, getwd func() (string, error), home
 		ContextKeepRecentMessages:  intAtLeastZero(value(envContextKeepRecentMessages, "")),
 		ContextSelectorChunkTokens: int64AtLeastZero(value(envContextSelectorChunkTokens, "")),
 		ContextSelectorModel:       value(envContextSelectorModel, ""),
+		Theme:                      themeValue,
+		TUIMode:                    tuiModeValue,
 		env:                        env,
 		dotenv:                     dotenv,
 		packageDefaults:            packageDefaults,

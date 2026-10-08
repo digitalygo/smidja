@@ -133,10 +133,13 @@ func TestPkgInstallActivateListVerifyUninstall(t *testing.T) {
 	if err := runPkgInspect([]string{"mypkg"}, d); err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
-	for _, want := range []string{"id: mypkg", "version: v1.0.0", "status: active", "contents: agents=agents", "agent: orchestrator.md (deferred)"} {
+	for _, want := range []string{"id: mypkg", "version: v1.0.0", "status: active", "contents: agents=agents", "agent: orchestrator.md\n"} {
 		if !strings.Contains(inspectOut.String(), want) {
 			t.Errorf("inspect stdout missing %q:\n%s", want, inspectOut.String())
 		}
+	}
+	if strings.Contains(inspectOut.String(), "deferred") {
+		t.Errorf("inspect stdout still labels agents as deferred:\n%s", inspectOut.String())
 	}
 
 	var verifyOut bytes.Buffer
@@ -509,11 +512,96 @@ func TestPkgUsagePrints(t *testing.T) {
 			t.Errorf("usage missing %q", want)
 		}
 	}
+	if strings.Contains(out.String(), "deferred") {
+		t.Errorf("usage still claims deferred agent files:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "only while the package is active") {
+		t.Errorf("usage does not describe active-package agent consumption:\n%s", out.String())
+	}
 	if err := runPkg(nil, d); err == nil {
 		t.Fatal("pkg without subcommand must fail")
 	}
 	if err := runPkg([]string{"bogus"}, d); err == nil {
 		t.Fatal("pkg bogus must fail")
+	}
+}
+
+func TestPkgInspectAgentLabelsActiveAndInactive(t *testing.T) {
+	files := map[string]string{
+		"agents/orchestrator.md": "# orchestrator\nagent",
+		"agents/reader.md":       "# reader\nagent",
+	}
+	m := pkgTestManifest("mypkg", "v1.0.0", "digitalygo", "mypkg", files)
+	storeDir := t.TempDir()
+	d := pkgTestDeps(storeDir)
+	d.FetchArchive = fixtureFetch(t, m, files)
+	if err := runPkgInstall([]string{"digitalygo/mypkg@v1.0.0", "--yes"}, d); err != nil {
+		t.Fatalf("install: %v (stderr %q)", err, d.Stderr.(*bytes.Buffer).String())
+	}
+
+	for _, active := range []bool{true, false} {
+		if !active {
+			d.Stdout = &bytes.Buffer{}
+			if err := runPkgDeactivate([]string{"mypkg"}, d); err != nil {
+				t.Fatalf("deactivate: %v", err)
+			}
+		}
+		var out bytes.Buffer
+		d.Stdout = &out
+		if err := runPkgInspect([]string{"mypkg"}, d); err != nil {
+			t.Fatalf("inspect active=%v: %v", active, err)
+		}
+		for _, want := range []string{"agent: orchestrator.md\n", "agent: reader.md\n"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("inspect active=%v missing %q:\n%s", active, want, out.String())
+			}
+		}
+		if strings.Contains(out.String(), "deferred") {
+			t.Errorf("inspect active=%v still labels agents as deferred:\n%s", active, out.String())
+		}
+	}
+}
+
+func TestPkgInspectJSONAgentFields(t *testing.T) {
+	files := map[string]string{"agents/orchestrator.md": "# orchestrator\nagent"}
+	m := pkgTestManifest("mypkg", "v1.0.0", "digitalygo", "mypkg", files)
+	storeDir := t.TempDir()
+	d := pkgTestDeps(storeDir)
+	d.FetchArchive = fixtureFetch(t, m, files)
+	if err := runPkgInstall([]string{"digitalygo/mypkg@v1.0.0", "--yes"}, d); err != nil {
+		t.Fatalf("install: %v (stderr %q)", err, d.Stderr.(*bytes.Buffer).String())
+	}
+
+	var out bytes.Buffer
+	d.Stdout = &out
+	if err := runPkgInspect([]string{"mypkg", "--json"}, d); err != nil {
+		t.Fatalf("inspect --json: %v", err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("inspect --json output is not valid JSON: %v\n%s", err, out.String())
+	}
+	wantFields := map[string]bool{
+		"id": true, "version": true, "owner": true, "repo": true, "commit": true,
+		"description": true, "minimumHarness": true, "active": true,
+		"contents": true, "depends": true, "files": true, "agents": true,
+	}
+	for field := range got {
+		if !wantFields[field] {
+			t.Errorf("inspect --json has unexpected field %q", field)
+		}
+	}
+	for field := range wantFields {
+		if _, ok := got[field]; !ok {
+			t.Errorf("inspect --json missing field %q", field)
+		}
+	}
+	var agents []string
+	if err := json.Unmarshal(got["agents"], &agents); err != nil {
+		t.Fatalf("agents field: %v", err)
+	}
+	if len(agents) != 1 || agents[0] != "orchestrator.md" {
+		t.Fatalf("agents = %v, want the plain agent filename", agents)
 	}
 }
 

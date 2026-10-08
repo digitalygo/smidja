@@ -112,7 +112,9 @@ func (r *Registry) Setup(api sdk.API, logger Logger) error {
 		if !ok {
 			continue
 		}
+		finish := beginSetupTransaction(api)
 		err := runGuarded(func() error { return sh.Setup(api) })
+		finish(err != nil)
 		if err == nil {
 			continue
 		}
@@ -122,6 +124,14 @@ func (r *Registry) Setup(api sdk.API, logger Logger) error {
 		r.disable(e)
 	}
 	return nil
+}
+
+func beginSetupTransaction(api sdk.API) func(bool) {
+	transaction, ok := api.(setupTransaction)
+	if !ok {
+		return func(bool) {}
+	}
+	return transaction.BeginSetup()
 }
 
 func (r *Registry) disable(e *entry) {

@@ -25,6 +25,8 @@ Both files use the same schema and both are optional; a missing file changes not
 | `retry.maxRetries` | integer | Retry attempts, 0 or more. |
 | `retry.baseDelayMs` | integer | Base retry backoff in milliseconds, 0 or more. |
 | `compaction.enabled` | boolean | Turns smart context management (prune and compact) on or off. |
+| `theme` | string | Interactive theme: one theme name, or `lightTheme/darkTheme` to follow the terminal background. |
+| `tuiMode` | string | Interactive renderer: `regular` or `fullscreen`. |
 
 Unknown fields are ignored, so a file may carry extra keys. A supported field that is present must be well formed: strings must be JSON strings, booleans JSON booleans, the two retry numbers nonnegative JSON integers, and `retry` and `compaction` JSON objects. `null` is rejected for every supported field. A malformed value fails with an error that names the file and the field, and smidja refuses to start until the file is fixed. User settings and bundle settings behave identically here.
 
@@ -43,7 +45,9 @@ Unknown fields are ignored, so a file may carry extra keys. A supported field th
   },
   "compaction": {
     "enabled": true
-  }
+  },
+  "theme": "light/dark",
+  "tuiMode": "regular"
 }
 ```
 
@@ -51,7 +55,7 @@ Unknown fields are ignored, so a file may carry extra keys. A supported field th
 
 From highest to lowest, smidja uses the first source that defines a key:
 
-1. CLI flags, for example `-provider` and `-model`.
+1. CLI flags, for example `-provider`, `-model`, `--tui-mode`, and `--use-theme`.
 2. Environment variables.
 3. The `.env` file in the current working directory.
 4. The bundle tier: when both are present, bundle ConfigDefaults win over the bundle `settings.json` for the same key.
@@ -75,8 +79,16 @@ Every settings field maps to one environment variable:
 | `retry.maxRetries` | `SMIDJA_RETRY_MAX_RETRIES` |
 | `retry.baseDelayMs` | `SMIDJA_RETRY_BASE_DELAY_MS` |
 | `compaction.enabled` | `SMIDJA_CONTEXT` |
+| `theme` | `SMIDJA_THEME` |
+| `tuiMode` | `SMIDJA_TUI_MODE` |
 
 Because settings translate into these variables, the variable names work the same way in the shell, in `.env` files, and in package `config/defaults.env` files. Booleans accept `0`, `false`, `no`, and `off` (case-insensitive) as false and any other nonempty value as true. Integers must be nonnegative; an unparsable or negative value falls back to the core default.
+
+## Theme and TUI mode
+
+`theme` accepts a single theme name or a `lightTheme/darkTheme` pair. A pair follows the terminal background: smidja asks the terminal with a bounded 100 ms query and picks the light or dark name, falling back to the dark name when the terminal does not answer. `tuiMode` accepts `regular` or `fullscreen` and is case-insensitive and trimmed; an empty value means unset and keeps the default `regular`.
+
+Both fields are validated while settings load. A theme name cannot contain path separators or dot segments, and an unknown `tuiMode` value fails with an error that names the field or the environment variable. A syntactically valid theme name that matches no theme is not fatal: the TUI keeps its current theme and shows a notice. The `--use-theme` and `--tui-mode` flags win over the settings value for that run and are never written back to the settings file. Theme files and reload behavior are documented in the [themes documentation](themes.md); TTY selection and the interactive surfaces are documented in the [TUI documentation](tui.md).
 
 ## Models catalog
 

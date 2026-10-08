@@ -215,23 +215,9 @@ func (r *gatewayRunner) loadContext(sess *session.Session, existed bool) ([]*age
 		return nil, nil, nil, err
 	}
 	prior := loader.Entries()
-	branch, err := loader.BuildContextEntries()
+	history, entryIDs, _, err := projectModelHistoryWithIDs(loader)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	var history []*agent.Message
-	var entryIDs []string
-	for _, e := range branch {
-		me, ok := e.(*session.MessageEntry)
-		if !ok {
-			continue
-		}
-		msg, err := me.DecodeMessage()
-		if err != nil {
-			continue
-		}
-		history = append(history, msg)
-		entryIDs = append(entryIDs, session.EntryID(e))
 	}
 	return history, entryIDs, prior, nil
 }

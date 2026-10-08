@@ -11,6 +11,8 @@ type ModelInfo struct {
 	ContextWindow int64
 
 	Provider string
+
+	Reasoning ReasoningInfo
 }
 
 const DefaultModelID = "anthropic/claude-sonnet-4.5"
@@ -104,6 +106,9 @@ func (r *Registry) Merge(infos []ModelInfo) {
 	for _, m := range infos {
 		if m.ID == "" || m.ContextWindow <= 0 {
 			continue
+		}
+		if existing, ok := r.models[m.ID]; ok && !m.Reasoning.Known && existing.Reasoning.Known {
+			m.Reasoning = existing.Reasoning
 		}
 		r.models[m.ID] = m
 	}

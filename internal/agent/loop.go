@@ -37,6 +37,10 @@ type LoopDeps struct {
 
 	SessionEntryIDs []string
 
+	RefreshSessionEntryIDs func(history []*Message) ([]string, error)
+
+	Mailbox func(ctx context.Context, history []*Message, stopping bool, external bool) (MailboxResult, error)
+
 	RetryPolicy RetryPolicy
 
 	RetryPolicySet bool
@@ -48,6 +52,13 @@ type LoopDeps struct {
 	OnRetryScheduled func(attempt, maxAttempts int, delayMs int64, errorMessage string)
 
 	OnRetryFinished func(success bool, attempt int, finalError string)
+}
+
+type MailboxResult struct {
+	Messages  []*Message
+	Delivered bool
+	Continue  bool
+	PollAgain bool
 }
 
 var (
@@ -117,6 +128,20 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 	}
 	history = append(history, &Message{User: userMsg})
 
+	return runTurnLoop(ctx, deps, model, system, history, true)
+}
+
+func ContinueTurn(ctx context.Context, deps *LoopDeps, model string, system string, history []*Message) ([]*Message, error) {
+	if deps == nil {
+		return history, errors.New("agent: nil loop deps")
+	}
+	if deps.Client == nil {
+		return history, errors.New("agent: nil client")
+	}
+	return runTurnLoop(ctx, deps, model, system, history, false)
+}
+
+func runTurnLoop(ctx context.Context, deps *LoopDeps, model string, system string, history []*Message, external bool) ([]*Message, error) {
 	onText := func(delta string) {
 		if deps.Stdout != nil {
 			io.WriteString(deps.Stdout, delta)
@@ -142,17 +167,39 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 
 	var lastUsageInput int64
 	turnIndex := 0
+	var err error
 
 	for {
 		if err := ctx.Err(); err != nil {
 			return history, fmt.Errorf("agent: %w", err)
 		}
+		for deps.Mailbox != nil {
+			result, mailboxErr := deps.Mailbox(ctx, history, false, external)
+			if mailboxErr != nil {
+				return history, fmt.Errorf("agent: deliver mailbox message: %w", mailboxErr)
+			}
+			if result.Messages != nil {
+				history = result.Messages
+			}
+			if !result.PollAgain {
+				break
+			}
+		}
+		external = false
 
+		entryIDs := deps.SessionEntryIDs
+		if deps.RefreshSessionEntryIDs != nil {
+			refreshed, refreshErr := deps.RefreshSessionEntryIDs(history)
+			if refreshErr != nil {
+				return history, fmt.Errorf("agent: refresh session entry ids: %w", refreshErr)
+			}
+			entryIDs = refreshed
+		}
 		req := ContextRequest{
 			Messages:       append([]*Message(nil), history...),
 			System:         system,
 			LastUsageInput: lastUsageInput,
-			EntryIDs:       deps.SessionEntryIDs,
+			EntryIDs:       entryIDs,
 		}
 		cres := ContextResult{Messages: req.Messages, System: req.System}
 		if deps.Preparer != nil {
@@ -273,7 +320,25 @@ func RunTurn(ctx context.Context, deps *LoopDeps, model string, system string, h
 			return history, fmt.Errorf("agent: provider error: %s", finalMsg.Assistant.ErrorMessage)
 		}
 		if finalMsg.Assistant.StopReason != "toolUse" {
-			return history, nil
+			for deps.Mailbox != nil {
+				result, mailboxErr := deps.Mailbox(ctx, history, true, false)
+				if mailboxErr != nil {
+					return history, fmt.Errorf("agent: deliver mailbox message: %w", mailboxErr)
+				}
+				if result.Messages != nil {
+					history = result.Messages
+				}
+				if result.Continue {
+					break
+				}
+				if !result.PollAgain {
+					return history, nil
+				}
+			}
+			if deps.Mailbox == nil {
+				return history, nil
+			}
+			continue
 		}
 		if len(calls) == 0 {
 			return history, nil
@@ -435,12 +500,17 @@ func revalidateAndExecute(ctx context.Context, deps *LoopDeps, call *ContentBloc
 			return ErrorResult("blocked on re-validation: " + dec.Reason), nil
 		}
 	}
-	return executeCall(ctx, *call, toolsByName), nil
+	return executeCall(ctx, deps, *call, toolsByName), nil
 }
 
-func executeCall(ctx context.Context, call ContentBlock, toolsByName map[string]Tool) Result {
+func executeCall(ctx context.Context, deps *LoopDeps, call ContentBlock, toolsByName map[string]Tool) Result {
 	tool, ok := toolsByName[call.Name]
-	if !ok {
+	if deps != nil && deps.Catalog != nil {
+		if active, hasActive := deps.Catalog.(ActiveToolCatalog); hasActive {
+			tool, ok = active.GetActive(call.Name)
+		}
+	}
+	if !ok || tool == nil {
 		return ErrorResult(fmt.Sprintf("unknown tool %q", call.Name))
 	}
 	if !json.Valid(call.Arguments) {

@@ -220,3 +220,52 @@ func TestReadBoundedMissingFile(t *testing.T) {
 		t.Fatal("readBounded on a missing file must error")
 	}
 }
+
+func TestDiscoverInstructionsSkipWorkspace(t *testing.T) {
+	repo := t.TempDir()
+	writeTree(t, repo, map[string]string{"AGENTS.md": "# repo rules"})
+
+	instr, err := DiscoverInstructions(repo, InstructionsOptions{WorkspaceRoot: repo})
+	if err != nil {
+		t.Fatalf("DiscoverInstructions: %v", err)
+	}
+	if instr.Project != "# repo rules" {
+		t.Fatalf("Project = %q, want the default workspace discovery", instr.Project)
+	}
+
+	instr, err = DiscoverInstructions(repo, InstructionsOptions{WorkspaceRoot: repo, SkipWorkspace: true})
+	if err != nil {
+		t.Fatalf("DiscoverInstructions with SkipWorkspace: %v", err)
+	}
+	if instr.Project != "" {
+		t.Fatalf("Project = %q, want it skipped", instr.Project)
+	}
+	if suffix := instr.Suffix(); suffix != "" {
+		t.Fatalf("Suffix = %q, want no workspace section", suffix)
+	}
+}
+
+func TestHasProjectInstructions(t *testing.T) {
+	repo := t.TempDir()
+	if HasProjectInstructions(repo, repo) {
+		t.Fatal("a repository without AGENTS.md must report false")
+	}
+	writeTree(t, repo, map[string]string{"AGENTS.md": "# rules"})
+	if !HasProjectInstructions(repo, repo) {
+		t.Fatal("a repository with AGENTS.md must report true")
+	}
+}
+
+func TestDiscoverInstructionsUnreadableProjectFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	repo := t.TempDir()
+	path := filepath.Join(repo, "AGENTS.md")
+	if err := os.WriteFile(path, []byte("# rules"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DiscoverInstructions(repo, InstructionsOptions{WorkspaceRoot: repo}); err == nil {
+		t.Fatal("an unreadable project AGENTS.md must surface the read error")
+	}
+}

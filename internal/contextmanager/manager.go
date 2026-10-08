@@ -2,6 +2,7 @@ package contextmanager
 
 import (
 	"context"
+	"errors"
 	"math"
 	"sync"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/digitalygo/smidja/internal/agent"
 	"github.com/digitalygo/smidja/internal/subagent"
 )
+
+var ErrDisabled = errors.New("contextmanager: context management is disabled")
 
 type Manager struct {
 	cfg      Config
@@ -101,6 +104,30 @@ func (m *Manager) Prepare(ctx context.Context, req agent.ContextRequest) (agent.
 
 	m.recordSent(len(res.Messages))
 	return res, nil
+}
+
+func (m *Manager) CompactNow(ctx context.Context, system string, messages []*agent.Message, entryIDs []string) ([]*agent.Message, *agent.CompactionEntry, error) {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+	}
+	m.mu.Lock()
+	if !m.cfg.Enabled {
+		m.mu.Unlock()
+		return nil, nil, ErrDisabled
+	}
+	pinned := make(map[agent.ToolCallID]struct{}, len(m.pinned))
+	for id := range m.pinned {
+		pinned[id] = struct{}{}
+	}
+	m.mu.Unlock()
+	occ := estimateTokens(system, messages)
+	kept, entry, err := m.compact(ctx, system, messages, occ, pinned, entryIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return kept, entry, nil
 }
 
 func (m *Manager) ObserveRequest(t time.Time) {
