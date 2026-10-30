@@ -1,0 +1,16 @@
+{
+  "listen": "127.0.0.1:8787",
+  "state_dir": "/home/your-user/.smidja-manager",
+  "token_env": "SMIDJA_MANAGER_TOKEN",
+  "envai_url": "https://your-envai-instance.example",
+  "envai_key_env": "ENVAI_API_KEY",
+  "workspace_id": "your-workspace-id",
+  "ceo_team_id": "your-ceo-team-id",
+  "ceo_model": "openai/gpt-6.1-terra",
+  "classifier_model": "openai/gpt-6-luna-decisions",
+  "tool_bindings": {
+    "your_registered_tool_name": {"name": "read", "client_id": "manager"},
+    "your_registered_workflow_tool": {"name": "manager.tasks_start", "client_id": "manager"}
+  },
+  "clients": [{"id": "laptop", "name": "My laptop", "token_env": "SMIDJA_LAPTOP_TOKEN"}]
+}
