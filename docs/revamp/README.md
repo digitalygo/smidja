@@ -30,9 +30,9 @@ The remote Envai origin must provide ATP v3, native deliveries, cross-team deleg
 
 ## Review status
 
-Dedicated offline tests cover the API/CSRF, native contract adapter, signatures, JSONL replay, workflow state, machine tools, client delivery/cancellation and embedded UI behavior. Reproduce JavaScript behavioral checks with `node scripts/test-manager-ui.mjs` (Node only, no dependencies). The separate `Revamp UI` CI workflow installs pinned Playwright and runs `scripts/test-manager-browser.mjs` against offline API fixtures with browser sandboxing enabled, covering desktop and mobile layouts. Local JavaScript syntax and mocked-DOM checks ran. Actual Chromium rendering was blocked by the local execution environment; browser verification remains pending that CI run and is not claimed passed.
+Dedicated offline tests cover the API/CSRF, native contract adapter, signatures, JSONL replay, workflow state, machine tools, client delivery/cancellation and embedded UI behavior. Reproduce JavaScript behavioral checks with `node scripts/test-manager-ui.mjs` (Node only, no dependencies). The separate `Revamp UI` CI workflow installs pinned Playwright and runs `scripts/test-manager-browser.mjs` against offline API fixtures with browser sandboxing enabled, covering desktop and mobile layouts. Local JavaScript syntax and mocked-DOM checks ran. Local Chromium rendering was blocked by the execution environment, but the sandboxed macOS CI smoke passed at e2ff613b. Automated rendered interactions are verified; separate screenshot pixel inspection remains unavailable. See verification.md for exact evidence.
 
-Package installation/updates, private approval-gated configuration, executable extensions, client-owned capabilities and native team delegation are implemented and covered by offline tests. Live Envai/provider integration, browser rendering and deployment remain unverified; do not treat an installed Go binary as a completed production deployment.
+Package installation/updates, private approval-gated configuration, executable extensions, client-owned capabilities and native team delegation are implemented and covered by offline tests. Actual cross-repository Envai/Smidja offline runtime integration passed with provider and ownership/catalog fixtures. Live providers, deployment and separate screenshot pixel inspection remain unverified; do not treat an installed Go binary as a completed production deployment.
 
 ## Initial remote resources
 
@@ -51,6 +51,12 @@ Approved local extensions execute their literal `command` argv with JSON argumen
 Private extensions may target a client by `client_id`. The manager propagates only owner-approved revisions over authenticated, reserved control messages; those controls are not public agent tools. Configuration references resolve on that client, never on the manager. The client saves immutable revision receipts before advertising the new route and retains them across restart. Repeating the same configuration revision is safe; this does not authorize retrying uncertain tool executions.
 
 The configuration page displays activation separately from approval, including offline/unknown clients and clients lacking `state_dir`. An approved definition is not considered active until the online client advertises its exact revision. The manager reconciles every five seconds and retracts stale client definitions when they are archived, moved or removed. New calls to superseded or archived private routes are rejected immediately on the manager, even before client reconciliation. A client processes tool calls serially: an already-running operation may finish before its queued archive is applied, and previous effects are not rolled back. This is best-effort revocation, not a promise of immediate interruption.
+
+### Extension execution timeouts
+
+Private and packaged extension definitions accept optional `timeout_seconds`: omitted or `0` keeps the 30-second default; explicit values from `1` through `600` are supported. The declaration is validated and propagated to Envai tool registration, the manager/client execution path and the subprocess deadline. An earlier parent cancellation or deadline still wins. Arguments supplied by a model cannot change the declared execution budget.
+
+A timeout or cancellation does not undo external side effects. If a result cannot be confirmed, inspect the operation before retrying; Smidja does not blindly rerun the command. Runtime updates preserve the execution settings of package revisions already pinned by a workflow.
 
 ## Packages on manager and client
 

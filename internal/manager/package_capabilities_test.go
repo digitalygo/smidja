@@ -475,3 +475,33 @@ func TestManagerPhaseTwoKeepsPinnedToolsAfterUpdateAndUnrelatedInstall(t *testin
 		t.Fatal("unrelated install changed team materialization identity", remote.calls, calls, len(remote.registered), registrations)
 	}
 }
+
+func TestPackageAndClientExtensionRegistrationTimeout(t *testing.T) {
+	for _, seconds := range []int{0, 450, -1, 601} {
+		remote := &extensionFake{}
+		s := testServer(t, nil)
+		definition := machineclient.ToolDefinition{ID: "example/echo", Route: "package:echo", TimeoutSeconds: seconds, Parameters: json.RawMessage(`{}`), Package: machineclient.PackageRevision{ID: "example", Version: "1", Digest: "digest"}}
+		_, err := s.registerPackageDefinition(context.Background(), remote, "laptop", definition)
+		if seconds < 0 || seconds > 600 {
+			if err == nil {
+				t.Fatal("invalid timeout registered")
+			}
+			continue
+		}
+		expected := seconds
+		if expected == 0 {
+			expected = 30
+		}
+		if err != nil || remote.registered[0].TimeoutSeconds != expected {
+			t.Fatal(remote.registered, err)
+		}
+		definition.ID = "private:echo"
+		definition.Route = "private:echo@1"
+		definition.Package = machineclient.PackageRevision{}
+		definition.PrivateRevision = 1
+		_, err = s.registerPackageDefinition(context.Background(), remote, "laptop", definition)
+		if err != nil || remote.registered[1].TimeoutSeconds != expected {
+			t.Fatal(remote.registered, err)
+		}
+	}
+}

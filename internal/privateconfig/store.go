@@ -39,12 +39,13 @@ type Team struct {
 	Agents      []Agent `json:"agents"`
 }
 type Extension struct {
-	Environment map[string]string `json:"environment,omitempty"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Parameters  json.RawMessage   `json:"parameters"`
-	Command     []string          `json:"command"`
-	ClientID    string            `json:"client_id,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	Environment    map[string]string `json:"environment,omitempty"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description"`
+	Parameters     json.RawMessage   `json:"parameters"`
+	Command        []string          `json:"command"`
+	ClientID       string            `json:"client_id,omitempty"`
 }
 type Change struct {
 	Action       string          `json:"action"`
@@ -283,6 +284,9 @@ func validatePayload(kind string, payload json.RawMessage) error {
 		if err := decode(payload, &extension); err != nil {
 			return err
 		}
+		if _, err := ExtensionTimeout(extension.TimeoutSeconds); err != nil {
+			return err
+		}
 		if strings.TrimSpace(extension.Name) == "" || len(extension.Command) == 0 || strings.TrimSpace(extension.Command[0]) == "" {
 			return errors.New("extension name and command required")
 		}
@@ -435,4 +439,14 @@ func (s *Store) PurgeExpired(now time.Time) (int, error) {
 		return 0, err
 	}
 	return len(ids), nil
+}
+
+func ExtensionTimeout(seconds int) (time.Duration, error) {
+	if seconds < 0 || seconds > 600 {
+		return 0, errors.New("extension timeout_seconds must be zero (default 30) or between 1 and 600")
+	}
+	if seconds == 0 {
+		seconds = 30
+	}
+	return time.Duration(seconds) * time.Second, nil
 }

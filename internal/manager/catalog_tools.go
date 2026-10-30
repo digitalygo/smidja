@@ -59,7 +59,7 @@ func configurationSchema(kind string) (any, error) {
 	case "workflow":
 		return map[string]any{"id": "private:workflow-name", "kind": "workflow", "payload": map[string]any{"id": "private:workflow-name", "version": "1", "phases": []map[string]string{{"id": "review", "name": "Review", "team_ref": "private:team-name"}}}}, nil
 	case "extension":
-		return map[string]any{"id": "private:tool-name", "kind": "extension", "payload": map[string]any{"name": "tool_name", "description": "What the tool does", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}, "command": []string{"/absolute/path/to/helper"}, "environment": map[string]string{"ODOO_API_KEY": "ODOO_API_KEY"}, "client_id": "manager"}, "protocol": "Literal command argv; JSON arguments on stdin; stdout result, stderr diagnostics. Environment values are names of variables, not secrets."}, nil
+		return map[string]any{"id": "private:tool-name", "kind": "extension", "payload": map[string]any{"name": "tool_name", "description": "What the tool does", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}, "command": []string{"/absolute/path/to/helper"}, "environment": map[string]string{"ODOO_API_KEY": "ODOO_API_KEY"}, "client_id": "manager", "timeout_seconds": 30}, "protocol": "Literal command argv; JSON arguments on stdin; stdout result, stderr diagnostics. Environment values are names of variables, not secrets. timeout_seconds: omitted or zero means 30 seconds; explicit values 1 through 600. Parent request deadlines remain an upper limit."}, nil
 	default:
 		return nil, errors.New("kind must be team, workflow or extension")
 	}

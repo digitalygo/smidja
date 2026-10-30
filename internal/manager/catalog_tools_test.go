@@ -56,6 +56,8 @@ func TestAvailableCatalogsFollowClientPresence(t *testing.T) {
 	if result = s.executeManagerTool(context.Background(), envai.Event{}, "workflows_list", json.RawMessage(`{}`)); !result.OK {
 		t.Fatal(result)
 	}
+	s.cancel()
+	s.wg.Wait()
 	s.cfg.Clients = machineclient.NewBroker(machineclient.BrokerConfig{InventoryPath: path})
 	if workflows, err = s.availableWorkflows(context.Background()); err != nil || len(workflows) != 1 {
 		t.Fatal(workflows, err)

@@ -111,7 +111,14 @@ func (r *Runner) ExecuteDefinition(ctx context.Context, definition privateconfig
 	if err != nil {
 		return invalid("missing_dependency", err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	timeout, err := privateconfig.ExtensionTimeout(definition.TimeoutSeconds)
+	if err != nil {
+		return invalid("invalid_definition", err)
+	}
+	if definition.TimeoutSeconds == 0 {
+		timeout = r.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, path, definition.Command[1:]...)
 	command.Env = append([]string{}, r.environment...)

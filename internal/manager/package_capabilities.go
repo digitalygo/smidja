@@ -151,7 +151,15 @@ func (s *Server) registerPackageDefinition(ctx context.Context, remote extension
 		return "", errors.New("package tool registration outcome uncertain; inspect remote resources")
 	}
 	if created {
-		registered, err := remote.RegisterTool(ctx, envai.ToolDefinition{Name: name, Kind: "client", Description: definition.Description, Parameters: definition.Parameters, TimeoutSeconds: 600})
+		timeoutSeconds := 600
+		if definition.Package.ID != "" || definition.PrivateRevision > 0 {
+			timeout, err := privateconfig.ExtensionTimeout(definition.TimeoutSeconds)
+			if err != nil {
+				return "", err
+			}
+			timeoutSeconds = int(timeout.Seconds())
+		}
+		registered, err := remote.RegisterTool(ctx, envai.ToolDefinition{Name: name, Kind: "client", Description: definition.Description, Parameters: definition.Parameters, TimeoutSeconds: timeoutSeconds})
 		if err != nil {
 			return "", err
 		}
@@ -185,7 +193,7 @@ func (s *Server) snapshotPackageTools(revision managerpackages.Revision) (map[st
 			if err = json.Unmarshal(data, &document); err != nil {
 				return nil, err
 			}
-			definition := machineclient.ToolDefinition{ID: document.ID, Route: clientpackages.Route(dependency, document.ID), Description: document.Description, Parameters: document.Parameters, Package: machineclient.PackageRevision{ID: dependency.ID, Version: dependency.Version, Digest: dependency.Digest}}
+			definition := machineclient.ToolDefinition{ID: document.ID, Route: clientpackages.Route(dependency, document.ID), Description: document.Description, TimeoutSeconds: document.TimeoutSeconds, Parameters: document.Parameters, Package: machineclient.PackageRevision{ID: dependency.ID, Version: dependency.Version, Digest: dependency.Digest}}
 			encoded, err := json.Marshal(definition)
 			if err != nil {
 				return nil, err

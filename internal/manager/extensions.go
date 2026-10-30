@@ -67,7 +67,11 @@ func (s *Server) refreshExtensions(ctx context.Context) error {
 			return errors.New("extension registration uncertain; inspect remote before retry")
 		}
 		if created {
-			tool, err := remote.RegisterTool(ctx, envai.ToolDefinition{Name: name, Kind: "client", Description: definition.Description, Parameters: definition.Parameters, TimeoutSeconds: 30})
+			timeout, err := privateconfig.ExtensionTimeout(definition.TimeoutSeconds)
+			if err != nil {
+				return err
+			}
+			tool, err := remote.RegisterTool(ctx, envai.ToolDefinition{Name: name, Kind: "client", Description: definition.Description, Parameters: definition.Parameters, TimeoutSeconds: int(timeout.Seconds())})
 			if err != nil {
 				return err
 			}

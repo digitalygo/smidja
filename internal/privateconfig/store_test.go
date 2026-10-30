@@ -282,3 +282,24 @@ func TestExtensionEnvironmentReferences(t *testing.T) {
 		}
 	}
 }
+
+func TestExtensionTimeoutBounds(t *testing.T) {
+	for _, seconds := range []int{0, 1, 30, 600, -1, 601} {
+		definition := Extension{Name: "test", Command: []string{"run"}, Parameters: json.RawMessage(`{}`), TimeoutSeconds: seconds}
+		payload, _ := json.Marshal(definition)
+		err := validatePayload("extension", payload)
+		duration, timeoutErr := ExtensionTimeout(seconds)
+		if seconds < 0 || seconds > 600 {
+			if err == nil || timeoutErr == nil {
+				t.Fatal("invalid timeout accepted", seconds)
+			}
+			continue
+		}
+		if seconds == 0 {
+			seconds = 30
+		}
+		if err != nil || timeoutErr != nil || duration != time.Duration(seconds)*time.Second {
+			t.Fatal(duration, err, timeoutErr)
+		}
+	}
+}

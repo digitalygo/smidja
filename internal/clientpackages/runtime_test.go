@@ -318,3 +318,63 @@ func TestWorkflowSnapshotPinsToolMetadataAcrossUpdates(t *testing.T) {
 		t.Fatal(result)
 	}
 }
+
+func TestPackageExtensionTimeoutMetadataAndBounds(t *testing.T) {
+	for _, seconds := range []int{0, 450, -1, 601} {
+		store := testStore(t)
+		revision := fixture(t, store, "1.0.0", func(files map[string][]byte) {
+			var document map[string]any
+			json.Unmarshal(files["tools/echo.json"], &document)
+			document["timeout_seconds"] = seconds
+			files["tools/echo.json"], _ = json.Marshal(document)
+		})
+		r, err := New(Config{Store: store})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = r.loadTool(revision, "tools/echo.json")
+		if seconds < 0 || seconds > 600 {
+			if err == nil {
+				t.Fatal("invalid package timeout accepted")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		inventory, err := r.Inventory(context.Background())
+		if err != nil || inventory.ToolDefinitions[0].TimeoutSeconds != seconds {
+			t.Fatal(inventory, err)
+		}
+	}
+}
+
+func TestRetainedPackageTimeoutSurvivesUpdateAndRuntimeRestart(t *testing.T) {
+	store := testStore(t)
+	edit := func(seconds int) func(map[string][]byte) {
+		return func(files map[string][]byte) {
+			var document map[string]any
+			json.Unmarshal(files["tools/echo.json"], &document)
+			document["timeout_seconds"] = seconds
+			files["tools/echo.json"], _ = json.Marshal(document)
+		}
+	}
+	first := fixture(t, store, "1.0.0", edit(450))
+	r := testRuntime(t, store)
+	if _, err := r.Inventory(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	second := fixture(t, store, "1.1.0", edit(1))
+	for _, runtime := range []*Runtime{r, testRuntime(t, store)} {
+		inventory, err := runtime.Inventory(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(inventory.ToolDefinitions) != 1 || inventory.ToolDefinitions[0].Package.Version != "1.1.0" {
+			t.Fatal("retained definitions leaked into active catalog", inventory)
+		}
+		if inventory.PackageTimeouts[Route(first, "example/echo")] != 450 || inventory.PackageTimeouts[Route(second, "example/echo")] != 1 {
+			t.Fatal("immutable timeout lost", inventory.PackageTimeouts)
+		}
+	}
+}

@@ -17,8 +17,8 @@ This is an incremental draft, not a deployment or a declaration that every accep
 
 ## Remaining acceptance work
 
-1. Verify the complete combined runtime against the actual Envai prerequisite with offline provider fixtures. Adapter unit tests are not a cross-repository acceptance test or proof of deployment.
-2. Inspect exact-head CI and rendered browser screenshots. Run supported native macOS acceptance tests in a usable environment; Linux/macOS amd64/arm64 cross-builds are not native execution tests. Windows and ARMv7 remain excluded.
+1. Verify any subsequent runtime delta on its affected integration path. The original combined native lifecycle smoke passed against Envai c907371b and Smidja d0f8ebf; the declared-timeout extension addition requires a focused follow-up rather than inheriting that historical result.
+2. Rendered Chromium smoke passed in CI, but separate visual inspection of screenshot pixels remains unavailable through the artifact download path. Native Linux amd64 and macOS arm64 tests passed; other supported target combinations have cross-build evidence, not native execution evidence.
 3. Align organization/template/discovery/Homebrew repositories only after the core package/runtime contract is verified. See companion-repositories.md. No repository was archived or deleted, and no package release or Homebrew version update was published.
 
 ## Verification evidence and limits
@@ -27,6 +27,6 @@ The eleven new Go packages pass offline race tests with package statement covera
 
 A full legacy `go test ./...` was attempted after replacing unmocked public catalog requests with deterministic test-only fixtures. With an isolated writable HOME, remaining failures involved legacy PTY/theme/socket behavior and an MCP timing test. They were not hidden, skipped or counted as passing. Targeted new CLI tests passed separately.
 
-The Node mocked-DOM UI suite passes locally. Actual Chromium rendering was blocked by the local environment; the dedicated CI browser job is the verification path and its result must be inspected before claiming rendered UI validation.
+The Node mocked-DOM UI suite passes locally. Sandboxed Chromium rendered interactions passed in macOS CI at e2ff613b, as did native Linux/macOS test jobs and four platform cross-builds. Screenshot pixel inspection remains unavailable, not falsely reported as complete. Exact commits, workflow links and the real cross-repository offline smoke scope are recorded in verification.md.
 
 No live model inference, credentials provisioning, deploy, merge or repository archival occurred while producing this draft.

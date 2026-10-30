@@ -145,3 +145,84 @@ func TestExtensionControlAdmissionAndClientRefresh(t *testing.T) {
 		}
 	}
 }
+
+func TestExtensionDispatchUsesMetadataTimeoutAndParentLimit(t *testing.T) {
+	for _, seconds := range []int{0, 450} {
+		for _, parentLimit := range []bool{false, true} {
+			b := NewBroker(BrokerConfig{PollTimeout: time.Second, ExecutionTimeout: 10 * time.Millisecond})
+			register(t, b, "laptop")
+			b.mu.Lock()
+			b.clients["laptop"].status.Inventory.Tools = append(b.clients["laptop"].status.Inventory.Tools, "private:echo@1")
+			b.clients["laptop"].status.Inventory.ToolDefinitions = []ToolDefinition{{ID: "private:echo", Route: "private:echo@1", PrivateRevision: 1, TimeoutSeconds: seconds, Parameters: json.RawMessage(`{}`)}}
+			b.mu.Unlock()
+			ctx, cancel := context.WithCancel(context.Background())
+			if parentLimit {
+				cancel()
+				ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+			}
+			done := make(chan machinetools.Result, 1)
+			before := time.Now()
+			go func() { done <- b.Execute(ctx, "laptop", "private:echo@1", json.RawMessage(`{"timeout_seconds":600}`)) }()
+			response := request(t, b, "GET", "/api/clients/poll?client_id=laptop", testToken, nil)
+			var execution Execution
+			if json.Unmarshal(response.Body.Bytes(), &execution) != nil {
+				t.Fatal(response.Body.String())
+			}
+			expected := time.Duration(seconds) * time.Second
+			if seconds == 0 {
+				expected = 30 * time.Second
+			}
+			if parentLimit {
+				expected = time.Second
+			}
+			actual := execution.Deadline.Sub(before)
+			if actual < expected-100*time.Millisecond || actual > expected+100*time.Millisecond {
+				t.Fatal("incorrect deadline", actual, expected)
+			}
+			cancel()
+			if result := <-done; result.Code != "outcome_unknown" {
+				t.Fatal("deadline/cancel did not preserve uncertainty", result)
+			}
+		}
+	}
+	for _, seconds := range []int{-1, 601} {
+		inventory := Inventory{OS: "linux", Arch: "amd64", Tools: []string{"private:echo@1"}, ToolDefinitions: []ToolDefinition{{ID: "private:echo", Route: "private:echo@1", PrivateRevision: 1, TimeoutSeconds: seconds, Parameters: json.RawMessage(`{}`)}}}
+		if validInventory(inventory) {
+			t.Fatal("invalid metadata accepted")
+		}
+	}
+}
+
+func TestRetainedPackageTimeoutDispatch(t *testing.T) {
+	b := NewBroker(BrokerConfig{PollTimeout: time.Second})
+	register(t, b, "laptop")
+	route := "package:example@1+digest:example/echo"
+	b.mu.Lock()
+	b.clients["laptop"].status.Inventory.Tools = append(b.clients["laptop"].status.Inventory.Tools, route)
+	b.clients["laptop"].status.Inventory.PackageTimeouts = map[string]int{route: 450}
+	b.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan machinetools.Result, 1)
+	before := time.Now()
+	go func() { done <- b.Execute(ctx, "laptop", route, json.RawMessage(`{}`)) }()
+	response := request(t, b, "GET", "/api/clients/poll?client_id=laptop", testToken, nil)
+	var execution Execution
+	if json.Unmarshal(response.Body.Bytes(), &execution) != nil {
+		t.Fatal(response.Body.String())
+	}
+	if elapsed := execution.Deadline.Sub(before); elapsed < 449*time.Second || elapsed > 451*time.Second {
+		t.Fatal("retained timeout clipped", elapsed)
+	}
+	cancel()
+	<-done
+	baseline := Inventory{OS: "linux", Arch: "amd64", Tools: []string{route}, PackageTimeouts: map[string]int{route: 450}}
+	if !validInventory(baseline) {
+		t.Fatal("retained-only metadata rejected")
+	}
+	for _, values := range []map[string]int{{route: -1}, {route: 601}, {"read": 30}, {"package:missing": 30}} {
+		baseline.PackageTimeouts = values
+		if validInventory(baseline) {
+			t.Fatal("invalid retained metadata accepted", values)
+		}
+	}
+}

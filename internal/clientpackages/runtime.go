@@ -35,9 +35,10 @@ type Runtime struct {
 	routes map[string]localTool
 }
 type localTool struct {
-	Revision managerpackages.Revision
-	Path     string
-	ID       string
+	TimeoutSeconds int
+	Revision       managerpackages.Revision
+	Path           string
+	ID             string
 }
 type toolDocument struct {
 	ID string `json:"id"`
@@ -76,6 +77,9 @@ func (r *Runtime) loadTool(revision managerpackages.Revision, path string) (tool
 	if err = json.Unmarshal(data, &document); err != nil {
 		return document, err
 	}
+	if _, err := privateconfig.ExtensionTimeout(document.TimeoutSeconds); err != nil {
+		return document, err
+	}
 	var schema map[string]json.RawMessage
 	if !strings.HasPrefix(document.ID, revision.ID+"/") || document.Name == "" || len(document.Command) == 0 || strings.TrimSpace(document.Command[0]) == "" || json.Unmarshal(document.Parameters, &schema) != nil || schema == nil {
 		return document, errors.New("invalid installed tool definition")
@@ -91,7 +95,7 @@ func (r *Runtime) loadTool(revision managerpackages.Revision, path string) (tool
 	return document, nil
 }
 func (r *Runtime) Inventory(ctx context.Context) (machineclient.Inventory, error) {
-	result := machineclient.Inventory{OS: runtime.GOOS, Arch: runtime.GOARCH, Tools: []string{}, PackageErrors: map[string]string{}}
+	result := machineclient.Inventory{OS: runtime.GOOS, Arch: runtime.GOARCH, Tools: []string{}, PackageTimeouts: map[string]int{}, PackageErrors: map[string]string{}}
 	for _, definition := range machinetools.Definitions() {
 		result.Tools = append(result.Tools, definition.Name)
 	}
@@ -111,7 +115,7 @@ func (r *Runtime) Inventory(ctx context.Context) (machineclient.Inventory, error
 				result.PackageErrors[revision.ID+"@"+revision.Version] = err.Error()
 				continue
 			}
-			next[Route(revision, definition.ID)] = localTool{Revision: revision, Path: path, ID: definition.ID}
+			next[Route(revision, definition.ID)] = localTool{Revision: revision, Path: path, ID: definition.ID, TimeoutSeconds: definition.TimeoutSeconds}
 		}
 	}
 
@@ -134,8 +138,8 @@ func (r *Runtime) Inventory(ctx context.Context) (machineclient.Inventory, error
 					return result, err
 				}
 				route := Route(dependency, definition.ID)
-				next[route] = localTool{Revision: dependency, Path: path, ID: definition.ID}
-				encoded, err := json.Marshal(machineclient.ToolDefinition{ID: definition.ID, Route: route, Description: definition.Description, Parameters: definition.Parameters, Package: packageRef(dependency)})
+				next[route] = localTool{Revision: dependency, Path: path, ID: definition.ID, TimeoutSeconds: definition.TimeoutSeconds}
+				encoded, err := json.Marshal(machineclient.ToolDefinition{ID: definition.ID, Route: route, Description: definition.Description, TimeoutSeconds: definition.TimeoutSeconds, Parameters: definition.Parameters, Package: packageRef(dependency)})
 				if err != nil {
 					return result, err
 				}
@@ -168,7 +172,7 @@ func (r *Runtime) Inventory(ctx context.Context) (machineclient.Inventory, error
 			if err != nil {
 				return result, err
 			}
-			result.ToolDefinitions = append(result.ToolDefinitions, machineclient.ToolDefinition{ID: definition.ID, Route: Route(revision, definition.ID), Description: definition.Description, Parameters: definition.Parameters, Package: packageRef(revision)})
+			result.ToolDefinitions = append(result.ToolDefinitions, machineclient.ToolDefinition{ID: definition.ID, Route: Route(revision, definition.ID), Description: definition.Description, TimeoutSeconds: definition.TimeoutSeconds, Parameters: definition.Parameters, Package: packageRef(revision)})
 		}
 		for _, path := range revision.Manifest.Teams {
 			definition, err := r.team(revision, path)
@@ -202,10 +206,12 @@ func (r *Runtime) Inventory(ctx context.Context) (machineclient.Inventory, error
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for route := range r.routes {
+	for route, tool := range r.routes {
+		result.PackageTimeouts[route] = tool.TimeoutSeconds
 		result.Tools = append(result.Tools, route)
 	}
-	for route := range next {
+	for route, tool := range next {
+		result.PackageTimeouts[route] = tool.TimeoutSeconds
 		if _, exists := r.routes[route]; !exists {
 			result.Tools = append(result.Tools, route)
 		}

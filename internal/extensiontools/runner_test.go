@@ -253,3 +253,27 @@ func TestWithEnvironmentIsScopedCopiedAndReplacesValues(t *testing.T) {
 		t.Fatal("nil overlay lost base environment")
 	}
 }
+
+func TestDeclaredTimeoutOverridesDefaultButNotParent(t *testing.T) {
+	r := helperRunner(t)
+	r.timeout = time.Nanosecond
+	definition := helperDefinition(t, "echo")
+	definition.TimeoutSeconds = 600
+	if result := r.ExecuteDefinition(context.Background(), definition, json.RawMessage(`{}`)); !result.OK {
+		t.Fatal("declared timeout clamped to default", result)
+	}
+	definition = helperDefinition(t, "sleep")
+	definition.TimeoutSeconds = 600
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	result := r.ExecuteDefinition(ctx, definition, json.RawMessage(`{}`))
+	if result.OK || result.Code != "cancelled" || !result.Data.(ExecutionResult).TimedOut {
+		t.Fatal("parent deadline ignored", result)
+	}
+	for _, seconds := range []int{-1, 601} {
+		definition.TimeoutSeconds = seconds
+		if result := r.ExecuteDefinition(context.Background(), definition, json.RawMessage(`{}`)); result.Code != "invalid_definition" {
+			t.Fatal(result)
+		}
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/digitalygo/smidja/internal/machinetools"
+	"github.com/digitalygo/smidja/internal/privateconfig"
 )
 
 type registeredClient struct {
@@ -182,15 +183,37 @@ func (b *Broker) dispatch(ctx context.Context, clientID, tool string, args json.
 		return failure("internal_error", "Cannot allocate request ID")
 	}
 	requestID := hex.EncodeToString(nonce[:])
-	deadline := time.Now().Add(b.cfg.ExecutionTimeout)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-	}
+	timeout := b.cfg.ExecutionTimeout
 	b.mu.Lock()
 	c, ok := b.clients[clientID]
 	if !ok || !b.online(c) {
 		b.mu.Unlock()
 		return failure("client_offline", "The selected client is offline")
+	}
+	if !control {
+		if seconds, ok := c.status.Inventory.PackageTimeouts[tool]; ok {
+			var err error
+			timeout, err = privateconfig.ExtensionTimeout(seconds)
+			if err != nil {
+				b.mu.Unlock()
+				return failure("invalid_definition", err.Error())
+			}
+		}
+		for _, definition := range c.status.Inventory.ToolDefinitions {
+			if definition.Route == tool && (definition.PrivateRevision > 0 || definition.Package.ID != "") {
+				var err error
+				timeout, err = privateconfig.ExtensionTimeout(definition.TimeoutSeconds)
+				if err != nil {
+					b.mu.Unlock()
+					return failure("invalid_definition", err.Error())
+				}
+				break
+			}
+		}
+	}
+	deadline := time.Now().Add(timeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
 	}
 	allowed := control
 	for _, name := range c.status.Inventory.Tools {

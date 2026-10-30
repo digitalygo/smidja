@@ -20,6 +20,7 @@ import (
 	"github.com/digitalygo/smidja/internal/extensiontools"
 	"github.com/digitalygo/smidja/internal/machineclient"
 	"github.com/digitalygo/smidja/internal/machinetools"
+	"github.com/digitalygo/smidja/internal/privateconfig"
 )
 
 type Config struct {
@@ -131,6 +132,9 @@ func (r *Runtime) validate(control machineclient.ExtensionControl) error {
 		if !envName.MatchString(name) || !envName.MatchString(reference) {
 			return errors.New("extension environment requires variable references")
 		}
+	}
+	if _, err := privateconfig.ExtensionTimeout(control.Definition.TimeoutSeconds); err != nil {
+		return err
 	}
 	if control.Archived {
 		return nil
@@ -283,7 +287,7 @@ func (r *Runtime) Inventory(ctx context.Context) (machineclient.Inventory, error
 		}
 		route := Route(id, control.Revision)
 		inventory.Tools = append(inventory.Tools, route)
-		inventory.ToolDefinitions = append(inventory.ToolDefinitions, machineclient.ToolDefinition{ID: id, Route: route, PrivateRevision: control.Revision, Description: control.Definition.Description, Parameters: append(json.RawMessage(nil), control.Definition.Parameters...)})
+		inventory.ToolDefinitions = append(inventory.ToolDefinitions, machineclient.ToolDefinition{ID: id, Route: route, PrivateRevision: control.Revision, Description: control.Definition.Description, TimeoutSeconds: control.Definition.TimeoutSeconds, Parameters: append(json.RawMessage(nil), control.Definition.Parameters...)})
 	}
 	return inventory, nil
 }

@@ -225,7 +225,7 @@ func (b *Broker) result(w http.ResponseWriter, r *http.Request) {
 }
 
 func validInventory(in Inventory) bool {
-	if in.OS == "" || in.Arch == "" || len(in.Tools) > 1024 || len(in.Teams) > 1024 || len(in.Packages) > 1024 || len(in.ToolDefinitions) > 1024 || len(in.TeamDefinitions) > 1024 || len(in.WorkflowDefinitions) > 1024 || len(in.SkillDefinitions) > 1024 {
+	if in.OS == "" || in.Arch == "" || len(in.Tools) > 1024 || len(in.PackageTimeouts) > 1024 || len(in.Teams) > 1024 || len(in.Packages) > 1024 || len(in.ToolDefinitions) > 1024 || len(in.TeamDefinitions) > 1024 || len(in.WorkflowDefinitions) > 1024 || len(in.SkillDefinitions) > 1024 {
 		return false
 	}
 	routes := map[string]bool{}
@@ -234,6 +234,11 @@ func validInventory(in Inventory) bool {
 			return false
 		}
 		routes[route] = true
+	}
+	for route, seconds := range in.PackageTimeouts {
+		if !strings.HasPrefix(route, "package:") || !routes[route] || seconds < 0 || seconds > 600 {
+			return false
+		}
 	}
 	revisions := map[PackageRevision]bool{}
 	for _, revision := range in.Packages {
@@ -248,7 +253,10 @@ func validInventory(in Inventory) bool {
 		if definition.PrivateRevision > 0 {
 			validProvenance = definition.Package == (PackageRevision{}) && privateExtensionID.MatchString(definition.ID) && definition.Route == definition.ID+"@"+strconv.FormatUint(definition.PrivateRevision, 10)
 		}
-		if definition.ID == "" || ids[definition.ID] || !routes[definition.Route] || !validProvenance || !json.Valid(definition.Parameters) {
+		if definition.TimeoutSeconds < 0 || definition.TimeoutSeconds > 600 || definition.ID == "" || ids[definition.ID] || !routes[definition.Route] || !validProvenance || !json.Valid(definition.Parameters) {
+			return false
+		}
+		if seconds, ok := in.PackageTimeouts[definition.Route]; ok && seconds != definition.TimeoutSeconds {
 			return false
 		}
 		ids[definition.ID] = true

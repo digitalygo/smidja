@@ -188,3 +188,26 @@ func TestClientArchiveRevokesNewCallsWithoutClaimingRollback(t *testing.T) {
 		t.Fatal("archive not propagated after action")
 	}
 }
+
+func TestPrivateExtensionTimeoutMismatchRemainsPendingAndCannotExecute(t *testing.T) {
+	catalog := privateCatalog(t)
+	definition := extensionDefinition()
+	definition.ClientID = "laptop"
+	definition.TimeoutSeconds = 450
+	savePrivate(t, catalog, "private:lookup", "extension", 0, definition)
+	broker := machineclient.NewBroker(machineclient.BrokerConfig{ExecutionTimeout: time.Millisecond})
+	inventory := machineclient.Inventory{OS: "linux", Arch: "amd64", ExtensionControls: true, Tools: []string{"private:lookup@1"}, ToolDefinitions: []machineclient.ToolDefinition{{ID: "private:lookup", Route: "private:lookup@1", PrivateRevision: 1, Parameters: json.RawMessage(`{}`)}}}
+	connectCapability(t, broker, "laptop", inventory)
+	s := &Server{cfg: Config{Private: catalog, Clients: broker}}
+	if got := s.clientExtensionActivations()[0].Status; !strings.HasPrefix(got, "pending:") {
+		t.Fatal("mismatched timeout reported active", got)
+	}
+	result := s.executeClientTool(context.Background(), "laptop", "private:lookup@1", json.RawMessage(`{}`))
+	if result.OK || !strings.Contains(result.Error, "metadata") {
+		t.Fatal("mismatched budget was dispatched", result)
+	}
+	disconnected := &Server{cfg: Config{Private: catalog, Clients: machineclient.NewBroker(machineclient.BrokerConfig{})}}
+	if result := disconnected.executeClientTool(context.Background(), "laptop", "private:lookup@1", json.RawMessage(`{}`)); result.OK {
+		t.Fatal("offline private extension accepted")
+	}
+}

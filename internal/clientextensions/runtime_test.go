@@ -347,3 +347,23 @@ func TestAuthenticatedControlAndPrivateToolEndToEnd(t *testing.T) {
 		t.Fatal("client did not stop")
 	}
 }
+
+func TestClientExtensionTimeoutMetadataAndBounds(t *testing.T) {
+	r := newRuntime(t)
+	first := control(1)
+	first.Definition.TimeoutSeconds = 450
+	if result := apply(r, first); !result.OK {
+		t.Fatal(result)
+	}
+	inventory, err := r.Inventory(context.Background())
+	if err != nil || inventory.ToolDefinitions[0].TimeoutSeconds != 450 {
+		t.Fatal(inventory, err)
+	}
+	for _, timeout := range []int{-1, 601} {
+		invalid := control(2)
+		invalid.Definition.TimeoutSeconds = timeout
+		if result := apply(r, invalid); result.Code != "invalid_control" {
+			t.Fatal(result)
+		}
+	}
+}

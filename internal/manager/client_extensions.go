@@ -109,7 +109,7 @@ func (s *Server) clientExtensionActivations() []extensionActivation {
 					continue
 				}
 				found = true
-				if entity.ArchivedAt == nil && tool.PrivateRevision == entity.Revision {
+				if s.approvedClientDefinition(client.ID, tool) {
 					item.Status = "active"
 				}
 			}
@@ -139,6 +139,20 @@ func (s *Server) executeClientTool(ctx context.Context, clientID, name string, a
 		if entity.Kind != "extension" || entity.ArchivedAt != nil || json.Unmarshal(entity.Payload, &definition) != nil || definition.ClientID != clientID || clientextensions.Route(entity.ID, entity.Revision) != name {
 			return toolResult(nil, errors.New("private extension is not approved for this client and revision"))
 		}
+		client, err := s.onlineClient(clientID)
+		if err != nil {
+			return toolResult(nil, err)
+		}
+		advertised := false
+		for _, tool := range client.Inventory.ToolDefinitions {
+			if tool.Route == name && s.approvedClientDefinition(clientID, tool) {
+				advertised = true
+				break
+			}
+		}
+		if !advertised {
+			return toolResult(nil, errors.New("private extension activation metadata does not match the approved definition"))
+		}
 	}
 	return s.cfg.Clients.Execute(ctx, clientID, name, args)
 }
@@ -152,5 +166,5 @@ func (s *Server) approvedClientDefinition(clientID string, tool machineclient.To
 		return false
 	}
 	var definition privateconfig.Extension
-	return json.Unmarshal(entity.Payload, &definition) == nil && definition.ClientID == clientID
+	return json.Unmarshal(entity.Payload, &definition) == nil && definition.ClientID == clientID && definition.TimeoutSeconds == tool.TimeoutSeconds
 }

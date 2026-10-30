@@ -33,6 +33,7 @@ type PackageRevision struct {
 }
 
 type ToolDefinition struct {
+	TimeoutSeconds  int             `json:"timeout_seconds,omitempty"`
 	PrivateRevision uint64          `json:"private_revision,omitempty"`
 	ID              string          `json:"id"`
 	Route           string          `json:"route"`
@@ -53,6 +54,7 @@ type SkillDefinition struct {
 }
 
 type Inventory struct {
+	PackageTimeouts     map[string]int      `json:"package_timeouts,omitempty"`
 	ExtensionControls   bool                `json:"extension_controls,omitempty"`
 	PackageErrors       map[string]string   `json:"package_errors,omitempty"`
 	SkillDefinitions    []SkillDefinition   `json:"skill_definitions,omitempty"`

@@ -291,3 +291,22 @@ func TestExtensionSamePayloadRevisionRejectsOldHelper(t *testing.T) {
 		t.Fatal("pre-archive registration ran after restore", result)
 	}
 }
+
+func TestPrivateExtensionRegistrationUsesDeclaredTimeout(t *testing.T) {
+	for _, seconds := range []int{0, 450} {
+		remote := &extensionFake{teams: []envai.Team{{ID: "ceo", OrchestratorID: "agent"}}}
+		definition := extensionDefinition()
+		definition.TimeoutSeconds = seconds
+		s := extensionServer(t, remote, definition)
+		if err := s.refreshExtensions(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		expected := seconds
+		if expected == 0 {
+			expected = 30
+		}
+		if len(remote.registered) != 1 || remote.registered[0].TimeoutSeconds != expected {
+			t.Fatal(remote.registered)
+		}
+	}
+}
