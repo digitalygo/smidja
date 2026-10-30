@@ -1,15 +1,8 @@
 name: Revamp UI
 on:
   push:
-    paths:
-      - 'internal/manager/ui.go'
-      - 'scripts/test-manager-*.mjs'
-      - '.github/workflows/revamp-ui.yml'
+    branches: [feature/smidja-manager-client-revamp]
   pull_request:
-    paths:
-      - 'internal/manager/ui.go'
-      - 'scripts/test-manager-*.mjs'
-      - '.github/workflows/revamp-ui.yml'
 permissions:
   contents: read
 jobs:

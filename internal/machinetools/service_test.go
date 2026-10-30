@@ -288,8 +288,21 @@ func TestGitDetectionDiffAndWorktree(t *testing.T) {
 	r := invoke(t, s, "git_status", Arguments{Path: dir})
 	requireOK(t, r)
 	g := r.Data.(GitResult)
-	if g.Root != dir || !strings.Contains(g.Output, "a.txt") || !strings.Contains(g.Output, "untracked") {
+	canonicalDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Root != canonicalDir || !strings.Contains(g.Output, "a.txt") || !strings.Contains(g.Output, "untracked") {
 		t.Fatal(r)
+	}
+	alias := filepath.Join(t.TempDir(), "repository-link")
+	if err := os.Symlink(dir, alias); err != nil {
+		t.Fatal(err)
+	}
+	linked := invoke(t, s, "git_status", Arguments{Path: alias})
+	requireOK(t, linked)
+	if linked.Data.(GitResult).Root != canonicalDir {
+		t.Fatal(linked)
 	}
 	r = invoke(t, s, "git_diff", Arguments{Path: dir})
 	requireOK(t, r)
