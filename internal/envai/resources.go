@@ -100,10 +100,13 @@ func (c *Client) StartTurn(ctx context.Context, chatID, message string) (Turn, e
 	if message == "" {
 		return result, errors.New("message is required")
 	}
-	if err = c.RequireFeatures(ctx); err != nil {
+	if err = c.RequireFeatures(ctx, "strict_model"); err != nil {
 		return result, err
 	}
-	err = c.json(ctx, http.MethodPost, "/api/v1/atp/v3/chats/"+chat+"/messages", map[string]string{"message": message}, &result, true)
+	err = c.json(ctx, http.MethodPost, "/api/v1/atp/v3/chats/"+chat+"/messages", struct {
+		Message     string `json:"message"`
+		StrictModel bool   `json:"strict_model"`
+	}{message, true}, &result, true)
 	if err == nil && result.TurnID == "" {
 		err = errors.New("envai accepted response has no turn ID; outcome unknown")
 	}

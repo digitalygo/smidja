@@ -14,6 +14,7 @@ import (
 
 func ManagerToolDefinitions() []machinetools.Definition {
 	return []machinetools.Definition{
+ {Name:"pr_review", Description:"Start the read-only four-phase PR review: freeze base/head SHA and diff, analyze, verify evidence, synthesize. Runs in background and notifies this CEO chat. No PR changes or code execution.",Parameters:json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string"},"number":{"type":"integer","minimum":1},"focus":{"type":"string"}},"required":["repository","number"],"additionalProperties":false}`)},
 		{Name: "clients_execute", Description: "Execute an advertised tool on a selected online client. Inspect clients_get first for available tool names and schemas; never invent a route.", Parameters: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object"}},"required":["client_id","tool","arguments"],"additionalProperties":false}`)},
 		{Name: "config_schema", Description: "Read the required payload shape before proposing a private team, workflow or extension.", Parameters: json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["team","workflow","extension"]}},"required":["kind"],"additionalProperties":false}`)},
 		{Name: "skills_list", Description: "List available installed package skill IDs without loading their contents.", Parameters: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
@@ -49,6 +50,8 @@ func (s *Server) executeManagerTool(ctx context.Context, event envai.Event, name
 		return toolResult(nil, err)
 	}
 	switch strings.TrimPrefix(name, "manager.") {
+ case "pr_review":
+ return s.prReviewTool(ctx,event,args)
 	case "clients_execute":
 		var input struct {
 			ClientID  string          `json:"client_id"`
@@ -58,7 +61,7 @@ func (s *Server) executeManagerTool(ctx context.Context, event envai.Event, name
 		if err := json.Unmarshal(args, &input); err != nil {
 			return toolResult(nil, err)
 		}
-		return s.cfg.Clients.Execute(ctx, input.ClientID, input.Tool, input.Arguments)
+		return s.executeClientTool(ctx, input.ClientID, input.Tool, input.Arguments)
 	case "config_schema":
 		value, err := configurationSchema(identity.Kind)
 		return toolResult(value, err)

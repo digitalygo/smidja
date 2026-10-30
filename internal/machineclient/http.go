@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -229,7 +230,7 @@ func validInventory(in Inventory) bool {
 	}
 	routes := map[string]bool{}
 	for _, route := range in.Tools {
-		if route == "" || routes[route] {
+		if route == "" || routes[route] || strings.HasPrefix(route, "__smidja_") {
 			return false
 		}
 		routes[route] = true
@@ -243,7 +244,11 @@ func validInventory(in Inventory) bool {
 	}
 	ids := map[string]bool{}
 	for _, definition := range in.ToolDefinitions {
-		if definition.ID == "" || ids[definition.ID] || !routes[definition.Route] || !revisions[definition.Package] || !json.Valid(definition.Parameters) {
+		validProvenance := revisions[definition.Package] && definition.PrivateRevision == 0
+		if definition.PrivateRevision > 0 {
+			validProvenance = definition.Package == (PackageRevision{}) && privateExtensionID.MatchString(definition.ID) && definition.Route == definition.ID+"@"+strconv.FormatUint(definition.PrivateRevision, 10)
+		}
+		if definition.ID == "" || ids[definition.ID] || !routes[definition.Route] || !validProvenance || !json.Valid(definition.Parameters) {
 			return false
 		}
 		ids[definition.ID] = true

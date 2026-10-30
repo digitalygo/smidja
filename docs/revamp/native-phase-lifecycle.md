@@ -36,3 +36,11 @@ payload preservation, initial acknowledgement versus final synthesis, task
 identity, stopped observers, unknown outcomes, and cancellation. These fixtures
 do not certify that the corresponding Envai branch is deployed or that paid
 model calls have been tested live.
+
+The current adapter targets Envai PR #56 commit
+`c907371b252244cf7a2475d6326e90a28da82880`. CEO message admission and target
+workflow/team delegation explicitly require `strict_model` and request it as
+true. An unavailable configured root model must fail before inference rather
+than fall back silently. Versioned provider model identifiers are not required
+to equal a configuration alias. The provider and deployment have not been
+called by these offline tests.

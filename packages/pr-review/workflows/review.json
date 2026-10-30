@@ -1,0 +1,26 @@
+{
+  "id": "smidja.pr-review/review",
+  "version": "1.0.0",
+  "phases": [
+    {
+      "id": "context",
+      "name": "Context",
+      "team_ref": "smidja.pr-review/context"
+    },
+    {
+      "id": "analysis",
+      "name": "Analysis",
+      "team_ref": "smidja.pr-review/analysis"
+    },
+    {
+      "id": "verification",
+      "name": "Verification",
+      "team_ref": "smidja.pr-review/verification"
+    },
+    {
+      "id": "synthesis",
+      "name": "Synthesis",
+      "team_ref": "smidja.pr-review/synthesis"
+    }
+  ]
+}

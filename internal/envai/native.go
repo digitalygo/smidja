@@ -25,7 +25,8 @@ type DeliveryReceipt struct {
 	Error     json.RawMessage `json:"error,omitempty"`
 }
 type DelegationInput struct {
- NotifyOrigin *bool `json:"notify_origin,omitempty"`
+	StrictModel  *bool  `json:"strict_model,omitempty"`
+	NotifyOrigin *bool  `json:"notify_origin,omitempty"`
 	WorkspaceID  string `json:"workspace_id"`
 	EventID      string `json:"event_id"`
 	OriginTurnID string `json:"origin_turn_id"`
@@ -38,6 +39,7 @@ type Delegation struct {
 	TurnID       string `json:"turn_id"`
 }
 type DetachedTask struct {
+	ResultTurnID  string          `json:"result_turn_id,omitempty"`
 	TaskID        string          `json:"task_id"`
 	OriginTurnID  string          `json:"origin_turn_id"`
 	Status        string          `json:"status"`
@@ -105,8 +107,17 @@ func (c *Client) Delegate(ctx context.Context, chatID string, input DelegationIn
 	if err != nil {
 		return result, err
 	}
-	if input.NotifyOrigin!=nil && !*input.NotifyOrigin{if err=c.RequireFeatures(ctx,"delegation_notify_origin");err!=nil{return result,err}}
- err = c.json(ctx, http.MethodPost, path+"/delegations", input, &result, true)
+	if input.NotifyOrigin != nil && !*input.NotifyOrigin {
+		if err = c.RequireFeatures(ctx, "delegation_notify_origin"); err != nil {
+			return result, err
+		}
+	}
+	if input.StrictModel != nil && *input.StrictModel {
+		if err = c.RequireFeatures(ctx, "strict_model"); err != nil {
+			return result, err
+		}
+	}
+	err = c.json(ctx, http.MethodPost, path+"/delegations", input, &result, true)
 	if err == nil && (result.TaskID == "" || result.TurnID == "" || result.TargetChatID != input.TargetChatID) {
 		err = errors.New("invalid native delegation receipt; outcome uncertain")
 	}

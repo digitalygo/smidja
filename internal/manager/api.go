@@ -12,6 +12,8 @@ import (
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	switch {
+ case strings.HasPrefix(r.URL.Path,"/api/pr-review"):
+ s.prReviewAPI(w,r)
 	case strings.HasPrefix(r.URL.Path, "/api/private") || strings.HasPrefix(r.URL.Path, "/api/approvals"):
 		s.privateAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/packages"):
@@ -75,7 +77,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		if input.ClientID == "" || input.ClientID == "manager" {
 			writeJSON(w, 200, s.cfg.Tools.Execute(r.Context(), input.Name, input.Args))
 		} else {
-			writeJSON(w, 200, s.cfg.Clients.Execute(r.Context(), input.ClientID, input.Name, input.Args))
+			writeJSON(w, 200, s.executeClientTool(r.Context(), input.ClientID, input.Name, input.Args))
 		}
 	case r.Method == "POST" && r.URL.Path == "/api/team-delegations":
 		s.delegateTeamAPI(w, r)

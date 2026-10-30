@@ -54,7 +54,7 @@ func TestTeamDelegationUsesNativeOriginAndPersistentObserver(t *testing.T) {
 		t.Fatal("delegation admitted without target observer", remote.delegates)
 	}
 	in := remote.delegates[0]
-	if in.OriginTurnID != "origin-turn" || in.TargetChatID != "target-chat" || in.EventID != "call" || in.WorkspaceID != "workspace" || in.Prompt != "Review this change" {
+	if in.StrictModel == nil || !*in.StrictModel || in.OriginTurnID != "origin-turn" || in.TargetChatID != "target-chat" || in.EventID != "call" || in.WorkspaceID != "workspace" || in.Prompt != "Review this change" {
 		t.Fatal(in)
 	}
 	receipt, ok := result.Data.(envai.Delegation)

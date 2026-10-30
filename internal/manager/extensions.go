@@ -47,6 +47,13 @@ func (s *Server) refreshExtensions(ctx context.Context) error {
 			return err
 		}
 		if definition.ClientID != "" && definition.ClientID != "manager" {
+			s.mu.Lock()
+			name := s.packageToolRefs[definition.ClientID][entity.ID]
+			s.mu.Unlock()
+			if name != "" {
+				nextRefs[entity.ID] = name
+				refs = append(refs, envai.ToolReference{Name: name})
+			}
 			continue
 		}
 		digest := sha256.Sum256([]byte(s.cfg.WorkspaceID + "/" + s.cfg.CEOTeamID + "/" + entity.ID + "/" + strconv.FormatUint(entity.Revision, 10)))

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "smidja.pr-review",
+  "version": "1.0.0",
+  "publisher": "Smidja",
+  "requires_smidja": "\u003e=0.0.0",
+  "scopes": [
+    "manager"
+  ],
+  "targets": [
+    "linux/amd64",
+    "linux/arm64",
+    "darwin/amd64",
+    "darwin/arm64"
+  ],
+  "teams": [
+    "teams/context.json",
+    "teams/analysis.json",
+    "teams/verification.json",
+    "teams/synthesis.json"
+  ],
+  "workflows": [
+    "workflows/review.json"
+  ],
+  "tools": null,
+  "skills": null,
+  "files": [
+    {
+      "path": "teams/analysis.json",
+      "sha256": "bc36d17181b04aea37124196f31fe74ac408dc9a29937a85c7a3a8a5cfceb144"
+    },
+    {
+      "path": "teams/context.json",
+      "sha256": "4a7ed44c43baeb4dc721ceed609e2f49b56252d5362287129a5421af114933b8"
+    },
+    {
+      "path": "teams/synthesis.json",
+      "sha256": "15257a911ff1abd28b6bacf16bc62399ac23f561330e739f9c0b2d13851c07cd"
+    },
+    {
+      "path": "teams/verification.json",
+      "sha256": "cce8a1666cd170f3579e4912ecfcb69a073c1ed6d1a41c205c8bd3e60ee8b28a"
+    },
+    {
+      "path": "workflows/review.json",
+      "sha256": "69decbb2e15e56d54f73cc5578805ef694f0f844380601c7266ce9bcbce39e59"
+    }
+  ],
+  "dependencies": null,
+  "configuration": null
+}

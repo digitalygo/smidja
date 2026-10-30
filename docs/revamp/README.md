@@ -15,7 +15,7 @@ Secrets are environment references, never literal configuration values. Supply a
 
 The manager binds to loopback by default. For remote access, configure an HTTPS reverse proxy and `behind_tls_proxy: true`. Do not expose the plain HTTP listener directly. Linux and macOS, amd64 and arm64 are supported; ARMv7 and Windows are not included.
 
-The remote Envai origin must provide ATP v3, native deliveries, cross-team delegation, detached background, and phase classification. Features are checked; missing capabilities cause explicit failures, not a locally simulated background mode. This contract is being implemented in the parallel Envai branch. No real inference or deployment was exercised while building this change.
+The remote Envai origin must provide ATP v3, native deliveries, cross-team delegation, detached background, phase classification, delegated job lifecycle, delegation notification control, and strict model admission. Features are checked; missing capabilities cause explicit failures, not a locally simulated background mode. The adapter targets Envai PR #56 at `c907371b252244cf7a2475d6326e90a28da82880`; that draft is not deployed by this change. No real inference or deployment was exercised while building this change.
 
 ## Execution and recovery
 
@@ -42,11 +42,15 @@ Package installation/updates, private approval-gated configuration, executable e
 
 The manager defaults are exactly `openai/gpt-6.1-terra` for `ceo_model` and `openai/gpt-6-luna-decisions` for the displayed `classifier_model` preference. `manager-setup` requires an explicit `model`; the setup example uses `openai/gpt-6.1-terra`. Package/private team agents carry their own explicit model IDs rather than inheriting an implicit package-wide model.
 
-The CEO setup records the requested model but cannot prove the provider's live effective model without inference. Phase classification is selected by Envai's deployment `DECISIONS_MODEL`, not by a request override. The manager's `classifier_model` is a displayed preference; each phase records the actual returned model, including versioned provider IDs. Changing that preference alone does not reconfigure Envai.
+The CEO setup records the requested model but cannot prove the provider's live effective model without inference. CEO messages and team/workflow delegations request `strict_model: true`; an incompatible server or unavailable configured root model must reject admission instead of silently selecting a fallback. Provider version suffixes are preserved, not rejected as an alias mismatch. Phase classification is selected by Envai's deployment `DECISIONS_MODEL`, not by a request override. The manager's `classifier_model` is a displayed preference; each phase records the actual returned model, including versioned provider IDs. Changing that preference alone does not reconfigure Envai.
 
 ### Private extensions
 
 Approved local extensions execute their literal `command` argv with JSON arguments on stdin, bounded stdout/stderr and process-group cancellation. They do not receive manager credentials by default. An optional `environment` object maps child variable names to environment-variable **names** on the manager, for example `{"ODOO_API_KEY":"ODOO_API_KEY"}`. Missing values fail invocation, not installation. Manager authentication, configured client tokens and Envai authentication variables are not available through this mapping. An archived or superseded definition cannot execute through an old remote tool reference.
+
+Private extensions may target a client by `client_id`. The manager propagates only owner-approved revisions over authenticated, reserved control messages; those controls are not public agent tools. Configuration references resolve on that client, never on the manager. The client saves immutable revision receipts before advertising the new route and retains them across restart. Repeating the same configuration revision is safe; this does not authorize retrying uncertain tool executions.
+
+The configuration page displays activation separately from approval, including offline/unknown clients and clients lacking `state_dir`. An approved definition is not considered active until the online client advertises its exact revision. The manager reconciles every five seconds and retracts stale client definitions when they are archived, moved or removed. New calls to superseded or archived private routes are rejected immediately on the manager, even before client reconciliation. A client processes tool calls serially: an already-running operation may finish before its queued archive is applied, and previous effects are not rolled back. This is best-effort revocation, not a promise of immediate interruption.
 
 ## Packages on manager and client
 
@@ -54,7 +58,7 @@ The manager Web UI installs a package from a release-manifest URL, optionally us
 
 Clients support base machine tools plus installed package tools, team/workflow definitions and skills. Configure these optional client fields:
 
-- `state_dir`: local package-state directory; required when configuring package sources or an update interval.
+- `state_dir`: local package and approved-extension state directory; required for private client extensions, package sources or an update interval. A client without this field supports base tools only and reports no extension-control capability.
 - `package_sources`: array of `{"url":"release-manifest URL","token_env":"OPTIONAL_SOURCE_TOKEN_ENV"}`. Do not reuse the client authentication token for package-source authentication.
 - `package_update_interval_seconds`: nonnegative interval; omitted or zero uses 15 minutes. Startup checks immediately, then each interval adds up to 10% jitter. Update failures are printed to client stderr and do not authorize partial activation.
 

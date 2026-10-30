@@ -320,7 +320,7 @@ func (s *Server) executeVerifiedTool(ctx context.Context, event envai.Event, req
 	} else if clientID == "manager" {
 		output = s.cfg.Tools.Execute(ctx, binding.Name, request.Args)
 	} else {
-		output = s.cfg.Clients.Execute(ctx, clientID, binding.Name, request.Args)
+		output = s.executeClientTool(ctx, clientID, binding.Name, request.Args)
 	}
 	encoded, err := json.Marshal(output)
 	if err != nil {

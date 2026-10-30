@@ -7,7 +7,10 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -15,12 +18,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.6'
-      - run: go test -race -coverprofile=coverage.out ./internal/envai ./internal/managerstate ./internal/machinetools ./internal/machineclient ./internal/manager ./internal/managerpackages ./internal/privateconfig ./internal/extensiontools ./internal/clientpackages
+      - run: go test -race -coverprofile=coverage.out ./internal/envai ./internal/managerstate ./internal/machinetools ./internal/machineclient ./internal/manager ./internal/managerpackages ./internal/privateconfig ./internal/extensiontools ./internal/clientpackages ./internal/clientextensions ./internal/prreview
       - run: go test -race -coverprofile=cli-coverage.out ./internal/cli -run 'Test(Manager|Client|Service|ReadService|Referenced|ValidateManager|BuildManager|RunManager|RunClient|ServeManager)'
       - run: python3 scripts/check-delta-coverage.py "${BASE_SHA:-origin/alpha}" coverage.out cli-coverage.out
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      - run: go vet ./internal/envai ./internal/managerstate ./internal/machinetools ./internal/machineclient ./internal/manager ./internal/managerpackages ./internal/privateconfig ./internal/extensiontools ./internal/clientpackages
+      - run: go vet ./internal/envai ./internal/managerstate ./internal/machinetools ./internal/machineclient ./internal/manager ./internal/managerpackages ./internal/privateconfig ./internal/extensiontools ./internal/clientpackages ./internal/clientextensions ./internal/prreview
   build:
     runs-on: ubuntu-latest
     strategy:

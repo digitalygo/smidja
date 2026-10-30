@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/digitalygo/smidja/internal/machinetools"
 	"io"
 	"net"
 	"net/http"
@@ -18,12 +19,13 @@ import (
 )
 
 type remoteClient struct {
-	cfg       Config
-	http      *http.Client
-	base      *url.URL
-	mu        sync.Mutex
-	active    map[string]context.CancelFunc
-	inventory Inventory
+	inventoryMu sync.Mutex
+	cfg         Config
+	http        *http.Client
+	base        *url.URL
+	mu          sync.Mutex
+	active      map[string]context.CancelFunc
+	inventory   Inventory
 }
 
 func Run(ctx context.Context, cfg Config, executor Executor) error {
@@ -64,6 +66,15 @@ func Run(ctx context.Context, cfg Config, executor Executor) error {
 			return errors.New("manager returned an invalid execution binding")
 		}
 		allowed := false
+		controlExecutor, canControl := executor.(ControlExecutor)
+		if execution.Control {
+			if execution.Tool != ApplyExtensionControl || !canControl {
+				return errors.New("unsupported client control command")
+			}
+			allowed = true
+		} else if strings.HasPrefix(execution.Tool, "__smidja_") {
+			return errors.New("reserved control command used as public tool")
+		}
 		c.mu.Lock()
 		for _, name := range c.inventory.Tools {
 			if name == execution.Tool {
@@ -93,7 +104,17 @@ func Run(ctx context.Context, cfg Config, executor Executor) error {
 		c.mu.Lock()
 		c.active[execution.RequestID] = taskCancel
 		c.mu.Unlock()
-		result := executor.Execute(taskCtx, execution.Tool, execution.Args)
+		var result machinetools.Result
+		if execution.Control {
+			result = controlExecutor.ExecuteControl(taskCtx, execution.Tool, execution.Args)
+		} else {
+			result = executor.Execute(taskCtx, execution.Tool, execution.Args)
+		}
+		if execution.Control && result.OK {
+			if err = c.refreshInventory(taskCtx, false); err != nil {
+				result = failure("inventory_refresh_failed", "Extension persisted but inventory synchronization failed; retry the same revision")
+			}
+		}
 		taskCancel()
 		c.mu.Lock()
 		delete(c.active, execution.RequestID)
@@ -231,6 +252,8 @@ func (c *remoteClient) beat(ctx context.Context) error {
 }
 
 func (c *remoteClient) refreshInventory(ctx context.Context, force bool) error {
+	c.inventoryMu.Lock()
+	defer c.inventoryMu.Unlock()
 	inventory := c.cfg.Inventory
 	var err error
 	if c.cfg.InventoryProvider != nil {

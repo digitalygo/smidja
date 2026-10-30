@@ -50,3 +50,21 @@ The pinned `github.com/cyberphone/json-canonicalization` dependency is the
 upstream RFC 8785 implementation, Apache-2.0, at commit `32a48195b9b2`.
 All adapter tests use local HTTP fixtures; no paid or live model requests are
 part of these checks.
+
+The native contract is pinned to Envai commit
+`c907371b252244cf7a2475d6326e90a28da82880`,
+`packages/contracts/smidja-native.json` (PR 56, not yet deployed).
+`StartTurn` requires `strict_model` and sends `strict_model: true`, so an
+unavailable configured CEO model fails before inference rather than falling
+back. Native origin wake turns inherit that policy. Manager workflow and
+direct team delegations also request strict target-root model selection;
+the low-level delegation input retains the optional flag for explicit policy.
+Children retain Envai's own model-resolution policy. Provider model aliases or
+version suffixes are diagnostic data, not evidence of a failed strict request.
+
+Workflow readiness additionally requires `delegated_job_lifecycle` and
+`delegation_notify_origin`. A phase suppresses automatic origin notification,
+keeps the target SSE observer alive, and reads the entire delegated job's
+terminal output. Its initial coordinator turn acknowledgement is not phase
+completion; `result_turn_id` can identify a later synthesis turn. Only the
+workflow's final or blocked result explicitly wakes the CEO.

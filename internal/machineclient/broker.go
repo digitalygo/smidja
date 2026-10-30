@@ -155,6 +155,22 @@ func failure(code, message string) machinetools.Result {
 }
 
 func (b *Broker) Execute(ctx context.Context, clientID, tool string, args json.RawMessage) machinetools.Result {
+	if strings.HasPrefix(tool, "__smidja_") {
+		return failure("tool_unavailable", "Reserved client control commands are not public tools")
+	}
+	return b.dispatch(ctx, clientID, tool, args, false)
+}
+func (b *Broker) ApplyExtension(ctx context.Context, clientID string, definition ExtensionControl) machinetools.Result {
+	if definition.Definition.ClientID != clientID || !privateExtensionID.MatchString(definition.ID) || definition.Revision == 0 {
+		return failure("invalid_arguments", "Private extension control binding is invalid")
+	}
+	args, err := json.Marshal(definition)
+	if err != nil {
+		return failure("invalid_arguments", "Invalid extension control payload")
+	}
+	return b.dispatch(ctx, clientID, ApplyExtensionControl, args, true)
+}
+func (b *Broker) dispatch(ctx context.Context, clientID, tool string, args json.RawMessage, control bool) machinetools.Result {
 	if !json.Valid(args) {
 		return failure("invalid_arguments", "Tool arguments must be valid JSON")
 	}
@@ -176,7 +192,7 @@ func (b *Broker) Execute(ctx context.Context, clientID, tool string, args json.R
 		b.mu.Unlock()
 		return failure("client_offline", "The selected client is offline")
 	}
-	allowed := false
+	allowed := control
 	for _, name := range c.status.Inventory.Tools {
 		if name == tool {
 			allowed = true
@@ -191,7 +207,7 @@ func (b *Broker) Execute(ctx context.Context, clientID, tool string, args json.R
 		b.mu.Unlock()
 		return failure("busy", "Remote operation queue is full")
 	}
-	p := &pendingExecution{execution: Execution{ProtocolVersion: ProtocolVersion, RequestID: requestID, ClientID: clientID, Tool: tool, Args: append(json.RawMessage(nil), args...), Deadline: deadline}, result: make(chan machinetools.Result, 1)}
+	p := &pendingExecution{execution: Execution{Control: control, ProtocolVersion: ProtocolVersion, RequestID: requestID, ClientID: clientID, Tool: tool, Args: append(json.RawMessage(nil), args...), Deadline: deadline}, result: make(chan machinetools.Result, 1)}
 	b.pending[requestID] = p
 	select {
 	case c.queue <- requestID:

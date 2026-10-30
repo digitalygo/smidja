@@ -4,12 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/digitalygo/smidja/internal/machinetools"
+	"github.com/digitalygo/smidja/internal/privateconfig"
 )
 
 const ProtocolVersion = 1
+const ApplyExtensionControl = "__smidja_apply_extension"
+
+var privateExtensionID = regexp.MustCompile(`^private:[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+
+type ExtensionControl struct {
+	ID         string                  `json:"id"`
+	Revision   uint64                  `json:"revision"`
+	Archived   bool                    `json:"archived"`
+	Definition privateconfig.Extension `json:"definition"`
+}
+type ControlExecutor interface {
+	ExecuteControl(context.Context, string, json.RawMessage) machinetools.Result
+}
 
 type PackageRevision struct {
 	ID      string `json:"id"`
@@ -18,11 +33,12 @@ type PackageRevision struct {
 }
 
 type ToolDefinition struct {
-	ID          string          `json:"id"`
-	Route       string          `json:"route"`
-	Description string          `json:"description"`
-	Parameters  json.RawMessage `json:"parameters"`
-	Package     PackageRevision `json:"package"`
+	PrivateRevision uint64          `json:"private_revision,omitempty"`
+	ID              string          `json:"id"`
+	Route           string          `json:"route"`
+	Description     string          `json:"description"`
+	Parameters      json.RawMessage `json:"parameters"`
+	Package         PackageRevision `json:"package"`
 }
 type CatalogDefinition struct {
 	ID         string          `json:"id"`
@@ -37,6 +53,7 @@ type SkillDefinition struct {
 }
 
 type Inventory struct {
+	ExtensionControls   bool                `json:"extension_controls,omitempty"`
 	PackageErrors       map[string]string   `json:"package_errors,omitempty"`
 	SkillDefinitions    []SkillDefinition   `json:"skill_definitions,omitempty"`
 	ToolDefinitions     []ToolDefinition    `json:"tool_definitions,omitempty"`
@@ -65,6 +82,7 @@ type Registration struct {
 }
 
 type Execution struct {
+	Control         bool            `json:"control,omitempty"`
 	ProtocolVersion int             `json:"protocol_version"`
 	RequestID       string          `json:"request_id"`
 	ClientID        string          `json:"client_id"`

@@ -118,10 +118,10 @@ func TestNativeDelegationJournalPreventsDuplicateAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = n.Ready(ctx); err != nil || len(f.features) != 6 {
+	if err = n.Ready(ctx); err != nil || len(f.features) != 7 {
 		t.Fatal(err, f.features)
 	}
-	for _, required := range []string{"native_deliveries", "cross_team_delegation", "detached_background", "phase_classification", "delegated_job_lifecycle", "delegation_notify_origin"} {
+	for _, required := range []string{"native_deliveries", "cross_team_delegation", "detached_background", "phase_classification", "delegated_job_lifecycle", "delegation_notify_origin", "strict_model"} {
 		found := false
 		for _, feature := range f.features {
 			if feature == required {
@@ -144,7 +144,7 @@ func TestNativeDelegationJournalPreventsDuplicateAdmission(t *testing.T) {
 		t.Fatal(repeated, err)
 	}
 	in := f.delegates[0]
-	if in.EventID != "phase-request" || in.WorkspaceID != "workspace" || in.OriginTurnID != "origin-turn" || in.NotifyOrigin == nil || *in.NotifyOrigin || !strings.Contains(in.Prompt, "ascii board") {
+	if in.StrictModel == nil || !*in.StrictModel || in.EventID != "phase-request" || in.WorkspaceID != "workspace" || in.OriginTurnID != "origin-turn" || in.NotifyOrigin == nil || *in.NotifyOrigin || !strings.Contains(in.Prompt, "ascii board") {
 		t.Fatal(in)
 	}
 	out, err := n.FollowPhase(ctx, execution)

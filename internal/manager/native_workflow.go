@@ -27,7 +27,7 @@ type nativeWorkflow struct {
 }
 
 func (n *nativeWorkflow) Ready(ctx context.Context) error {
-	return n.remote.RequireFeatures(ctx, "native_deliveries", "cross_team_delegation", "detached_background", "phase_classification", "delegated_job_lifecycle", "delegation_notify_origin")
+	return n.remote.RequireFeatures(ctx, "native_deliveries", "cross_team_delegation", "detached_background", "phase_classification", "delegated_job_lifecycle", "delegation_notify_origin", "strict_model")
 }
 func (n *nativeWorkflow) origin(task managerstate.Task) (managerstate.Session, error) {
 	session, err := n.server.cfg.Store.GetSession(task.OriginSessionID)
@@ -83,7 +83,8 @@ func (n *nativeWorkflow) StartPhase(ctx context.Context, task managerstate.Task,
 	}
 	watching := n.server.observeSession(watchSession.ID)
 	notifyOrigin := false
-	delegation, err := n.remote.Delegate(ctx, origin.ChatID, envai.DelegationInput{NotifyOrigin: &notifyOrigin, WorkspaceID: n.server.cfg.WorkspaceID, EventID: attempt.RequestID, OriginTurnID: origin.Turn.TurnID, TargetChatID: target.ID, Prompt: "Execute this workflow phase to completion. Use the native delegation lifecycle for specialist work. Preserve the full final result and state any blocker explicitly.\n" + string(body)})
+	strictModel := true
+	delegation, err := n.remote.Delegate(ctx, origin.ChatID, envai.DelegationInput{StrictModel: &strictModel, NotifyOrigin: &notifyOrigin, WorkspaceID: n.server.cfg.WorkspaceID, EventID: attempt.RequestID, OriginTurnID: origin.Turn.TurnID, TargetChatID: target.ID, Prompt: "Execute this workflow phase to completion. Use the native delegation lifecycle for specialist work. Preserve the full final result and state any blocker explicitly.\n" + string(body)})
 	if err != nil {
 		return execution, err
 	}

@@ -92,7 +92,7 @@ func TestClientPackageCLIInstallsAndPublishesLocalDefinitions(t *testing.T) {
 		go func() { done <- runMachineClient([]string{"--config", path}, d) }()
 		select {
 		case registration := <-registered:
-			if len(registration.Inventory.ToolDefinitions) != 1 || registration.Inventory.ToolDefinitions[0].ID != "fixture/tool" || registration.Inventory.Packages[0].Version != "1.0.0" {
+			if !registration.Inventory.ExtensionControls || len(registration.Inventory.ToolDefinitions) != 1 || registration.Inventory.ToolDefinitions[0].ID != "fixture/tool" || registration.Inventory.Packages[0].Version != "1.0.0" {
 				t.Fatal(registration)
 			}
 		case <-time.After(2 * time.Second):

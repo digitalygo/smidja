@@ -53,7 +53,7 @@ func TestResources(t *testing.T) {
 	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/atp/v3/capabilities":
-			fmt.Fprint(w, `{"protocol_version":3,"contract_version":3,"features":["sse"]}`)
+			fmt.Fprint(w, `{"protocol_version":3,"contract_version":3,"features":["sse","strict_model"]}`)
 		case "/api/v1/teams":
 			if r.Method == "GET" {
 				fmt.Fprint(w, `{"data":[{"id":"team"}]}`)
@@ -84,9 +84,9 @@ func TestResources(t *testing.T) {
 				fmt.Fprint(w, `{"data":{"id":"chat"}}`)
 			}
 		case "/api/v1/atp/v3/chats/chat/messages":
-			var b map[string]string
+			var b map[string]any
 			json.NewDecoder(r.Body).Decode(&b)
-			if b["message"] != "hello" {
+			if b["message"] != "hello" || b["strict_model"] != true {
 				t.Error(b)
 			}
 			w.WriteHeader(202)
@@ -199,7 +199,7 @@ func TestEmptyIDsAndNoRetry(t *testing.T) {
 	calls := 0
 	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "capabilities") {
-			fmt.Fprint(w, `{"protocol_version":3,"contract_version":3}`)
+			fmt.Fprint(w, `{"protocol_version":3,"contract_version":3,"features":["strict_model"]}`)
 			return
 		}
 		calls++

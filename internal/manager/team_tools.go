@@ -113,7 +113,7 @@ func (s *Server) delegateTeam(ctx context.Context, chatID, turnID, eventID, team
 	if teamRef == "" || prompt == "" {
 		return toolResult(nil, errors.New("team_ref and prompt are required"))
 	}
-	if err := remote.RequireFeatures(ctx, "cross_team_delegation", "detached_background", "delegated_job_lifecycle"); err != nil {
+	if err := remote.RequireFeatures(ctx, "cross_team_delegation", "detached_background", "delegated_job_lifecycle", "strict_model"); err != nil {
 		return toolResult(nil, err)
 	}
 	teamID, err := s.ensureTeam(ctx, teamRef)
@@ -132,6 +132,7 @@ func (s *Server) delegateTeam(ctx context.Context, chatID, turnID, eventID, team
 		return toolResult(nil, err)
 	}
 	s.observeSession(session.ID)
-	result, err := remote.Delegate(ctx, chatID, envai.DelegationInput{WorkspaceID: s.cfg.WorkspaceID, EventID: eventID, OriginTurnID: turnID, TargetChatID: target.ID, Prompt: prompt})
+	strictModel := true
+	result, err := remote.Delegate(ctx, chatID, envai.DelegationInput{StrictModel: &strictModel, WorkspaceID: s.cfg.WorkspaceID, EventID: eventID, OriginTurnID: turnID, TargetChatID: target.ID, Prompt: prompt})
 	return toolResult(result, err)
 }

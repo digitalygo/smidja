@@ -19,6 +19,8 @@ func (s *Server) privateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case r.Method == "GET" && r.URL.Path == "/api/private/activation":
+		writeJSON(w, 200, s.clientExtensionActivations())
 	case r.Method == "GET" && r.URL.Path == "/api/private":
 		writeJSON(w, 200, s.cfg.Private.List(r.URL.Query().Get("kind"), r.URL.Query().Get("archived") == "true"))
 	case r.Method == "GET" && r.URL.Path == "/api/approvals":

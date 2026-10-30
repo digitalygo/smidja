@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/digitalygo/smidja/internal/clientextensions"
 	"github.com/digitalygo/smidja/internal/clientpackages"
 	"github.com/digitalygo/smidja/internal/envai"
 	"github.com/digitalygo/smidja/internal/extensiontools"
@@ -26,9 +27,11 @@ import (
 	"github.com/digitalygo/smidja/internal/managerpackages"
 	"github.com/digitalygo/smidja/internal/managerstate"
 	"github.com/digitalygo/smidja/internal/privateconfig"
+ "github.com/digitalygo/smidja/internal/prreview"
 )
 
 type managerFileConfig struct {
+ PRReview *prreview.Config `json:"pr_review,omitempty"`
 	Listen          string                         `json:"listen"`
 	StateDir        string                         `json:"state_dir"`
 	TokenEnv        string                         `json:"token_env"`
@@ -144,7 +147,12 @@ func buildManager(cfg managerFileConfig, d *Deps) (*manager.Server, *managerstat
 	if err != nil {
 		return nil, nil, err
 	}
-	broker := machineclient.NewBroker(machineclient.BrokerConfig{InventoryPath: filepath.Join(cfg.StateDir, "client-inventory.json")})
+	var review *prreview.Service
+ if cfg.PRReview != nil {
+ review,err=prreview.New(*cfg.PRReview,d.HTTPClient,d.Env)
+ if err!=nil{return nil,nil,err}
+ }
+ broker := machineclient.NewBroker(machineclient.BrokerConfig{InventoryPath: filepath.Join(cfg.StateDir, "client-inventory.json")})
 	if err = broker.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -187,11 +195,18 @@ func buildManager(cfg managerFileConfig, d *Deps) (*manager.Server, *managerstat
 		return nil, nil, err
 	}
 	protectedEnvironment := []string{cfg.TokenEnv, cfg.EnvaiKeyEnv}
+ if cfg.PRReview!=nil && cfg.PRReview.TokenEnv!="" {protectedEnvironment=append(protectedEnvironment,cfg.PRReview.TokenEnv)}
 	for _, client := range cfg.Clients {
 		protectedEnvironment = append(protectedEnvironment, client.TokenEnv)
 	}
-	packageRuntime,err:=clientpackages.New(clientpackages.Config{Store:packageStore,Environment:serviceEnvironment(d),LookupEnv:d.Env,ProtectedEnvironment:protectedEnvironment});if err!=nil{privateStore.Close();packageStore.Close();store.Close();return nil,nil,err}
- server, err := manager.New(manager.Config{PackageRuntime:packageRuntime,LookupEnv: d.Env, ProtectedEnvironment: protectedEnvironment, Extensions: extensiontools.New(nil, serviceEnvironment(d)), Private: privateStore, Packages: packageStore, Token: token, WorkspaceID: cfg.WorkspaceID, CEOTeamID: cfg.CEOTeamID, CEOModel: cfg.CEOModel, ClassifierModel: cfg.ClassifierModel, SecureCookies: cfg.BehindTLSProxy, Remote: remote, Store: store, Tools: machinetools.New(machinetools.Config{Environment: serviceEnvironment(d)}), Clients: broker, ToolBindings: cfg.ToolBindings})
+	packageRuntime, err := clientpackages.New(clientpackages.Config{Store: packageStore, Environment: serviceEnvironment(d), LookupEnv: d.Env, ProtectedEnvironment: protectedEnvironment})
+	if err != nil {
+		privateStore.Close()
+		packageStore.Close()
+		store.Close()
+		return nil, nil, err
+	}
+	server, err := manager.New(manager.Config{PRReview:review, PackageRuntime: packageRuntime, LookupEnv: d.Env, ProtectedEnvironment: protectedEnvironment, Extensions: extensiontools.New(nil, serviceEnvironment(d)), Private: privateStore, Packages: packageStore, Token: token, WorkspaceID: cfg.WorkspaceID, CEOTeamID: cfg.CEOTeamID, CEOModel: cfg.CEOModel, ClassifierModel: cfg.ClassifierModel, SecureCookies: cfg.BehindTLSProxy, Remote: remote, Store: store, Tools: machinetools.New(machinetools.Config{Environment: serviceEnvironment(d)}), Clients: broker, ToolBindings: cfg.ToolBindings})
 	if err != nil {
 		privateStore.Close()
 		packageStore.Close()
@@ -315,8 +330,13 @@ func runMachineClient(args []string, d *Deps) error {
 		if err != nil {
 			return fail(d, err)
 		}
-		executor = packages
-		clientConfig.InventoryProvider = packages.Inventory
+		extensions, err := clientextensions.Open(clientextensions.Config{Dir: filepath.Join(cfg.StateDir, "extensions"), ClientID: cfg.ClientID, Base: packages, InventoryProvider: packages.Inventory, Environment: serviceEnvironment(d), LookupEnv: d.Env, ProtectedEnvironment: protected})
+		if err != nil {
+			return fail(d, err)
+		}
+		defer extensions.Close()
+		executor = extensions
+		clientConfig.InventoryProvider = extensions.Inventory
 		updateCtx, cancel := context.WithCancel(ctx)
 		done := make(chan struct{})
 		go func() {

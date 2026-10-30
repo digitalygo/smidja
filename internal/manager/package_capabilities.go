@@ -1,8 +1,8 @@
 package manager
 
 import (
+	"bytes"
 	"context"
- "bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -82,6 +82,9 @@ func (s *Server) refreshPackageTools(ctx context.Context) error {
 	for owner, inventory := range inventories {
 		refs[owner] = map[string]string{}
 		for _, definition := range inventory.ToolDefinitions {
+			if definition.PrivateRevision != 0 && !s.approvedClientDefinition(owner, definition) {
+				continue
+			}
 			name, err := s.registerPackageDefinition(ctx, remote, owner, definition)
 			if err != nil {
 				return err
@@ -187,7 +190,10 @@ func (s *Server) snapshotPackageTools(revision managerpackages.Revision) (map[st
 			if err != nil {
 				return nil, err
 			}
-			if previous,ok:=result[document.ID];ok && !bytes.Equal(previous,encoded){return nil,errors.New("conflicting pinned package tool revisions")};result[document.ID] = encoded
+			if previous, ok := result[document.ID]; ok && !bytes.Equal(previous, encoded) {
+				return nil, errors.New("conflicting pinned package tool revisions")
+			}
+			result[document.ID] = encoded
 		}
 	}
 	return result, nil
