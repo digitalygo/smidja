@@ -1,0 +1,18 @@
+name: Homebrew automation tests
+on:
+  pull_request:
+  push:
+    branches: [feature/smidja-homebrew-release]
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run offline updater and workflow tests
+        run: python3 scripts/test-update-homebrew.py
+      - name: Record updater line coverage
+        run: python3 -m trace --count --summary --missing --coverdir /tmp/homebrew-coverage scripts/test-update-homebrew.py
