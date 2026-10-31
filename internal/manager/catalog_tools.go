@@ -55,7 +55,7 @@ func (s *Server) availableSkills(ctx context.Context) ([]machineclient.SkillDefi
 func configurationSchema(kind string) (any, error) {
 	switch kind {
 	case "team":
-		return map[string]any{"id": "private:team-name", "kind": "team", "payload": map[string]any{"name": "Team display name", "description": "Purpose", "agents": []map[string]any{{"name": "Manager", "instructions": "Coordinate specialists by role", "model": "explicit-model-id", "tools": []string{"read", "manager.tasks_start"}}, {"name": "Specialist", "instructions": "Specific task instructions", "model": "explicit-model-id", "tools": []string{"read"}}}}}, nil
+		return map[string]any{"id": "private:team-name", "kind": "team", "payload": map[string]any{"name": "Lid display name", "description": "Purpose", "agents": []map[string]any{{"name": "Manager", "instructions": "Coordinate specialists by role", "model": "explicit-model-id", "tools": []string{"read", "manager.tasks_start"}}, {"name": "Specialist", "instructions": "Specific task instructions", "model": "explicit-model-id", "tools": []string{"read"}}}}}, nil
 	case "workflow":
 		return map[string]any{"id": "private:workflow-name", "kind": "workflow", "payload": map[string]any{"id": "private:workflow-name", "version": "1", "input_schema": map[string]any{"type": "object"}, "allowed_invokers": []string{"ceo"}, "phases": []map[string]string{{"id": "review", "name": "Review", "team_ref": "private:team-name"}}}}, nil
 	case "extension":

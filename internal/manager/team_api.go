@@ -17,7 +17,7 @@ func (s *Server) delegateTeamAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := s.cfg.Store.GetSession(input.SessionID)
 	if err != nil || session.Turn == nil || session.Turn.TurnID == "" {
-		writeError(w, 400, errors.New("select a CEO session with a remote turn"))
+		writeError(w, 400, errors.New("select a Smidr session with a remote turn"))
 		return
 	}
 	requestID := randomID()

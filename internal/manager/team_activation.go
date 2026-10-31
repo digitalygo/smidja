@@ -22,7 +22,7 @@ func (s *Server) materializeOwner(ctx context.Context, owner, id, revision strin
 	var result TeamMaterialization
 	remote, ok := s.cfg.Remote.(TeamMaterializer)
 	if !ok {
-		return result, errors.New("remote team materialization unavailable")
+		return result, errors.New("remote Lid materialization unavailable")
 	}
 	if err := s.refreshPackageTools(ctx); err != nil {
 		return result, err
@@ -74,7 +74,7 @@ func (s *Server) materializeOwner(ctx context.Context, owner, id, revision strin
 			if name, ok := toolRefs[id]; ok {
 				used[id] = name
 			} else {
-				return result, errors.New("team tool has no registered capability: " + id)
+				return result, errors.New("Lid tool has no registered capability: " + id)
 			}
 		}
 	}
@@ -94,7 +94,7 @@ func (s *Server) materializeOwner(ctx context.Context, owner, id, revision strin
 	}
 	if !created {
 		if record.Status != managerstate.Completed {
-			return result, errors.New("team materialization outcome uncertain; inspect remote resources before retry")
+			return result, errors.New("Lid materialization outcome uncertain; inspect remote resources before retry")
 		}
 		err = json.Unmarshal([]byte(record.Output), &result)
 		return result, err
@@ -128,18 +128,18 @@ func (s *Server) ensureTeam(ctx context.Context, ref string) (string, error) {
 				return result.TeamID, err
 			}
 		}
-		return "", errors.New("client team unavailable")
+		return "", errors.New("client Lid unavailable")
 	}
 	if strings.HasPrefix(ref, "private:") {
 		if s.cfg.Private == nil {
-			return "", errors.New("private team catalog unavailable")
+			return "", errors.New("private Lid catalog unavailable")
 		}
 		entity, err := s.cfg.Private.Get(ref)
 		if err != nil {
 			return "", err
 		}
 		if entity.Kind != "team" || entity.ArchivedAt != nil {
-			return "", errors.New("private team unavailable")
+			return "", errors.New("private Lid unavailable")
 		}
 		var team privateconfig.Team
 		if err = json.Unmarshal(entity.Payload, &team); err != nil {
@@ -150,7 +150,7 @@ func (s *Server) ensureTeam(ctx context.Context, ref string) (string, error) {
 	}
 	if strings.Contains(ref, "/") {
 		if s.cfg.Packages == nil {
-			return "", errors.New("package team catalog unavailable")
+			return "", errors.New("package Lid catalog unavailable")
 		}
 		for _, revision := range s.cfg.Packages.List() {
 			if _, err := s.cfg.Packages.Resolve(revision); err != nil {
@@ -174,7 +174,7 @@ func (s *Server) ensureTeam(ctx context.Context, ref string) (string, error) {
 				}
 			}
 		}
-		return "", fmt.Errorf("package team %s unavailable", ref)
+		return "", fmt.Errorf("package Lid %s unavailable", ref)
 	}
 	return ref, nil
 }

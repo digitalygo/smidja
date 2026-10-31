@@ -36,7 +36,7 @@ func (s *Server) startTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.cfg.WorkflowRuntime == nil {
-		writeError(w, 503, errors.New("native Envai workflow contracts are not configured"))
+		writeError(w, 503, errors.New("native Envai Verk contracts are not configured"))
 		return
 	}
 	if err := s.cfg.WorkflowRuntime.Ready(r.Context()); err != nil {
@@ -46,7 +46,7 @@ func (s *Server) startTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if input.OriginSessionID != "" {
 		session, err := s.cfg.Store.GetSession(input.OriginSessionID)
 		if err != nil || session.Turn == nil || session.Turn.TurnID == "" {
-			writeError(w, 400, errors.New("origin session needs a remote CEO turn"))
+			writeError(w, 400, errors.New("origin session needs a remote Smidr turn"))
 			return
 		}
 		input.OriginChatID = session.ChatID
@@ -106,13 +106,22 @@ func (s *Server) runTask(ctx context.Context, id string) {
 		}
 		if !hasOutput {
 			if task.Status == managerstate.Running {
-				_, _ = s.cfg.Store.Pause(id, "phase outcome is uncertain; inspect remote execution before resuming")
-				return
-			}
-			requestID = randomID()
-			task, err = s.cfg.Store.StartPhase(id, requestID)
-			if err != nil {
-				return
+				if len(phase.Attempts) == 0 {
+					s.pauseTask(id, errors.New("running phase has no durable attempt"))
+					return
+				}
+				requestID = phase.Attempts[len(phase.Attempts)-1].RequestID
+				receipt, receiptErr := s.cfg.Store.GetTool(requestID)
+				if receiptErr != nil || receipt.Status != managerstate.Completed || receipt.ToolName != "workflow.delegate" {
+					s.pauseTask(id, errors.New("phase outcome is uncertain; inspect remote execution before resuming"))
+					return
+				}
+			} else {
+				requestID = randomID()
+				task, err = s.cfg.Store.StartPhase(id, requestID)
+				if err != nil {
+					return
+				}
 			}
 			phaseContext, e := s.cfg.Store.CurrentContext(id)
 			if e != nil {
@@ -170,7 +179,7 @@ func (s *Server) pauseTask(id string, err error) {
 }
 func (s *Server) recordNotificationFailure(task managerstate.Task, err error) {
 	if task.OriginSessionID != "" {
-		body, _ := json.Marshal(map[string]string{"task_id": task.ID, "error": err.Error(), "status": "notification_failed"})
-		_, _ = s.cfg.Store.AppendMessage(task.OriginSessionID, managerstate.Message{ID: "notification-failure:" + task.ID + ":" + task.Status, Role: "system", Content: string(body)})
+		body, _ := json.Marshal(map[string]string{"task_id": task.ID, "error": err.Error(), "status": "notification_failed", "event_id": notificationEventID(task)})
+		_, _ = s.cfg.Store.AppendMessage(task.OriginSessionID, managerstate.Message{ID: "notification-failure:" + notificationEventID(task), Role: "system", Content: string(body)})
 	}
 }

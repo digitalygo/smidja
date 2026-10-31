@@ -295,3 +295,11 @@ func TestManagerRejectsCorruptedClientInventory(t *testing.T) {
 		t.Fatal("corrupted client inventory accepted")
 	}
 }
+
+func TestManagerSetupUsageNamesSmidr(t *testing.T) {
+	var output bytes.Buffer
+	printUsage(&output)
+	if !strings.Contains(output.String(), "manager-setup  explicitly register the remote Smidr and namespaced tools") || strings.Contains(output.String(), "CEO") {
+		t.Fatal(output.String())
+	}
+}

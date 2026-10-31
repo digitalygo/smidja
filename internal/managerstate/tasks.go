@@ -60,7 +60,19 @@ func (s *Store) RetryClassification(id string) (Task, error) {
 	return s.change(event{Type: "phase.classification_retried", TaskID: id})
 }
 func (s *Store) Resume(id, clarification string) (Task, error) {
-	return s.change(event{Type: "task.resumed", TaskID: id, Text: clarification})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kind := "task.resumed"
+	if task, ok := s.tasks[id]; ok && task.Status == Paused && task.PhaseIndex < len(task.Phases) {
+		attempts := task.Phases[task.PhaseIndex].Attempts
+		if len(attempts) > 0 && !attempts[len(attempts)-1].OutputRecorded {
+			kind = "phase.observation_resumed"
+		}
+	}
+	if err := s.commit(event{Type: kind, TaskID: id, Text: clarification}); err != nil {
+		return Task{}, err
+	}
+	return clone(s.tasks[id]), nil
 }
 func (s *Store) RequestCancellation(id string) (Task, error) {
 	return s.change(event{Type: "task.cancellation_requested", TaskID: id})
@@ -219,6 +231,13 @@ func (s *Store) reduceTask(e event) (func(), error) {
 		phase.Status = Paused
 	case "phase.classification_retried":
 		if t.Status != Paused || attempt == nil || !attempt.OutputRecorded || attempt.Decision != "" {
+			return nil, ErrConflict
+		}
+		t.Status = Running
+		t.Reason = ""
+		phase.Status = Running
+	case "phase.observation_resumed":
+		if t.Status != Paused || attempt == nil || attempt.OutputRecorded || strings.TrimSpace(e.Text) == "" {
 			return nil, ErrConflict
 		}
 		t.Status = Running

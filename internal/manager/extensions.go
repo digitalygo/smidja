@@ -104,7 +104,7 @@ func (s *Server) refreshExtensions(ctx context.Context) error {
 			return err
 		}
 	}
-	return errors.New("configured CEO team was not found")
+	return errors.New("configured Smidr Lid was not found")
 }
 func (s *Server) executeExtension(ctx context.Context, key string, args json.RawMessage) machinetools.Result {
 	if s.cfg.Extensions == nil {

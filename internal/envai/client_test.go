@@ -18,10 +18,16 @@ func fixture(t *testing.T, fn http.HandlerFunc) *Client {
 			t.Error("missing bearer")
 		}
 		if strings.Contains(r.URL.Path, "/atp/") {
+			if len(r.Header.Values("X-Envai-Extensions")) != 1 || r.Header.Get("X-Envai-Extensions") != "native-tasks-v1" {
+				t.Error("missing native task extension opt-in")
+			}
 			if r.Header.Get("X-Envai-Contract-Version") != "3" {
 				t.Error("missing contract")
 			}
 			w.Header().Set("X-Envai-Contract-Version", "3")
+		}
+		if !strings.Contains(r.URL.Path, "/atp/") && r.Header.Get("X-Envai-Extensions") != "" {
+			t.Error("extension opt-in sent outside ATP")
 		}
 		fn(w, r)
 	}))

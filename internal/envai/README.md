@@ -11,7 +11,7 @@ Verified against `digitalygo/envai-teams` alpha commit
 
 `Config.BaseURL` is the origin, without `/api/v1`. Bearer credentials stay in
 this server-side adapter; redirects are not followed. ATP requests require an
-explicit version 3 response acknowledgement. Control-plane resource methods
+explicit version 3 response acknowledgement. Every ATP request sends `X-Envai-Extensions: native-tasks-v1`, including capability discovery, initial subscriptions, reconnects, turn admission and tool-result submission. Resource and JWKS requests do not carry this ATP opt-in. Control-plane resource methods
 use the documented `data` envelope. `ListTeams` uses the current unpaginated
 owner-scoped endpoint.
 
@@ -30,7 +30,7 @@ tracked turn, allowed tool/agent, package revision, and device; durably record
 call receipts before side effects and never rerun an uncertain call. A valid
 signature is not permission to execute arbitrary tools.
 
-Native detached execution, cross-team result ingress, and generic Decisions
+Native detached execution, cross-Lid result ingress, and generic Decisions
 are not inferred from the legacy `background_delegation` capability. The
 native methods use separate `detached_background`, `native_deliveries`,
 `cross_team_delegation`, and `phase_classification` capability gates. Their
@@ -51,20 +51,20 @@ upstream RFC 8785 implementation, Apache-2.0, at commit `32a48195b9b2`.
 All adapter tests use local HTTP fixtures; no paid or live model requests are
 part of these checks.
 
-The native contract is pinned to Envai commit
+The native lifecycle baseline was verified against Envai commit
 `c907371b252244cf7a2475d6326e90a28da82880`,
 `packages/contracts/smidja-native.json` (PR 56, not yet deployed).
 `StartTurn` requires `strict_model` and sends `strict_model: true`, so an
-unavailable configured CEO model fails before inference rather than falling
-back. Native origin wake turns inherit that policy. Manager workflow and
-direct team delegations also request strict target-root model selection;
+unavailable configured Smidr model fails before inference rather than falling
+back. Native origin wake turns inherit that policy. Manager Verk and
+direct Lid delegations also request strict target-root model selection;
 the low-level delegation input retains the optional flag for explicit policy.
 Children retain Envai's own model-resolution policy. Provider model aliases or
 version suffixes are diagnostic data, not evidence of a failed strict request.
 
-Workflow readiness additionally requires `delegated_job_lifecycle` and
+Verk readiness additionally requires `delegated_job_lifecycle` and
 `delegation_notify_origin`. A phase suppresses automatic origin notification,
 keeps the target SSE observer alive, and reads the entire delegated job's
 terminal output. Its initial coordinator turn acknowledgement is not phase
 completion; `result_turn_id` can identify a later synthesis turn. Only the
-workflow's final or blocked result explicitly wakes the CEO.
+Verk's final or blocked result explicitly wakes the Smidr.

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -103,7 +104,7 @@ func (s *Service) Execute(ctx context.Context, name string, raw json.RawMessage)
 	}
 	switch name {
 	case "read":
-		return s.read(a.Path)
+		return s.read(ctx, a.Path)
 	case "list":
 		return s.list(a.Path)
 	case "write":
@@ -132,7 +133,14 @@ func absolute(path string) (string, error) {
 	return filepath.Abs(path)
 }
 func (s *Service) readBytes(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	return s.readBytesContext(context.Background(), path)
+}
+
+func (s *Service) readBytesContext(ctx context.Context, path string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +152,7 @@ func (s *Service) readBytes(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("not a regular file")
 	}
-	b, err := io.ReadAll(io.LimitReader(f, int64(s.cfg.MaxBytes)+1))
+	b, err := io.ReadAll(io.LimitReader(contextReader{ctx, f}, int64(s.cfg.MaxBytes)+1))
 	if err != nil {
 		return nil, err
 	}
@@ -152,4 +160,20 @@ func (s *Service) readBytes(path string) ([]byte, error) {
 		return nil, errors.New("file exceeds text editor size limit")
 	}
 	return b, nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := r.reader.Read(p)
+	if contextErr := r.ctx.Err(); contextErr != nil {
+		return n, contextErr
+	}
+	return n, err
 }

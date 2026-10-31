@@ -279,7 +279,7 @@ flags:
 
 subcommands:
   manager  run the Web UI manager using --config path.json
-  manager-setup  explicitly register the remote CEO and namespaced tools
+  manager-setup  explicitly register the remote Smidr and namespaced tools
   client   expose local tools to a manager using --config path.json
   auth     manage provider credentials
   gateway  run the headless gateway (Telegram + local web server)

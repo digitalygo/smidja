@@ -81,7 +81,7 @@ func TestManagerTaskStartBindingAndErrors(t *testing.T) {
 	}
 	s := testServer(t, func(c *Config) { c.WorkflowRuntime = &workflowFake{} })
 	event := managerToolEvent()
-	if result := s.executeManagerTool(ctx, event, "tasks_start", args); result.OK || !strings.Contains(result.Error, "tracked CEO conversation") {
+	if result := s.executeManagerTool(ctx, event, "tasks_start", args); result.OK || !strings.Contains(result.Error, "tracked Smidr conversation") {
 		t.Fatal(result)
 	}
 	session, err := s.cfg.Store.CreateSession("CEO")

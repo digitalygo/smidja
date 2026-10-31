@@ -41,12 +41,12 @@ type Match struct {
 func digest(b []byte) string  { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 func textBytes(b []byte) bool { return utf8.Valid(b) && !bytes.ContainsRune(b, 0) }
 
-func (s *Service) read(path string) Result {
+func (s *Service) read(ctx context.Context, path string) Result {
 	p, err := absolute(path)
 	if err != nil {
 		return failure("invalid_arguments", err)
 	}
-	b, err := s.readBytes(p)
+	b, err := s.readBytesContext(ctx, p)
 	if err != nil {
 		return failure("read_failed", err)
 	}
@@ -229,7 +229,7 @@ func (s *Service) grep(ctx context.Context, a Arguments) Result {
 		if d.Type()&os.ModeSymlink != 0 || !d.Type().IsRegular() {
 			return nil
 		}
-		b, err := s.readBytes(path)
+		b, err := s.readBytesContext(ctx, path)
 		if err != nil {
 			truncated = true
 			return nil
