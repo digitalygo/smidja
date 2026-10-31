@@ -86,19 +86,19 @@ func Run(ctx context.Context, cfg Config, executor Executor) error {
 		if !allowed {
 			return errors.New("manager requested an unadvertised tool")
 		}
-		if !time.Now().Before(execution.Deadline) {
-			return errors.New("manager returned an expired execution")
-		}
 		bindingBytes, _ := json.Marshal(execution)
 		binding := sha256.Sum256(bindingBytes)
 		if prior, exists := completed[execution.RequestID]; exists {
 			if bindings[execution.RequestID] != binding {
 				return errors.New("repeated operation has a different binding")
 			}
-			if err := c.request(ctx, http.MethodPost, "/api/clients/result", prior, nil); err != nil {
+			if err := c.deliverResult(ctx, prior); err != nil {
 				return err
 			}
 			continue
+		}
+		if !time.Now().Before(execution.Deadline) {
+			return errors.New("manager returned an expired execution")
 		}
 		taskCtx, taskCancel := context.WithDeadline(ctx, execution.Deadline)
 		c.mu.Lock()
@@ -129,7 +129,7 @@ func Run(ctx context.Context, cfg Config, executor Executor) error {
 			delete(completed, old)
 			delete(bindings, old)
 		}
-		if err = c.request(ctx, http.MethodPost, "/api/clients/result", envelope, nil); err != nil {
+		if err = c.deliverResult(ctx, envelope); err != nil {
 			return fmt.Errorf("result delivery failed; execution must not be repeated automatically: %w", err)
 		}
 	}
@@ -201,7 +201,7 @@ func (c *remoteClient) request(ctx context.Context, method, path string, input, 
 		return nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("client protocol HTTP %d", response.StatusCode)
+		return &protocolStatusError{Status: response.StatusCode}
 	}
 	if output == nil {
 		_, err = io.Copy(io.Discard, io.LimitReader(response.Body, 2<<20))
@@ -296,4 +296,16 @@ func (c *remoteClient) refreshInventory(ctx context.Context, force bool) error {
 		return err
 	}
 	return nil
+}
+
+type protocolStatusError struct{ Status int }
+
+func (e *protocolStatusError) Error() string { return fmt.Sprintf("client protocol HTTP %d", e.Status) }
+func (c *remoteClient) deliverResult(ctx context.Context, envelope ResultEnvelope) error {
+	err := c.request(ctx, http.MethodPost, "/api/clients/result", envelope, nil)
+	var status *protocolStatusError
+	if errors.As(err, &status) && status.Status == http.StatusGone {
+		return nil
+	}
+	return err
 }

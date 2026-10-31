@@ -64,13 +64,18 @@ func TestClientEndToEndAndCancellation(t *testing.T) {
 	if result := <-taskDone; result.Code != "outcome_unknown" {
 		t.Fatal(result)
 	}
+	result = b.Execute(ctx, "laptop", "read", json.RawMessage(`{}`))
+	if !result.OK || result.Data != "read result" {
+		t.Fatal("cancelled result disconnected healthy client", result)
+	}
+	cancel()
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Fatal("delivery after cancelled task unexpectedly succeeded")
+			t.Fatal("cancelled client returned success")
 		}
 	case <-time.After(time.Second):
-		t.Fatal("heartbeat did not cancel tool")
+		t.Fatal("client did not stop")
 	}
 }
 

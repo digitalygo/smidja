@@ -152,6 +152,14 @@ func TestWorkflowCancelAPIStopsOwnedObserverProcess(t *testing.T) {
 			if s.observeSession(owned.ID) {
 				t.Fatal("cancelled observer restarted")
 			}
+			if mode == "http-client" {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				result := broker.Execute(ctx, "laptop", "bash", json.RawMessage(`{"command":"printf client-still-running"}`))
+				if !result.OK || !strings.Contains(fmt.Sprint(result.Data), "client-still-running") {
+					t.Fatal("cancelled result delivery stopped the healthy client", result)
+				}
+			}
 		})
 	}
 }
