@@ -94,6 +94,7 @@ func TestManagerTaskStartBindingAndErrors(t *testing.T) {
 	if _, err = s.cfg.Store.AttachSessionTurn(session.ID, "tool-request", event.ChatID, event.TurnID); err != nil {
 		t.Fatal(err)
 	}
+	bindWorkflowIdentity(t, s, session.ID, event.ChatID, "ceo")
 	badEvent := event
 	badEvent.Data = json.RawMessage(`{`)
 	if result := s.executeManagerTool(ctx, badEvent, "tasks_start", args); result.OK {
@@ -115,7 +116,7 @@ func TestManagerTaskStartBindingAndErrors(t *testing.T) {
 		t.Fatal(result)
 	}
 	task := result.Data.(managerstate.Task)
-	if task.OriginSessionID != session.ID || task.OriginChatID != event.ChatID || task.OriginTurnID != event.TurnID || task.InvocationKey != "manager-tool-call" {
+	if task.OriginSessionID != session.ID || task.OriginChatID != event.ChatID || task.OriginTurnID != event.TurnID || task.InvocationKey != workflowInvocationKey(event.ChatID, "manager-tool-call") {
 		t.Fatal(task)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -134,14 +135,16 @@ func TestManagerTaskStartBindingAndErrors(t *testing.T) {
 func TestManagerTaskResume(t *testing.T) {
 	s := testServer(t, nil)
 	task := workflowTask(t, s)
+	session, _ := s.cfg.Store.CreateSession("CEO")
+	bindWorkflowIdentity(t, s, session.ID, "resume-chat", "ceo")
 	args, _ := json.Marshal(map[string]string{"id": task.ID, "clarification": "resolved"})
-	if result := s.executeManagerTool(context.Background(), envai.Event{}, "tasks_resume", args); result.OK {
+	if result := s.executeManagerTool(context.Background(), envai.Event{ChatID: "resume-chat"}, "tasks_resume", args); result.OK {
 		t.Fatal(result)
 	}
 	if _, err := s.cfg.Store.Pause(task.ID, "blocked"); err != nil {
 		t.Fatal(err)
 	}
-	if result := s.executeManagerTool(context.Background(), envai.Event{}, "tasks_resume", args); !result.OK || result.Data.(managerstate.Task).Status != managerstate.Queued {
+	if result := s.executeManagerTool(context.Background(), envai.Event{ChatID: "resume-chat"}, "tasks_resume", args); !result.OK || result.Data.(managerstate.Task).Status != managerstate.Queued {
 		t.Fatal(result)
 	}
 }

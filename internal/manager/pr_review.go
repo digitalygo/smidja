@@ -105,6 +105,9 @@ func (s *Server) prReviewAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, task)
 }
 func (s *Server) prReviewTool(ctx context.Context, event envai.Event, args json.RawMessage) machinetools.Result {
+	if err := s.authorizeWorkflow(event, managerstate.Workflow{AllowedInvokers: []string{"ceo"}}); err != nil {
+		return toolResult(nil, err)
+	}
 	var input PRReviewInput
 	if err := json.Unmarshal(args, &input); err != nil {
 		return toolResult(nil, err)

@@ -1,8 +1,8 @@
 package manager
 
 import (
+	"bytes"
 	"encoding/json"
- "bytes"
 	"errors"
 	"net/http"
 	"strings"
@@ -74,6 +74,9 @@ func (s *Server) packageWorkflows() ([]managerstate.Workflow, error) {
 			if err = json.Unmarshal(data, &workflow); err != nil {
 				return nil, err
 			}
+			if err = managerstate.ValidateWorkflow(workflow); err != nil {
+				return nil, err
+			}
 			workflow.Version = revision.Version + "+" + revision.Digest
 			workflow.TeamDefinitions = map[string]json.RawMessage{}
 			workflow.ToolDefinitions, err = s.snapshotPackageTools(revision)
@@ -96,7 +99,10 @@ func (s *Server) packageWorkflows() ([]managerstate.Workflow, error) {
 					if err = json.Unmarshal(teamData, &identity); err != nil {
 						return nil, err
 					}
-					if previous,ok:=workflow.TeamDefinitions[identity.ID];ok && !bytes.Equal(previous,teamData){return nil,errors.New("conflicting pinned package team definitions")};workflow.TeamDefinitions[identity.ID] = teamData
+					if previous, ok := workflow.TeamDefinitions[identity.ID]; ok && !bytes.Equal(previous, teamData) {
+						return nil, errors.New("conflicting pinned package team definitions")
+					}
+					workflow.TeamDefinitions[identity.ID] = teamData
 				}
 			}
 			result = append(result, workflow)

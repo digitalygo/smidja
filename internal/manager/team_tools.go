@@ -128,7 +128,7 @@ func (s *Server) delegateTeam(ctx context.Context, chatID, turnID, eventID, team
 	if err != nil {
 		return toolResult(nil, err)
 	}
-	if _, err = s.cfg.Store.AttachSessionRemote(session.ID, target.ID); err != nil {
+	if _, err = s.cfg.Store.AttachSessionIdentity(session.ID, target.ID, teamRef, teamID); err != nil {
 		return toolResult(nil, err)
 	}
 	s.observeSession(session.ID)

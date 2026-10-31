@@ -17,14 +17,17 @@ type phaseCanceller interface {
 func (s *Server) cancelTask(ctx context.Context, id string) (managerstate.Task, error) {
 	canceller, ok := s.cfg.WorkflowRuntime.(phaseCanceller)
 	if !ok {
-		s.cancelJob("task:" + id)
-		return s.cfg.Store.Cancel(id)
+		task, err := s.cfg.Store.Cancel(id)
+		if err == nil {
+			s.stopWorkflowExecution(id)
+		}
+		return task, err
 	}
 	task, err := s.cfg.Store.RequestCancellation(id)
 	if err != nil {
 		return task, err
 	}
-	s.cancelJob("task:" + id)
+	s.stopWorkflowExecution(id)
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err = canceller.CancelPhase(ctx, task); err != nil {
@@ -65,21 +68,24 @@ func (n *nativeWorkflow) CancelPhase(ctx context.Context, task managerstate.Task
 	_, err = n.remote.CancelTask(ctx, execution.OriginChatID, execution.NativeTaskID, true)
 	return err
 }
+func (s *Server) stopWorkflowExecution(id string) {
+	s.cancelJob("task:" + id)
+	for _, session := range s.cfg.Store.ListSessions() {
+		if session.WorkflowTaskID == id {
+			s.cancelJob("watch:" + session.ID)
+			s.cancelJob("session:" + session.ID)
+		}
+	}
+}
+
 func (s *Server) workflowToolCancelled(chatID string) bool {
-	for _, task := range s.cfg.Store.ListTasks() {
-		if task.Status != managerstate.Cancelled && !task.CancelRequested {
+	for _, session := range s.cfg.Store.ListSessions() {
+		if session.ChatID != chatID || session.WorkflowTaskID == "" {
 			continue
 		}
-		for _, phase := range task.Phases {
-			for _, attempt := range phase.Attempts {
-				if attempt.ChatID == chatID {
-					for _, session := range s.cfg.Store.ListSessions() {
-						if session.ChatID == chatID && session.WorkflowTaskID == task.ID {
-							return true
-						}
-					}
-				}
-			}
+		task, err := s.cfg.Store.GetTask(session.WorkflowTaskID)
+		if err != nil || task.CancelRequested || task.Status == managerstate.Cancelled {
+			return true
 		}
 	}
 	return false

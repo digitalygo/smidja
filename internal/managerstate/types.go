@@ -33,6 +33,8 @@ type Phase struct {
 }
 
 type Workflow struct {
+	InputSchema     json.RawMessage            `json:"input_schema,omitempty"`
+	AllowedInvokers []string                   `json:"allowed_invokers"`
 	ToolDefinitions map[string]json.RawMessage `json:"tool_definitions,omitempty"`
 	ClientID        string                     `json:"client_id,omitempty"`
 	TeamDefinitions map[string]json.RawMessage `json:"team_definitions,omitempty"`
@@ -123,6 +125,8 @@ type SessionTurn struct {
 }
 
 type Session struct {
+	TeamRef        string       `json:"team_ref,omitempty"`
+	TeamID         string       `json:"team_id,omitempty"`
 	WorkflowTaskID string       `json:"workflow_task_id,omitempty"`
 	LastSequence   uint64       `json:"last_sequence"`
 	Turn           *SessionTurn `json:"turn,omitempty"`
@@ -146,6 +150,8 @@ type ToolOperation struct {
 }
 
 type event struct {
+	TeamRef        string         `json:"team_ref,omitempty"`
+	TeamID         string         `json:"team_id,omitempty"`
 	Tool           *ToolOperation `json:"tool,omitempty"`
 	RemoteSequence uint64         `json:"remote_sequence,omitempty"`
 	SchemaVersion  int            `json:"schema_version"`

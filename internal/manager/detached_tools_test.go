@@ -138,6 +138,7 @@ func TestDetachedWorkflowStartPinsRealOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bindWorkflowIdentity(t, s, session.ID, "chat", "ceo")
 	if _, err = s.cfg.Store.AttachSessionRemote(session.ID, "chat"); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestDetachedWorkflowStartPinsRealOrigin(t *testing.T) {
 	}
 	s.wg.Wait()
 	tasks := s.cfg.Store.ListTasks()
-	if len(tasks) != 1 || tasks[0].OriginTurnID != "native-origin" || tasks[0].OriginChatID != "chat" || tasks[0].OriginSessionID != session.ID || tasks[0].InvocationKey != "workflow-call" {
+	if len(tasks) != 1 || tasks[0].OriginTurnID != "native-origin" || tasks[0].OriginChatID != "chat" || tasks[0].OriginSessionID != session.ID || tasks[0].InvocationKey != workflowInvocationKey("chat", "workflow-call") {
 		t.Fatal(tasks, remote.outputs)
 	}
 	if remote.submits != 1 || remote.outputErrors[0] {

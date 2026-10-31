@@ -24,7 +24,7 @@ import (
 	"github.com/digitalygo/smidja/internal/managerpackages"
 	"github.com/digitalygo/smidja/internal/managerstate"
 	"github.com/digitalygo/smidja/internal/privateconfig"
- "github.com/digitalygo/smidja/internal/prreview"
+	"github.com/digitalygo/smidja/internal/prreview"
 )
 
 type Remote interface {
@@ -42,7 +42,7 @@ type ToolBinding struct {
 }
 
 type Config struct {
- PRReview *prreview.Service
+	PRReview             *prreview.Service
 	PackageRuntime       *clientpackages.Runtime
 	LookupEnv            func(string) string
 	ProtectedEnvironment []string
@@ -68,8 +68,8 @@ type loginSession struct {
 	Expires time.Time
 }
 type Server struct {
- prReviewMu sync.Mutex
- prReviewStatus map[string]any
+	prReviewMu          sync.Mutex
+	prReviewStatus      map[string]any
 	cfg                 Config
 	handler             http.Handler
 	mu                  sync.Mutex
@@ -143,14 +143,15 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.startPRReviewPolling()
- s.startClientExtensionSync()
- return s, nil
+	s.startClientExtensionSync()
+	return s, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
 func (s *Server) Close() {
 	s.cancel()
 	s.wg.Wait()
+	_ = s.cfg.Clients.Close()
 	if s.cfg.Packages != nil {
 		_ = s.cfg.Packages.Close()
 	}

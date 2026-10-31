@@ -27,11 +27,11 @@ import (
 	"github.com/digitalygo/smidja/internal/managerpackages"
 	"github.com/digitalygo/smidja/internal/managerstate"
 	"github.com/digitalygo/smidja/internal/privateconfig"
- "github.com/digitalygo/smidja/internal/prreview"
+	"github.com/digitalygo/smidja/internal/prreview"
 )
 
 type managerFileConfig struct {
- PRReview *prreview.Config `json:"pr_review,omitempty"`
+	PRReview        *prreview.Config               `json:"pr_review,omitempty"`
 	Listen          string                         `json:"listen"`
 	StateDir        string                         `json:"state_dir"`
 	TokenEnv        string                         `json:"token_env"`
@@ -148,11 +148,19 @@ func buildManager(cfg managerFileConfig, d *Deps) (*manager.Server, *managerstat
 		return nil, nil, err
 	}
 	var review *prreview.Service
- if cfg.PRReview != nil {
- review,err=prreview.New(*cfg.PRReview,d.HTTPClient,d.Env)
- if err!=nil{return nil,nil,err}
- }
- broker := machineclient.NewBroker(machineclient.BrokerConfig{InventoryPath: filepath.Join(cfg.StateDir, "client-inventory.json")})
+	if cfg.PRReview != nil {
+		review, err = prreview.New(*cfg.PRReview, d.HTTPClient, d.Env)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	broker := machineclient.NewBroker(machineclient.BrokerConfig{InventoryPath: filepath.Join(cfg.StateDir, "client-inventory.json"), CredentialsPath: filepath.Join(cfg.StateDir, "client-credentials.jsonl")})
+	keepBroker := false
+	defer func() {
+		if !keepBroker {
+			broker.Close()
+		}
+	}()
 	if err = broker.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -195,7 +203,9 @@ func buildManager(cfg managerFileConfig, d *Deps) (*manager.Server, *managerstat
 		return nil, nil, err
 	}
 	protectedEnvironment := []string{cfg.TokenEnv, cfg.EnvaiKeyEnv}
- if cfg.PRReview!=nil && cfg.PRReview.TokenEnv!="" {protectedEnvironment=append(protectedEnvironment,cfg.PRReview.TokenEnv)}
+	if cfg.PRReview != nil && cfg.PRReview.TokenEnv != "" {
+		protectedEnvironment = append(protectedEnvironment, cfg.PRReview.TokenEnv)
+	}
 	for _, client := range cfg.Clients {
 		protectedEnvironment = append(protectedEnvironment, client.TokenEnv)
 	}
@@ -206,13 +216,14 @@ func buildManager(cfg managerFileConfig, d *Deps) (*manager.Server, *managerstat
 		store.Close()
 		return nil, nil, err
 	}
-	server, err := manager.New(manager.Config{PRReview:review, PackageRuntime: packageRuntime, LookupEnv: d.Env, ProtectedEnvironment: protectedEnvironment, Extensions: extensiontools.New(nil, serviceEnvironment(d)), Private: privateStore, Packages: packageStore, Token: token, WorkspaceID: cfg.WorkspaceID, CEOTeamID: cfg.CEOTeamID, CEOModel: cfg.CEOModel, ClassifierModel: cfg.ClassifierModel, SecureCookies: cfg.BehindTLSProxy, Remote: remote, Store: store, Tools: machinetools.New(machinetools.Config{Environment: serviceEnvironment(d)}), Clients: broker, ToolBindings: cfg.ToolBindings})
+	server, err := manager.New(manager.Config{PRReview: review, PackageRuntime: packageRuntime, LookupEnv: d.Env, ProtectedEnvironment: protectedEnvironment, Extensions: extensiontools.New(nil, serviceEnvironment(d)), Private: privateStore, Packages: packageStore, Token: token, WorkspaceID: cfg.WorkspaceID, CEOTeamID: cfg.CEOTeamID, CEOModel: cfg.CEOModel, ClassifierModel: cfg.ClassifierModel, SecureCookies: cfg.BehindTLSProxy, Remote: remote, Store: store, Tools: machinetools.New(machinetools.Config{Environment: serviceEnvironment(d)}), Clients: broker, ToolBindings: cfg.ToolBindings})
 	if err != nil {
 		privateStore.Close()
 		packageStore.Close()
 		store.Close()
 		return nil, nil, err
 	}
+	keepBroker = true
 	return server, store, nil
 }
 

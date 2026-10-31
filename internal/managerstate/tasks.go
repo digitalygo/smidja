@@ -75,7 +75,23 @@ func (s *Store) Cancel(id string) (Task, error) {
 	return s.change(event{Type: "task.cancelled", TaskID: id})
 }
 
-func validateWorkflow(workflow Workflow) error {
+func ValidateWorkflowPolicy(workflow Workflow) error {
+	if err := ValidateInputSchema(workflow.InputSchema); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, invoker := range workflow.AllowedInvokers {
+		if seen[invoker] || (invoker != "ceo" && (!strings.HasPrefix(invoker, "team:") || strings.TrimSpace(strings.TrimPrefix(invoker, "team:")) == "")) {
+			return fmt.Errorf("invalid or duplicate allowed invoker")
+		}
+		seen[invoker] = true
+	}
+	return nil
+}
+func ValidateWorkflow(workflow Workflow) error {
+	if err := ValidateWorkflowPolicy(workflow); err != nil {
+		return err
+	}
 	if strings.TrimSpace(workflow.ID) == "" || strings.TrimSpace(workflow.Version) == "" || len(workflow.Phases) == 0 {
 		return fmt.Errorf("invalid workflow identity or empty phases")
 	}
@@ -98,11 +114,11 @@ func (s *Store) reduceTask(e event) (func(), error) {
 			return nil, ErrConflict
 		}
 		start := clone(*e.Start)
-		if err := validateWorkflow(start.Workflow); err != nil {
+		if err := ValidateWorkflow(start.Workflow); err != nil {
 			return nil, err
 		}
-		if !json.Valid(start.Inputs) {
-			return nil, fmt.Errorf("invalid task inputs")
+		if err := ValidateWorkflowInputs(start.Workflow.InputSchema, start.Inputs); err != nil {
+			return nil, err
 		}
 		if start.InvocationKey != "" && s.invocations[start.InvocationKey] != "" {
 			return nil, ErrConflict
@@ -258,7 +274,7 @@ func (s *Store) reduce(e event) (func(), error) {
 	switch e.Type {
 	case "tool.started", "tool.finished":
 		return s.reduceTool(e)
-	case "session.chat_sequence", "session.turn_output", "session.created", "session.remote_attached", "session.message_appended", "session.turn_started", "session.turn_attached", "session.turn_completed", "session.turn_paused", "session.turn_followed", "session.turn_sequence", "session.turn_cancelled":
+	case "session.identity_attached", "session.chat_sequence", "session.turn_output", "session.created", "session.remote_attached", "session.message_appended", "session.turn_started", "session.turn_attached", "session.turn_completed", "session.turn_paused", "session.turn_followed", "session.turn_sequence", "session.turn_cancelled":
 		return s.reduceSession(e)
 	default:
 		return s.reduceTask(e)

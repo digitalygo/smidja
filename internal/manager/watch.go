@@ -22,14 +22,14 @@ func (s *Server) observeSession(id string) bool {
 		return false
 	}
 	session, err := s.cfg.Store.GetSession(id)
-	if err != nil || session.ChatID == "" {
+	if err != nil || session.ChatID == "" || s.workflowToolCancelled(session.ChatID) {
 		return false
 	}
 	s.launch("watch:"+id, func(ctx context.Context) {
 		backoff := time.Second
 		for {
 			current, err := s.cfg.Store.GetSession(id)
-			if err != nil {
+			if err != nil || s.workflowToolCancelled(current.ChatID) {
 				return
 			}
 			err = remote.StreamEvents(ctx, current.ChatID, int64(current.LastSequence), func(event envai.Event) error { return s.observeEvent(ctx, id, event) })

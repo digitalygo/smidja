@@ -191,8 +191,8 @@ func (r *Runtime) Inventory(ctx context.Context) (machineclient.Inventory, error
 			if err = json.Unmarshal(data, &workflow); err != nil {
 				return result, err
 			}
-			if workflow.ID == "" || len(workflow.Phases) == 0 {
-				return result, errors.New("invalid installed workflow")
+			if err = managerstate.ValidateWorkflow(workflow); err != nil {
+				return result, err
 			}
 			workflow.Version = revision.Version + "+" + revision.Digest
 			workflow.TeamDefinitions = teams

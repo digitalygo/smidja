@@ -69,6 +69,7 @@ type Inventory struct {
 }
 
 type ClientStatus struct {
+	Revoked   bool      `json:"revoked,omitempty"`
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Online    bool      `json:"online"`
@@ -105,6 +106,7 @@ type Heartbeat struct {
 }
 
 type BrokerConfig struct {
+	CredentialsPath  string
 	InventoryPath    string
 	HeartbeatTTL     time.Duration
 	PollTimeout      time.Duration

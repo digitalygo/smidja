@@ -78,7 +78,11 @@ func (n *nativeWorkflow) StartPhase(ctx context.Context, task managerstate.Task,
 	if err != nil {
 		return execution, err
 	}
-	if _, err = n.server.cfg.Store.AttachSessionRemote(watchSession.ID, target.ID); err != nil {
+	teamRef := phase.Phase.TeamRef
+	if task.Workflow.ClientID != "" {
+		teamRef = clientReference(task.Workflow.ClientID, teamRef)
+	}
+	if _, err = n.server.cfg.Store.AttachSessionIdentity(watchSession.ID, target.ID, teamRef, teamID); err != nil {
 		return execution, err
 	}
 	watching := n.server.observeSession(watchSession.ID)

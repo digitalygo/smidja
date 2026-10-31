@@ -6,7 +6,9 @@ This is an incremental draft, not a deployment or a declaration that every accep
 
 - Authenticated single-owner manager and embedded browser UI, JSONL sessions/tasks/tool receipts, restart recovery with explicit uncertainty.
 - Envai ATP v3 adapter, request signatures and native delegation/delivery/classification contracts. Workflow phase completion waits for the delegated **job**, not its first turn acknowledgement.
-- Sequential taskboard with exact phase outputs, classifier-only retry and blocked-phase resume; native cancellation acknowledgement and uncertain cancellation remain distinguishable.
+- Sequential taskboard with exact phase outputs, classifier-only retry and blocked-phase resume; native cancellation acknowledgement and uncertain cancellation remain distinguishable. Cancelling a task also stops its exclusive phase observers and their active local/client tool contexts, without stopping unrelated CEO conversations.
+- Bounded workflow input schemas and pinned allowed-invoker policies; authenticated owner access is separate from agent identity derived from persisted remote chat/team provenance.
+- Owner-managed per-client pairing, explicit rotation and durable revocation with hashed credentials, one-time token display and restart-safe rejection of revoked static credentials.
 - Generic OS-permission machine tools, outgoing authenticated clients, online/offline inventory, text editing with conflict checks and Git diff.
 - Public/private package sources, verified immutable releases, periodic updates, pinned workflow teams and tools, retained execution routes across restart, client-owned package capabilities and lazy skills.
 - Private team/workflow/extension proposals, owner approval, revision checks and recoverable archive. Approved manager/client extensions execute with explicitly referenced environment variables. Client activation propagates authenticated revisioned controls, remains visible while pending/offline and rejects new stale calls immediately. Existing actions may finish before a serial client applies archive.
@@ -17,7 +19,7 @@ This is an incremental draft, not a deployment or a declaration that every accep
 
 ## Remaining acceptance work
 
-1. Verify any subsequent runtime delta on its affected integration path. The original combined native lifecycle smoke passed against Envai c907371b and Smidja d0f8ebf; the declared-timeout extension addition requires a focused follow-up rather than inheriting that historical result.
+1. Verify the final reconstructed runtime on its affected integration paths: native lifecycle, task cancellation through to client subprocess termination, workflow admission and durable pairing. Earlier successful lifecycle and timeout checks are historical evidence, not a final-head pass.
 2. Rendered Chromium smoke passed in CI, but separate visual inspection of screenshot pixels remains unavailable through the artifact download path. Native Linux amd64 and macOS arm64 tests passed; other supported target combinations have cross-build evidence, not native execution evidence.
 3. Align organization/template/discovery/Homebrew repositories only after the core package/runtime contract is verified. See companion-repositories.md. No repository was archived or deleted, and no package release or Homebrew version update was published.
 

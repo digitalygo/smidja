@@ -53,6 +53,7 @@ func reviewOrigin(t *testing.T, s *Server) string {
 	if _, err = s.cfg.Store.AttachSessionTurn(session.ID, "request", "origin-chat", "origin-turn"); err != nil {
 		t.Fatal(err)
 	}
+	bindWorkflowIdentity(t, s, session.ID, "origin-chat", "ceo")
 	return session.ID
 }
 func TestPRReviewFourPhasesAndPollingDedup(t *testing.T) {
@@ -149,6 +150,7 @@ func TestPRReviewAPIAndToolErrors(t *testing.T) {
 	if _, err = s.cfg.Store.AttachSessionTurn(second.ID, "second-request", "second-chat", "second-turn"); err != nil {
 		t.Fatal(err)
 	}
+	bindWorkflowIdentity(t, s, second.ID, "second-chat", "ceo")
 	event.ChatID = "second-chat"
 	event.TurnID = "older-tool-turn"
 	result = s.executeManagerTool(context.Background(), event, "manager.pr_review", json.RawMessage(`{"repository":"org/repo","number":1}`))

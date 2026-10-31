@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-func (b *Broker) Err() error { return b.initErr }
+func (b *Broker) Err() error { b.mu.Lock(); defer b.mu.Unlock(); return b.initErr }
 
 func (b *Broker) loadInventory() error {
 	if b.cfg.InventoryPath == "" {

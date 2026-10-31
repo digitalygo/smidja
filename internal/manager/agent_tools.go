@@ -2,6 +2,8 @@ package manager
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -14,7 +16,7 @@ import (
 
 func ManagerToolDefinitions() []machinetools.Definition {
 	return []machinetools.Definition{
- {Name:"pr_review", Description:"Start the read-only four-phase PR review: freeze base/head SHA and diff, analyze, verify evidence, synthesize. Runs in background and notifies this CEO chat. No PR changes or code execution.",Parameters:json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string"},"number":{"type":"integer","minimum":1},"focus":{"type":"string"}},"required":["repository","number"],"additionalProperties":false}`)},
+		{Name: "pr_review", Description: "Start the read-only four-phase PR review: freeze base/head SHA and diff, analyze, verify evidence, synthesize. Runs in background and notifies this CEO chat. No PR changes or code execution.", Parameters: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string"},"number":{"type":"integer","minimum":1},"focus":{"type":"string"}},"required":["repository","number"],"additionalProperties":false}`)},
 		{Name: "clients_execute", Description: "Execute an advertised tool on a selected online client. Inspect clients_get first for available tool names and schemas; never invent a route.", Parameters: json.RawMessage(`{"type":"object","properties":{"client_id":{"type":"string"},"tool":{"type":"string"},"arguments":{"type":"object"}},"required":["client_id","tool","arguments"],"additionalProperties":false}`)},
 		{Name: "config_schema", Description: "Read the required payload shape before proposing a private team, workflow or extension.", Parameters: json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["team","workflow","extension"]}},"required":["kind"],"additionalProperties":false}`)},
 		{Name: "skills_list", Description: "List available installed package skill IDs without loading their contents.", Parameters: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
@@ -50,8 +52,8 @@ func (s *Server) executeManagerTool(ctx context.Context, event envai.Event, name
 		return toolResult(nil, err)
 	}
 	switch strings.TrimPrefix(name, "manager.") {
- case "pr_review":
- return s.prReviewTool(ctx,event,args)
+	case "pr_review":
+		return s.prReviewTool(ctx, event, args)
 	case "clients_execute":
 		var input struct {
 			ClientID  string          `json:"client_id"`
@@ -149,8 +151,9 @@ func (s *Server) executeManagerTool(ctx context.Context, event envai.Event, name
 		if err != nil {
 			return toolResult(nil, err)
 		}
-		input.InvocationKey = request.CallID
-		workflow, err := s.resolveWorkflow(input.Workflow)
+		digest := sha256.Sum256([]byte(event.ChatID + "\x00" + request.CallID))
+		input.InvocationKey = "workflow:" + hex.EncodeToString(digest[:])
+		workflow, err := s.resolveAgentWorkflow(event, input.Workflow)
 		if err != nil {
 			return toolResult(nil, err)
 		}
@@ -161,6 +164,13 @@ func (s *Server) executeManagerTool(ctx context.Context, event envai.Event, name
 		}
 		return toolResult(task, err)
 	case "tasks_resume":
+		pinned, err := s.cfg.Store.GetTask(identity.ID)
+		if err != nil {
+			return toolResult(nil, err)
+		}
+		if err = s.authorizeWorkflow(event, pinned.Workflow); err != nil {
+			return toolResult(nil, err)
+		}
 		task, err := s.cfg.Store.Resume(identity.ID, identity.Clarification)
 		if err == nil {
 			s.scheduleTask(task.ID)

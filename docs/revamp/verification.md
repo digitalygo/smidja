@@ -35,3 +35,11 @@ The executing environment retained the evidence archive `smidja-envai-offline-sm
 ## Remaining limits
 
 The full legacy suite has environment-sensitive PTY/theme/socket and MCP timing failures outside the revamp delta. These failures were not removed or counted as passing. Organization/template/discovery migration remains separate work. Homebrew waits for a real authorized release. No release, merge, deployment or repository archival is implied by these checks.
+
+## Final admission and cancellation revision
+
+After an execution-workspace reset, the unpublished local revision was reconstructed from the previously reviewed contracts on published baseline `313259e07d43decf9a99519c5d5c9a5692edcc1b`. The reconstruction requires fresh review and exact-head CI; equivalence to the lost Git tree is not claimed.
+
+A real subprocess regression exercises the authenticated task-cancel API with manager-local execution, an HTTP-connected client and a failed remote cancellation acknowledgement. It checks that the helper process is gone, the exclusive phase observer stops, unrelated CEO observation remains live, and cancelled observation cannot restart. The same tests fail against the baseline cancellation implementation, including cancellation before the remote phase-attempt attachment.
+
+Prior cross-repository timeout checks passed the 40-second declaration/31-second helper and one-second declaration/two-second helper cases on `313259e`. A task-cancellation check on that baseline exposed a live helper after 15 seconds; this is a confirmed failure repaired by the new observer-context cancellation path, pending final cross-repository verification.

@@ -3,7 +3,7 @@
   "id": "smidja.pr-review",
   "version": "1.0.0",
   "publisher": "Smidja",
-  "requires_smidja": "\u003e=0.0.0",
+  "requires_smidja": ">=0.0.0",
   "scopes": [
     "manager"
   ],
@@ -43,7 +43,7 @@
     },
     {
       "path": "workflows/review.json",
-      "sha256": "69decbb2e15e56d54f73cc5578805ef694f0f844380601c7266ce9bcbce39e59"
+      "sha256": "4cde2e3baeb9dc1bc6b3b1f922090459cfa2c63f33cae55bbf3f15b15ecc3151"
     }
   ],
   "dependencies": null,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/digitalygo/smidja/internal/managerstate"
 	"io"
 	"path"
 	"regexp"
@@ -159,6 +160,15 @@ func validateManifest(m Manifest, version, target, scope string) error {
 	return nil
 }
 func validateCatalog(m Manifest, files map[string][]byte) error {
+	for _, name := range m.Workflows {
+		var workflow managerstate.Workflow
+		if err := json.Unmarshal(files[name], &workflow); err != nil {
+			return err
+		}
+		if err := managerstate.ValidateWorkflowPolicy(workflow); err != nil {
+			return err
+		}
+	}
 	ids := map[string]bool{}
 	for _, group := range [][]string{m.Teams, m.Workflows, m.Tools} {
 		for _, name := range group {

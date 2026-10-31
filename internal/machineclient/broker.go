@@ -39,6 +39,8 @@ type receipt struct {
 }
 
 type Broker struct {
+	closed          bool
+	credentials     *credentialJournal
 	mu              sync.Mutex
 	cfg             BrokerConfig
 	clients         map[string]*registeredClient
@@ -67,6 +69,9 @@ func NewBroker(cfg BrokerConfig) *Broker {
 	}
 	b := &Broker{cfg: cfg, clients: make(map[string]*registeredClient), pending: make(map[string]*pendingExecution), completed: make(map[string]receipt), inventory: make(map[string]ClientStatus)}
 	b.initErr = b.loadInventory()
+	if b.initErr == nil {
+		b.initErr = b.loadCredentials()
+	}
 	return b
 }
 
@@ -84,6 +89,11 @@ func (b *Broker) AddClient(id, name, token string) error {
 	if b.initErr != nil {
 		return b.initErr
 	}
+	if b.credentials != nil {
+		if _, recorded := b.credentials.records[id]; recorded {
+			return nil
+		}
+	}
 	if _, exists := b.clients[id]; exists {
 		return errors.New("client already registered; revoke it before replacing its credentials")
 	}
@@ -93,22 +103,43 @@ func (b *Broker) AddClient(id, name, token string) error {
 			return errors.New("each client requires a unique token")
 		}
 	}
-	status := b.inventory[id]
-	status.ID, status.Name, status.Online = id, name, false
-	b.clients[id] = &registeredClient{status: status, tokenHash: hash, queue: make(chan string, b.cfg.MaxPending), revoked: make(chan struct{}), cancelled: make(map[string]struct{})}
+	b.addClientHash(id, name, hash)
 	return nil
 }
 
 func (b *Broker) Revoke(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	c, ok := b.clients[id]
-	if !ok {
-		delete(b.inventory, id)
-		return b.saveInventory()
+	if b.initErr != nil {
+		return b.initErr
 	}
-	close(c.revoked)
-	delete(b.clients, id)
+	if b.credentials != nil {
+		record, exists := b.credentials.records[id]
+		if c, ok := b.clients[id]; ok {
+			record.ID = id
+			record.Name = c.status.Name
+			record.Hash = hex.EncodeToString(c.tokenHash[:])
+			exists = true
+		}
+		if !exists {
+			return errors.New("client not found")
+		}
+		if !record.Revoked {
+			record.Revoked = true
+			if err := b.credentials.append(record); err != nil {
+				b.initErr = err
+				return errors.New("revocation outcome uncertain; inspect the journal")
+			}
+		}
+	}
+	b.revokeMemory(id)
+	return b.saveInventory()
+}
+func (b *Broker) revokeMemory(id string) {
+	if c, ok := b.clients[id]; ok {
+		close(c.revoked)
+		delete(b.clients, id)
+	}
 	delete(b.inventory, id)
 	for requestID, p := range b.pending {
 		if p.execution.ClientID == id {
@@ -116,7 +147,6 @@ func (b *Broker) Revoke(id string) error {
 			delete(b.pending, requestID)
 		}
 	}
-	return b.saveInventory()
 }
 
 func (b *Broker) List() []ClientStatus {
@@ -135,6 +165,13 @@ func (b *Broker) List() []ClientStatus {
 		status.Online = b.online(c)
 		status.Inventory = copyInventory(status.Inventory)
 		statuses = append(statuses, status)
+	}
+	if b.credentials != nil {
+		for _, record := range b.credentials.records {
+			if record.Revoked {
+				statuses = append(statuses, ClientStatus{ID: record.ID, Name: record.Name, Revoked: true})
+			}
+		}
 	}
 	sort.Slice(statuses, func(i, j int) bool { return statuses[i].ID < statuses[j].ID })
 	return statuses
@@ -185,6 +222,10 @@ func (b *Broker) dispatch(ctx context.Context, clientID, tool string, args json.
 	requestID := hex.EncodeToString(nonce[:])
 	timeout := b.cfg.ExecutionTimeout
 	b.mu.Lock()
+	if b.initErr != nil {
+		b.mu.Unlock()
+		return failure("broker_unavailable", "Client broker is closed or its durable state is unavailable")
+	}
 	c, ok := b.clients[clientID]
 	if !ok || !b.online(c) {
 		b.mu.Unlock()
@@ -270,6 +311,9 @@ func (b *Broker) abandon(id, reason string) machinetools.Result {
 }
 
 func (b *Broker) authenticate(id, token string) (*registeredClient, bool) {
+	if b.initErr != nil {
+		return nil, false
+	}
 	c, ok := b.clients[id]
 	hash := sha256.Sum256([]byte(token))
 	if !ok {

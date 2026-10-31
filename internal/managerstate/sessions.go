@@ -98,6 +98,18 @@ func (s *Store) reduceSession(e event) (func(), error) {
 	}
 	session = clone(session)
 	switch e.Type {
+	case "session.identity_attached":
+		if strings.TrimSpace(e.ChatID) == "" || strings.TrimSpace(e.TeamRef) == "" || strings.TrimSpace(e.TeamID) == "" || (session.ChatID != "" && session.ChatID != e.ChatID) || (session.TeamRef != "" && (session.TeamRef != e.TeamRef || session.TeamID != e.TeamID)) {
+			return nil, ErrConflict
+		}
+		for id, other := range s.sessions {
+			if id != session.ID && other.ChatID == e.ChatID && other.TeamRef != "" && (other.TeamRef != e.TeamRef || other.TeamID != e.TeamID) {
+				return nil, ErrConflict
+			}
+		}
+		session.ChatID = e.ChatID
+		session.TeamRef = e.TeamRef
+		session.TeamID = e.TeamID
 	case "session.chat_sequence":
 		if session.ChatID == "" || e.RemoteSequence != session.LastSequence+1 {
 			return nil, ErrConflict
@@ -149,4 +161,8 @@ func (s *Store) CreateWorkflowSession(title, taskID string) (Session, error) {
 		return Session{}, err
 	}
 	return clone(s.sessions[id]), nil
+}
+
+func (s *Store) AttachSessionIdentity(id, chatID, teamRef, teamID string) (Session, error) {
+	return s.changeSession(event{Type: "session.identity_attached", SessionID: id, ChatID: chatID, TeamRef: teamRef, TeamID: teamID})
 }

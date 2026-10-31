@@ -269,15 +269,8 @@ func validatePayload(kind string, payload json.RawMessage) error {
 		if err := decode(payload, &workflow); err != nil {
 			return err
 		}
-		if workflow.ID == "" || workflow.Version == "" || len(workflow.Phases) == 0 {
-			return errors.New("workflow identity, version and phases required")
-		}
-		seen := map[string]bool{}
-		for _, phase := range workflow.Phases {
-			if phase.ID == "" || phase.TeamRef == "" || seen[phase.ID] {
-				return errors.New("workflow phase identity and team required")
-			}
-			seen[phase.ID] = true
+		if err := managerstate.ValidateWorkflow(workflow); err != nil {
+			return err
 		}
 	case "extension":
 		var extension Extension

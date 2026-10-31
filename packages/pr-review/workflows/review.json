@@ -22,5 +22,48 @@
       "name": "Synthesis",
       "team_ref": "smidja.pr-review/synthesis"
     }
+  ],
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "reference",
+      "base_sha",
+      "head_sha",
+      "diff"
+    ],
+    "properties": {
+      "reference": {
+        "type": "object",
+        "required": [
+          "repository",
+          "number"
+        ],
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "base_sha": {
+        "type": "string",
+        "minLength": 40,
+        "maxLength": 40
+      },
+      "head_sha": {
+        "type": "string",
+        "minLength": 40,
+        "maxLength": 40
+      },
+      "diff": {
+        "type": "string"
+      }
+    }
+  },
+  "allowed_invokers": [
+    "ceo"
   ]
 }

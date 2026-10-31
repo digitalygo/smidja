@@ -12,8 +12,8 @@ import (
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	switch {
- case strings.HasPrefix(r.URL.Path,"/api/pr-review"):
- s.prReviewAPI(w,r)
+	case strings.HasPrefix(r.URL.Path, "/api/pr-review"):
+		s.prReviewAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/private") || strings.HasPrefix(r.URL.Path, "/api/approvals"):
 		s.privateAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/packages"):
@@ -61,6 +61,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		s.startTaskAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/tasks/"):
 		s.taskAPI(w, r)
+	case (r.Method == "POST" && r.URL.Path == "/api/devices") || strings.HasPrefix(r.URL.Path, "/api/devices/"):
+		s.deviceAPI(w, r)
 	case r.Method == "GET" && r.URL.Path == "/api/devices":
 		writeJSON(w, 200, s.cfg.Clients.List())
 	case r.Method == "GET" && r.URL.Path == "/api/tools":

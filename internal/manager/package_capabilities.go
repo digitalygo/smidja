@@ -123,6 +123,14 @@ func (s *Server) clientWorkflow(ref string) (managerstate.Workflow, error) {
 			if err = json.Unmarshal(definition.Definition, &workflow); err != nil {
 				return workflow, err
 			}
+			if err = managerstate.ValidateWorkflow(workflow); err != nil {
+				return workflow, err
+			}
+			for i, invoker := range workflow.AllowedInvokers {
+				if strings.HasPrefix(invoker, "team:") {
+					workflow.AllowedInvokers[i] = "team:" + clientReference(clientID, strings.TrimPrefix(invoker, "team:"))
+				}
+			}
 			workflow.ID = ref
 			workflow.ClientID = clientID
 			workflow.Version = definition.Package.Version + "+" + definition.Package.Digest

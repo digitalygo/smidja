@@ -16,7 +16,7 @@ func Workflow(model string) managerstate.Workflow {
 		{"verification", "Verification", "Cross-check prior findings against the exact supplied diff and head-SHA CI check reports. This workflow does not execute PR code. State which tests CI reports and which checks were not performed; do not invent verification."},
 		{"synthesis", "Synthesis", "Produce the final prioritized review, supporting evidence, exact base/head SHAs, verification limits and answer to the user's focus. A defect is a finding, not automatically a blocker."},
 	}
-	workflow := managerstate.Workflow{ID: WorkflowID, Version: Version, TeamDefinitions: map[string]json.RawMessage{}}
+	workflow := managerstate.Workflow{AllowedInvokers: []string{"ceo"}, InputSchema: json.RawMessage(`{"type":"object","required":["reference","base_sha","head_sha","diff"],"properties":{"reference":{"type":"object","required":["repository","number"],"properties":{"repository":{"type":"string"},"number":{"type":"integer","minimum":1}}},"base_sha":{"type":"string","minLength":40,"maxLength":40},"head_sha":{"type":"string","minLength":40,"maxLength":40},"diff":{"type":"string"}}}`), ID: WorkflowID, Version: Version, TeamDefinitions: map[string]json.RawMessage{}}
 	for _, phase := range phases {
 		ref := "smidja.pr-review/" + phase.ID
 		workflow.Phases = append(workflow.Phases, managerstate.Phase{ID: phase.ID, Name: phase.Name, TeamRef: ref})

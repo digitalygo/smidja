@@ -171,7 +171,7 @@ func (s *Server) scheduleSession(id string, recover bool) {
 					fail(e)
 					return
 				}
-				session, e = s.cfg.Store.AttachSessionRemote(id, chat.ID)
+				session, e = s.cfg.Store.AttachSessionIdentity(id, chat.ID, "ceo", s.cfg.CEOTeamID)
 				if e != nil {
 					fail(e)
 					return
