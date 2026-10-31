@@ -73,7 +73,7 @@ func (s *Server) privateWorkflow(id string) (managerstate.Workflow, error) {
 		return workflow, err
 	}
 	if entity.Kind != "workflow" || entity.ArchivedAt != nil {
-		return workflow, errors.New("private workflow unavailable")
+		return workflow, errors.New("private Verk unavailable")
 	}
 	if err = json.Unmarshal(entity.Payload, &workflow); err != nil {
 		return workflow, err
@@ -88,12 +88,12 @@ func (s *Server) privateWorkflow(id string) (managerstate.Workflow, error) {
 				return workflow, err
 			}
 			if team.Kind != "team" || team.ArchivedAt != nil {
-				return workflow, errors.New("referenced private team unavailable")
+				return workflow, errors.New("referenced private Lid unavailable")
 			}
 			workflow.TeamDefinitions[phase.TeamRef] = append(json.RawMessage(nil), team.Payload...)
 		} else if strings.Contains(phase.TeamRef, "/") {
 			if s.cfg.Packages == nil {
-				return workflow, errors.New("referenced package team catalog unavailable")
+				return workflow, errors.New("referenced package Lid catalog unavailable")
 			}
 			packageID := strings.SplitN(phase.TeamRef, "/", 2)[0]
 			for _, revision := range s.cfg.Packages.List() {
@@ -127,7 +127,7 @@ func (s *Server) privateWorkflow(id string) (managerstate.Workflow, error) {
 				}
 			}
 			if _, exists := workflow.TeamDefinitions[phase.TeamRef]; !exists {
-				return workflow, errors.New("referenced package team unavailable")
+				return workflow, errors.New("referenced package Lid unavailable")
 			}
 		}
 	}

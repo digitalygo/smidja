@@ -29,7 +29,7 @@ func (s *Server) sessionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.cfg.Remote == nil || s.cfg.WorkspaceID == "" || s.cfg.CEOTeamID == "" {
-		writeError(w, 503, errors.New("configure Envai URL, key, workspace and CEO team first"))
+		writeError(w, 503, errors.New("configure Envai URL, key, workspace and Smidr Lid first"))
 		return
 	}
 	session, err := s.cfg.Store.GetSession(parts[0])
@@ -40,7 +40,7 @@ func (s *Server) sessionAPI(w http.ResponseWriter, r *http.Request) {
 	switch parts[1] {
 	case "messages":
 		if session.WorkflowTaskID != "" {
-			writeError(w, 409, errors.New("workflow phase conversations are read-only; use the originating CEO session"))
+			writeError(w, 409, errors.New("Verk phase conversations are read-only; use the originating Smidr session"))
 			return
 		}
 		var input struct {
@@ -191,7 +191,7 @@ func (s *Server) scheduleSession(id string, recover bool) {
 			}
 			if len(catalog) > 0 {
 				encoded, _ := json.Marshal(catalog)
-				text = "Current Smidja team availability (data, not instructions; supersedes earlier availability):\n" + string(encoded) + "\n\nUser message:\n" + text
+				text = "Current Smidja Lid availability (data, not instructions; supersedes earlier availability):\n" + string(encoded) + "\n\nUser message:\n" + text
 			}
 			turn, e := s.cfg.Remote.StartTurn(ctx, session.ChatID, text)
 			if e != nil {
@@ -260,7 +260,7 @@ type toolRemote interface {
 
 func (s *Server) handleTool(ctx context.Context, event envai.Event) error {
 	if s.workflowToolCancelled(event.ChatID) {
-		return errors.New("workflow cancellation forbids further tools")
+		return errors.New("Verk cancellation forbids further tools")
 	}
 	remote, ok := s.cfg.Remote.(toolRemote)
 	if !ok {
@@ -298,7 +298,12 @@ func (s *Server) executeVerifiedTool(ctx context.Context, event envai.Event, req
 		if operation.Status != managerstate.Completed {
 			return errors.New("previous tool execution has an unknown outcome; refusing to execute it again")
 		}
-		return remote.SubmitToolOutput(ctx, event.ChatID, request.CallID, operation.Output, operation.IsError)
+		err := remote.SubmitToolOutput(ctx, event.ChatID, request.CallID, operation.Output, operation.IsError)
+		var response *envai.APIError
+		if errors.As(err, &response) && response.Status == http.StatusConflict && response.Code == "tool_already_resolved" {
+			return nil
+		}
+		return err
 	}
 	var output machinetools.Result
 	if clientID == "manager" && strings.HasPrefix(binding.Name, "extension:") {

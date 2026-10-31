@@ -76,7 +76,7 @@ func (s *Server) executeTeamTool(ctx context.Context, event envai.Event, name st
 	}
 	remote, ok := s.cfg.Remote.(NativeRemote)
 	if !ok {
-		return toolResult(nil, errors.New("native team delegation unavailable"))
+		return toolResult(nil, errors.New("native Lid delegation unavailable"))
 	}
 	var input struct {
 		TeamRef string `json:"team_ref"`
@@ -101,14 +101,14 @@ func (s *Server) executeTeamTool(ctx context.Context, event envai.Event, name st
 		return s.delegateTeam(ctx, event.ChatID, event.TurnID, request.CallID, input.TeamRef, input.Prompt)
 
 	default:
-		return toolResult(nil, errors.New("unknown team operation"))
+		return toolResult(nil, errors.New("unknown Lid operation"))
 	}
 }
 
 func (s *Server) delegateTeam(ctx context.Context, chatID, turnID, eventID, teamRef, prompt string) machinetools.Result {
 	remote, ok := s.cfg.Remote.(NativeRemote)
 	if !ok {
-		return toolResult(nil, errors.New("native team delegation unavailable"))
+		return toolResult(nil, errors.New("native Lid delegation unavailable"))
 	}
 	if teamRef == "" || prompt == "" {
 		return toolResult(nil, errors.New("team_ref and prompt are required"))
@@ -124,7 +124,7 @@ func (s *Server) delegateTeam(ctx context.Context, chatID, turnID, eventID, team
 	if err != nil {
 		return toolResult(nil, err)
 	}
-	session, err := s.cfg.Store.CreateSession("Team " + teamRef)
+	session, err := s.cfg.Store.CreateSession("Lid " + teamRef)
 	if err != nil {
 		return toolResult(nil, err)
 	}

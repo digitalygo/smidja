@@ -58,22 +58,22 @@ func Bootstrap(ctx context.Context, remote BootstrapRemote, namespace, model str
 		result.ToolBindings[name] = entry.binding
 		references = append(references, envai.ToolReference{Name: name})
 	}
-	prompt := "You are the owner's Smidja CEO. Coordinate teams and sequential workflows; do not pretend to execute tools or invent successful results. Start long-running workflows with the supplied tasks_start client tool, then remain available for new requests. Native completion events supply results later. Before reporting a task status, read tasks_get because a newer resume or cancellation may have superseded the event. Read task progress and full outputs with tasks_get. Use clients_list to discover online devices and clients_get to inspect an offline device only when relevant. Never claim an offline device is available. Use the owner's requested device, or ask when ambiguous. Ask for clarification when a workflow is blocked, then resume that task at its blocked phase. Do not replace workflow phases with prompt-only shortcuts. Bash is not a sandbox. Obtain user approval before persistent private team or extension changes. Installed package updates do not require a generic approval. Do not request or expose provider credentials. Tools are installation-namespaced; match their descriptions to the actions above."
-	agent, err := remote.CreateAgent(ctx, envai.AgentInput{Name: namespace + "_ceo", SystemPrompt: prompt, Model: model, Mode: "primary", ExternalToolsEnabled: references})
+	prompt := "You are Smidr, the owner's assistant in Smidja. Coordinate Lid and sequential Verk; do not pretend to execute tools or invent successful results. Start long-running Verk with the supplied tasks_start client tool, then remain available for new requests. Native completion events supply results later. Before reporting a task status, read tasks_get because a newer resume or cancellation may have superseded the event. Read task progress and full outputs with tasks_get. Use clients_list to discover online devices and clients_get to inspect an offline device only when relevant. Never claim an offline device is available. Use the owner's requested device, or ask when ambiguous. Ask for clarification when a Verk is blocked, then resume that task at its blocked phase. Do not replace Verk phases with prompt-only shortcuts. Bash is not a sandbox. Obtain user approval before persistent private Lid or extension changes. Installed package updates do not require a generic approval. Do not request or expose provider credentials. Tools are installation-namespaced; match their descriptions to the actions above."
+	agent, err := remote.CreateAgent(ctx, envai.AgentInput{Name: namespace + "_ceo", Description: "Smidr", SystemPrompt: prompt, Model: model, Mode: "primary", ExternalToolsEnabled: references})
 	if err != nil {
-		return result, fmt.Errorf("bootstrap CEO: %w; registered tools retained, inspect before retry", err)
+		return result, fmt.Errorf("bootstrap Smidr: %w; registered tools retained, inspect before retry", err)
 	}
 	result.AgentID = agent.ID
 	if agent.ID == "" || agent.Model != model {
-		return result, errors.New("bootstrap CEO identity/model does not match requested configuration; inspect remote agent")
+		return result, errors.New("bootstrap Smidr identity/model does not match requested configuration; inspect remote agent")
 	}
-	team, err := remote.CreateTeam(ctx, envai.TeamInput{Name: namespace + "_ceo", Description: "Smidja personal manager CEO", OrchestratorID: agent.ID})
+	team, err := remote.CreateTeam(ctx, envai.TeamInput{Name: namespace + "_ceo", Description: "Smidja personal manager Smidr", OrchestratorID: agent.ID})
 	if err != nil {
-		return result, fmt.Errorf("bootstrap team: %w; created agent and tools retained, inspect before retry", err)
+		return result, fmt.Errorf("bootstrap Lid: %w; created agent and tools retained, inspect before retry", err)
 	}
 	result.TeamID = team.ID
 	if team.ID == "" {
-		return result, errors.New("bootstrap team returned no ID; outcome uncertain")
+		return result, errors.New("bootstrap Lid returned no ID; outcome uncertain")
 	}
 	return result, nil
 }

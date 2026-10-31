@@ -32,7 +32,7 @@ var remoteToolName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,254}$`)
 func MaterializeTeam(ctx context.Context, remote TeamMaterializer, namespace, revision string, team privateconfig.Team, toolRefs map[string]string) (TeamMaterialization, error) {
 	result := TeamMaterialization{Namespace: namespace, Revision: revision, AgentIDs: map[string]string{}}
 	if remote == nil || !bootstrapNamespace.MatchString(namespace) || revision == "" || strings.TrimSpace(team.Name) == "" || len(team.Agents) == 0 {
-		return result, errors.New("team materialization requires namespace, revision, name and at least one agent")
+		return result, errors.New("Lid materialization requires namespace, revision, name and at least one agent")
 	}
 	seen := map[string]bool{}
 	inputs := make([]envai.AgentInput, 0, len(team.Agents))
@@ -80,7 +80,7 @@ func MaterializeTeam(ctx context.Context, remote TeamMaterializer, namespace, re
 	}
 	if len(roster) > 0 {
 		encoded, _ := json.Marshal(roster)
-		inputs[0].SystemPrompt += "\n\nSmidja team routing metadata: delegate_task resolves subagent_type by the exact agent_name, not the role label. Use this mapping for delegation: " + string(encoded)
+		inputs[0].SystemPrompt += "\n\nSmidja Lid routing metadata: delegate_task resolves subagent_type by the exact agent_name, not the role label. Use this mapping for delegation: " + string(encoded)
 	}
 	for index, input := range inputs {
 		agent, err := remote.CreateAgent(ctx, input)
@@ -101,11 +101,11 @@ func MaterializeTeam(ctx context.Context, remote TeamMaterializer, namespace, re
 	}
 	created, err := remote.CreateTeam(ctx, envai.TeamInput{Name: prefix + "_team", Description: team.Description, OrchestratorID: result.OrchestratorID, Members: members})
 	if err != nil {
-		return result, fmt.Errorf("materialize team: %w; created agents retained, inspect before retry", err)
+		return result, fmt.Errorf("materialize Lid: %w; created agents retained, inspect before retry", err)
 	}
 	result.TeamID = created.ID
 	if result.TeamID == "" {
-		return result, errors.New("materialized team returned no ID; outcome uncertain")
+		return result, errors.New("materialized Lid returned no ID; outcome uncertain")
 	}
 	return result, nil
 }

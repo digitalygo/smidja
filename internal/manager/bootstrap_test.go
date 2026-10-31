@@ -71,6 +71,9 @@ func TestBootstrap(t *testing.T) {
 	if fake.agent.Model != "explicit-model" || fake.agent.Mode != "primary" || fake.team.OrchestratorID != "agent" {
 		t.Fatal(fake)
 	}
+	if fake.agent.Name != "luca_manager_ceo" || fake.agent.Description != "Smidr" || fake.team.Name != "luca_manager_ceo" || !strings.Contains(fake.agent.SystemPrompt, "Coordinate Lid and sequential Verk") || strings.Contains(fake.agent.SystemPrompt, "CEO") {
+		t.Fatal(fake.agent, fake.team)
+	}
 	for _, tool := range fake.inputs {
 		if !strings.HasPrefix(tool.Name, "luca_manager_") || tool.TimeoutSeconds != 600 || tool.Kind != "client" {
 			t.Fatal(tool)
@@ -118,5 +121,20 @@ func TestBootstrapValidation(t *testing.T) {
 	fake := &bootstrapFake{}
 	if _, err := Bootstrap(context.Background(), fake, "instance", ""); err == nil || fake.calls != 0 {
 		t.Fatal("empty model")
+	}
+}
+
+func TestBootstrapNamesRemainInstallationScoped(t *testing.T) {
+	first, second := &bootstrapFake{}, &bootstrapFake{}
+	for namespace, remote := range map[string]*bootstrapFake{"first": first, "second": second} {
+		if _, err := Bootstrap(context.Background(), remote, namespace, "model"); err != nil {
+			t.Fatal(err)
+		}
+		if remote.agent.Name != namespace+"_ceo" || remote.agent.Description != "Smidr" || remote.team.Name != namespace+"_ceo" {
+			t.Fatal(remote.agent, remote.team)
+		}
+	}
+	if first.agent.Name == second.agent.Name {
+		t.Fatal("installations share a remote agent name")
 	}
 }

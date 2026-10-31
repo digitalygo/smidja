@@ -33,11 +33,11 @@ func (s *Server) startPRReview(ctx context.Context, input PRReviewInput, automat
 		return empty, errors.New("PR review is not configured")
 	}
 	if s.cfg.WorkflowRuntime == nil {
-		return empty, errors.New("native workflow runtime unavailable")
+		return empty, errors.New("native Verk runtime unavailable")
 	}
 	session, err := s.cfg.Store.GetSession(input.OriginSessionID)
 	if err != nil || session.WorkflowTaskID != "" || session.ChatID == "" || session.Turn == nil || session.Turn.TurnID == "" {
-		return empty, errors.New("PR review requires an originating CEO session with a remote turn")
+		return empty, errors.New("PR review requires an originating Smidr session with a remote turn")
 	}
 	if err = s.cfg.WorkflowRuntime.Ready(ctx); err != nil {
 		return empty, err

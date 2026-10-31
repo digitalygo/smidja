@@ -24,10 +24,10 @@ The smoke exercised real Smidja manager/client processes, real Envai HTTP handle
 
 Observed results:
 
-- The CEO remained available while native child work ran.
-- A four-phase workflow blocked at phase 2 and resumed with attempts `[1, 2, 1, 1]`, without repeating phase 1.
+- The Smidr remained available while native child work ran.
+- A four-phase Verk blocked at phase 2 and resumed with attempts `[1, 2, 1, 1]`, without repeating phase 1.
 - Ten child executions, five synthesis turns, five client-tool calls and five classifications completed.
-- Integral phase outputs were preserved; only blocked/final workflow notifications reached the CEO through native delivery.
+- Integral phase outputs were preserved; only blocked/final Verk notifications reached the Smidr through native delivery.
 - Unavailable strict model admission returned 422 and paused the task without an extra provider call.
 
 The executing environment retained the evidence archive `smidja-envai-offline-smoke-evidence.tar.gz`. A durable report is recorded at https://github.com/digitalygo/envai-teams/pull/56#issuecomment-6530739444. This is offline integration evidence, not paid-model validation or deployment approval. Later production changes require their own affected-path validation; this historical result must not be silently attributed to a newer runtime.
@@ -40,6 +40,6 @@ The full legacy suite has environment-sensitive PTY/theme/socket and MCP timing 
 
 After an execution-workspace reset, the unpublished local revision was reconstructed from the previously reviewed contracts on published baseline `313259e07d43decf9a99519c5d5c9a5692edcc1b`. The reconstruction requires fresh review and exact-head CI; equivalence to the lost Git tree is not claimed.
 
-A real subprocess regression exercises the authenticated task-cancel API with manager-local execution, an HTTP-connected client and a failed remote cancellation acknowledgement. It checks that the helper process is gone, the exclusive phase observer stops, unrelated CEO observation remains live, and cancelled observation cannot restart. The same tests fail against the baseline cancellation implementation, including cancellation before the remote phase-attempt attachment.
+A real subprocess regression exercises the authenticated task-cancel API with manager-local execution, an HTTP-connected client and a failed remote cancellation acknowledgement. It checks that the helper process is gone, the exclusive phase observer stops, unrelated Smidr observation remains live, and cancelled observation cannot restart. The same tests fail against the baseline cancellation implementation, including cancellation before the remote phase-attempt attachment.
 
 Prior cross-repository timeout checks passed the 40-second declaration/31-second helper and one-second declaration/two-second helper cases on `313259e`. A task-cancellation check on that baseline exposed a live helper after 15 seconds; this is a confirmed failure repaired by the new observer-context cancellation path, pending final cross-repository verification.

@@ -135,6 +135,26 @@ func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		task, err = s.cfg.Store.Resume(parts[0], in.Clarification)
+	case "retry-notification":
+		var in struct {
+			EventID string `json:"event_id"`
+		}
+		if decode(w, r, &in, 1<<20) != nil {
+			return
+		}
+		task, err = s.cfg.Store.GetTask(parts[0])
+		if err == nil {
+			operation, lookupErr := s.cfg.Store.GetTool(in.EventID)
+			if lookupErr != nil || operation.ToolName != "workflow.notify" || in.EventID != notificationEventID(task) {
+				err = errors.New("pending notification identity not found for current task state")
+			} else if task.Status != managerstate.Completed && task.Status != managerstate.Blocked {
+				err = errors.New("notification redelivery requires a completed or blocked task")
+			} else if s.cfg.WorkflowRuntime == nil {
+				err = errors.New("Verk runtime unavailable")
+			} else {
+				err = s.cfg.WorkflowRuntime.Notify(r.Context(), task)
+			}
+		}
 	case "retry-classification":
 		task, err = s.cfg.Store.RetryClassification(parts[0])
 	case "cancel":
@@ -151,7 +171,7 @@ func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, err)
 		return
 	}
-	if parts[1] != "cancel" {
+	if parts[1] != "cancel" && parts[1] != "retry-notification" {
 		s.scheduleTask(task.ID)
 	}
 	writeJSON(w, 200, task)

@@ -1,9 +1,9 @@
 # Native delegated-job lifecycle
 
-Workflow phases require the Envai `delegated_job_lifecycle` capability in
-addition to detached execution, native deliveries, cross-team delegation, and
+Verk phases require the Envai `delegated_job_lifecycle` capability in
+addition to detached execution, native deliveries, cross-Lid delegation, and
 phase classification and suppression of intermediate origin notifications.
-Workflow phase delegations send `notify_origin: false`; the classified workflow
+Verk phase delegations send `notify_origin: false`; the classified Verk
 result is delivered separately. A deployment without that capability is refused before
 phase admission.
 
@@ -38,8 +38,8 @@ do not certify that the corresponding Envai branch is deployed or that paid
 model calls have been tested live.
 
 The current adapter targets Envai PR #56 commit
-`c907371b252244cf7a2475d6326e90a28da82880`. CEO message admission and target
-workflow/team delegation explicitly require `strict_model` and request it as
+`c907371b252244cf7a2475d6326e90a28da82880`. Smidr message admission and target
+Verk/Lid delegation explicitly require `strict_model` and request it as
 true. An unavailable configured root model must fail before inference rather
 than fall back silently. Versioned provider model identifiers are not required
 to equal a configuration alias. The provider and deployment have not been

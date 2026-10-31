@@ -1,4 +1,4 @@
-# Workflow input and invocation contract
+# Verk input and invocation contract
 
 Definitions can declare `input_schema` and `allowed_invokers`. The installed package or approved private definition is authoritative; an agent cannot replace its policy or schema through tool arguments. Each task pins the resolved definition, including its schema and invocation policy. Resume checks that snapshot, not a newer package version.
 
@@ -18,14 +18,14 @@ Omitted schemas preserve permissive `{}` behavior within these input bounds. Inv
 
 ## Invocation policy
 
-The authenticated owner UI/API can invoke any owned workflow, still subject to its input schema. Agent invocations derive identity from durable manager-recorded chat/team provenance, never from prompt text or supplied arguments. Missing provenance fails closed.
+The authenticated owner UI/API can invoke any owned Verk, still subject to its input schema. Agent invocations derive identity from durable manager-recorded chat/Lid provenance, never from prompt text or supplied arguments. Missing provenance fails closed.
 
-`allowed_invokers` accepts `ceo` and `team:<stable team_ref>`. This is team-level authorization, not a per-specialist ACL. Client package team references are scoped to their client identity when exposed by the manager. `ceo` means the configured CEO team, including native child work executed in that team's chat.
+`allowed_invokers` accepts `ceo` and `team:<stable team_ref>`. This is Lid-level authorization, not a per-specialist ACL. Client package Lid references are scoped to their client identity when exposed by the manager. `ceo` means the configured Smidr Lid, including native child work executed in that Lid's chat.
 
-- Absent or null: owner plus explicitly tool-provisioned CEO.
+- Absent or null: owner plus explicitly tool-provisioned Smidr.
 - Empty array: owner only.
-- Explicit list: owner plus listed teams.
+- Explicit list: owner plus listed Lid.
 
-Non-CEO callers must invoke an approved catalog workflow, not an inline definition authorizing themselves. The CEO retains the previously provisioned inline-workflow capability; persistent private definitions still require approval. The built-in read-only PR review explicitly permits the CEO.
+Non-Smidr callers must invoke an approved catalog Verk, not an inline definition authorizing themselves. The Smidr retains the previously provisioned inline-Verk capability; persistent private definitions still require approval. The built-in read-only PR review explicitly permits the Smidr.
 
-Invocation deduplication uses the trusted chat ID plus call ID. Full phase outputs remain unchanged; policy does not replace workflow context or classifiers.
+Invocation deduplication uses the trusted chat ID plus call ID. Full phase outputs remain unchanged; policy does not replace Verk context or classifiers.

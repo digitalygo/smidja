@@ -40,14 +40,20 @@ func (s *Server) cancelTask(ctx context.Context, id string) (managerstate.Task, 
 	return s.cfg.Store.ConfirmCancellation(id)
 }
 func (n *nativeWorkflow) CancelPhase(ctx context.Context, task managerstate.Task) error {
-	if task.PhaseIndex >= len(task.Phases) {
-		return nil
+	var failures []error
+	for _, phase := range task.Phases {
+		for _, attempt := range phase.Attempts {
+			if attempt.OutputRecorded {
+				continue
+			}
+			if err := n.cancelAttempt(ctx, attempt); err != nil {
+				failures = append(failures, err)
+			}
+		}
 	}
-	phase := task.Phases[task.PhaseIndex]
-	if len(phase.Attempts) == 0 {
-		return nil
-	}
-	attempt := phase.Attempts[len(phase.Attempts)-1]
+	return errors.Join(failures...)
+}
+func (n *nativeWorkflow) cancelAttempt(ctx context.Context, attempt managerstate.Attempt) error {
 	receipt, err := n.server.cfg.Store.GetTool(attempt.RequestID)
 	if errors.Is(err, managerstate.ErrNotFound) {
 		return nil

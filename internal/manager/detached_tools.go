@@ -16,7 +16,7 @@ type detachedToolRemote interface {
 
 func (s *Server) handleDetachedTool(ctx context.Context, event envai.Event) error {
 	if s.workflowToolCancelled(event.ChatID) {
-		return errors.New("workflow cancellation forbids further tools")
+		return errors.New("Verk cancellation forbids further tools")
 	}
 	var wrapped envai.DetachedEvent
 	if err := json.Unmarshal(event.Data, &wrapped); err != nil {
@@ -26,7 +26,7 @@ func (s *Server) handleDetachedTool(ctx context.Context, event envai.Event) erro
 		return nil
 	}
 	if task, known := s.managedNativeTask(wrapped.TaskID); known && (task.CancelRequested || task.Status == "cancelled") {
-		return errors.New("workflow cancellation forbids further detached tools")
+		return errors.New("Verk cancellation forbids further detached tools")
 	}
 	remote, ok := s.cfg.Remote.(detachedToolRemote)
 	if !ok {

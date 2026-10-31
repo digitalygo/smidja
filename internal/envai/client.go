@@ -107,6 +107,7 @@ func (c *Client) request(ctx context.Context, method, path string, input any, at
 	}
 	if atp {
 		req.Header.Set("X-Envai-Contract-Version", ContractVersion)
+		req.Header.Set("X-Envai-Extensions", "native-tasks-v1")
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

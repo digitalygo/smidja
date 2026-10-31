@@ -100,7 +100,7 @@ func (s *Server) packageWorkflows() ([]managerstate.Workflow, error) {
 						return nil, err
 					}
 					if previous, ok := workflow.TeamDefinitions[identity.ID]; ok && !bytes.Equal(previous, teamData) {
-						return nil, errors.New("conflicting pinned package team definitions")
+						return nil, errors.New("conflicting pinned package Lid definitions")
 					}
 					workflow.TeamDefinitions[identity.ID] = teamData
 				}
@@ -120,7 +120,7 @@ func (s *Server) resolveWorkflow(input managerstate.Workflow) (managerstate.Work
 	if !strings.Contains(input.ID, "/") {
 		input.ClientID = ""
 		if len(input.TeamDefinitions) > 0 || len(input.ToolDefinitions) > 0 {
-			return input, errors.New("inline team definitions require private configuration approval")
+			return input, errors.New("inline Lid definitions require private configuration approval")
 		}
 		return input, nil
 	}
@@ -133,5 +133,5 @@ func (s *Server) resolveWorkflow(input managerstate.Workflow) (managerstate.Work
 			return workflow, nil
 		}
 	}
-	return input, errors.New("package workflow is unavailable or has unresolved dependencies")
+	return input, errors.New("package Verk is unavailable or has unresolved dependencies")
 }

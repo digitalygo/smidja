@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/digitalygo/smidja/internal/envai"
@@ -22,8 +23,9 @@ type NativeRemote interface {
 }
 
 type nativeWorkflow struct {
-	server *Server
-	remote NativeRemote
+	notificationMu sync.Mutex
+	server         *Server
+	remote         NativeRemote
 }
 
 func (n *nativeWorkflow) Ready(ctx context.Context) error {
@@ -32,10 +34,10 @@ func (n *nativeWorkflow) Ready(ctx context.Context) error {
 func (n *nativeWorkflow) origin(task managerstate.Task) (managerstate.Session, error) {
 	session, err := n.server.cfg.Store.GetSession(task.OriginSessionID)
 	if err != nil {
-		return session, fmt.Errorf("workflow needs its originating CEO session: %w", err)
+		return session, fmt.Errorf("Verk needs its originating Smidr session: %w", err)
 	}
 	if task.OriginChatID == "" || task.OriginTurnID == "" || task.OriginChatID != session.ChatID {
-		return session, errors.New("workflow origin needs a pinned remote CEO turn")
+		return session, errors.New("Verk origin needs a pinned remote Smidr turn")
 	}
 	session.Turn = &managerstate.SessionTurn{TurnID: task.OriginTurnID}
 	return session, nil
@@ -64,6 +66,9 @@ func (n *nativeWorkflow) StartPhase(ctx context.Context, task managerstate.Task,
 			return execution, errors.New("delegation outcome uncertain; refusing duplicate admission")
 		}
 		err = json.Unmarshal([]byte(operation.Output), &execution)
+		if err == nil && execution.SessionID != "" {
+			execution.Observed = n.server.observeSession(execution.SessionID)
+		}
 		return execution, err
 	}
 	teamID, err := n.server.ensureWorkflowTeam(ctx, task.Workflow, phase.Phase.TeamRef)
@@ -74,7 +79,7 @@ func (n *nativeWorkflow) StartPhase(ctx context.Context, task managerstate.Task,
 	if err != nil {
 		return execution, err
 	}
-	watchSession, err := n.server.cfg.Store.CreateWorkflowSession("Workflow "+task.ID+" / "+phase.Phase.Name, task.ID)
+	watchSession, err := n.server.cfg.Store.CreateWorkflowSession("Verk "+task.ID+" / "+phase.Phase.Name, task.ID)
 	if err != nil {
 		return execution, err
 	}
@@ -88,7 +93,7 @@ func (n *nativeWorkflow) StartPhase(ctx context.Context, task managerstate.Task,
 	watching := n.server.observeSession(watchSession.ID)
 	notifyOrigin := false
 	strictModel := true
-	delegation, err := n.remote.Delegate(ctx, origin.ChatID, envai.DelegationInput{StrictModel: &strictModel, NotifyOrigin: &notifyOrigin, WorkspaceID: n.server.cfg.WorkspaceID, EventID: attempt.RequestID, OriginTurnID: origin.Turn.TurnID, TargetChatID: target.ID, Prompt: "Execute this workflow phase to completion. Use the native delegation lifecycle for specialist work. Preserve the full final result and state any blocker explicitly.\n" + string(body)})
+	delegation, err := n.remote.Delegate(ctx, origin.ChatID, envai.DelegationInput{StrictModel: &strictModel, NotifyOrigin: &notifyOrigin, WorkspaceID: n.server.cfg.WorkspaceID, EventID: attempt.RequestID, OriginTurnID: origin.Turn.TurnID, TargetChatID: target.ID, Prompt: "Execute this Verk phase to completion. Use the native delegation lifecycle for specialist work. Preserve the full final result and state any blocker explicitly.\n" + string(body)})
 	if err != nil {
 		return execution, err
 	}
@@ -96,6 +101,16 @@ func (n *nativeWorkflow) StartPhase(ctx context.Context, task managerstate.Task,
 	encoded, _ := json.Marshal(execution)
 	if err = n.server.cfg.Store.FinishTool(attempt.RequestID, string(encoded), false); err != nil {
 		return execution, err
+	}
+	current, readErr := n.server.cfg.Store.GetTask(task.ID)
+	if readErr != nil {
+		return execution, readErr
+	}
+	if current.CancelRequested || current.Status == managerstate.Cancelled {
+		cancelCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, cancelErr := n.remote.CancelTask(cancelCtx, execution.OriginChatID, execution.NativeTaskID, true)
+		return execution, errors.Join(errors.New("phase cancelled during admission"), cancelErr)
 	}
 	return execution, nil
 }
@@ -179,6 +194,8 @@ func (n *nativeWorkflow) Classify(ctx context.Context, task managerstate.Task, p
 	return Classification{Decision: managerstate.Decision(response.Decision), Model: response.Model}, nil
 }
 func (n *nativeWorkflow) Notify(ctx context.Context, task managerstate.Task) error {
+	n.notificationMu.Lock()
+	defer n.notificationMu.Unlock()
 	origin, err := n.origin(task)
 	if err != nil {
 		return err
@@ -187,16 +204,59 @@ func (n *nativeWorkflow) Notify(ctx context.Context, task managerstate.Task) err
 	if err != nil {
 		return err
 	}
+	eventID := notificationEventID(task)
+	input := envai.DeliveryInput{WorkspaceID: n.server.cfg.WorkspaceID, EventID: eventID, OriginTurnID: origin.Turn.TurnID, TaskID: task.ID, Status: task.Status, Output: string(output)}
+	operation, lookupErr := n.server.cfg.Store.GetTool(eventID)
+	if lookupErr == nil {
+		if operation.ToolName != "workflow.notify" || operation.ChatID != origin.ChatID {
+			return errors.New("notification receipt identity mismatch")
+		}
+		if operation.Status == managerstate.Completed {
+			return nil
+		}
+		if err = json.Unmarshal(operation.Args, &input); err != nil {
+			return err
+		}
+	} else if errors.Is(lookupErr, managerstate.ErrNotFound) {
+		encoded, encodeErr := json.Marshal(input)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if operation, _, err = n.server.cfg.Store.BeginTool(eventID, origin.ChatID, origin.Turn.TurnID, "workflow.notify", encoded, "envai"); err != nil {
+			return err
+		}
+	} else {
+		return lookupErr
+	}
+	if operation.Status == managerstate.Completed {
+		return nil
+	}
+	if err = json.Unmarshal(operation.Args, &input); err != nil {
+		return err
+	}
+	receipt, err := n.remote.Deliver(ctx, origin.ChatID, input)
+	if err == nil && receipt.Status != "queued" && receipt.Status != "delivered" {
+		return fmt.Errorf("native notification %s", receipt.Status)
+	}
+	if err == nil {
+		encoded, _ := json.Marshal(receipt)
+		err = n.server.cfg.Store.FinishTool(eventID, string(encoded), false)
+	}
+	return err
+}
+
+func notificationEventID(task managerstate.Task) string {
 	index := task.PhaseIndex
 	if index == len(task.Phases) {
 		index--
 	}
-	phase := task.Phases[index]
-	attempt := phase.Attempts[len(phase.Attempts)-1]
-	eventID := "workflow:" + task.ID + ":" + attempt.RequestID + ":" + task.Status
-	receipt, err := n.remote.Deliver(ctx, origin.ChatID, envai.DeliveryInput{WorkspaceID: n.server.cfg.WorkspaceID, EventID: eventID, OriginTurnID: origin.Turn.TurnID, TaskID: task.ID, Status: task.Status, Output: string(output)})
-	if err == nil && receipt.Status != "queued" && receipt.Status != "delivered" {
-		return fmt.Errorf("native notification %s", receipt.Status)
+	if index < 0 || index >= len(task.Phases) {
+		return ""
 	}
-	return err
+	phase := task.Phases[index]
+	if len(phase.Attempts) == 0 {
+		return ""
+	}
+	attempt := phase.Attempts[len(phase.Attempts)-1]
+	return "workflow:" + task.ID + ":" + attempt.RequestID + ":" + task.Status
 }

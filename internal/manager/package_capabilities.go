@@ -137,7 +137,7 @@ func (s *Server) clientWorkflow(ref string) (managerstate.Workflow, error) {
 			return workflow, nil
 		}
 	}
-	return workflow, errors.New("client workflow unavailable")
+	return workflow, errors.New("client Verk unavailable")
 }
 
 func (s *Server) registerPackageDefinition(ctx context.Context, remote extensionRemote, owner string, definition machineclient.ToolDefinition) (string, error) {
