@@ -1,0 +1,2 @@
+setInterval(async()=>{if(!state.logged||state.polling||document.hidden)return;state.polling=true;try{if(state.view==='chat')await conversation();else if(state.view==='tasks')await tasks();else if(state.view==='devices')await devices();}catch(e){notice('Aggiornamento fallito: '+e.message);}finally{state.polling=false;}},4000);
+window.addEventListener('beforeunload',e=>{if(state.dirty||(typeof verkState!=='undefined'&&verkState.dirty)){e.preventDefault();e.returnValue='';}});

@@ -1,0 +1,9 @@
+# Read-only PR review package
+
+Authoring source for `smidja.pr-review` 1.0.0, matching the manager's built-in four-phase review. Archive `smidja.json`, `teams/`, and `workflows/` at the archive root and publish through the standard release manifest format; the README is not part of the immutable payload. No release is automatically published by this repository.
+
+The manager's **PR review** action fetches a bounded, complete GitHub snapshot at fixed base/head SHAs before creating a task. The package definitions can also be installed using the standard package loader, but generic workflow callers must supply the full pinned snapshot themselves. No credential or executable is bundled. Verification compares diff evidence and GitHub's checks for the pinned head; it does not execute PR code or publish review comments.
+
+Manager configuration enables manual review with `"pr_review": {}`. Optional `token_env` names a GitHub credential, `model` selects the four phase agents, and `repositories`, `organizations`, `origin_session_id`, `focus`, and `interval_seconds` enable explicit automatic polling. Polling is disabled when both target lists are empty. Minimum interval is 60 seconds; default 300 seconds. The origin must be a CEO conversation with a remote turn. Public repositories work without a token, subject to GitHub limits. Missing credentials or incomplete/oversize snapshots fail explicitly without truncation or paid inference.
+
+Polling deduplicates repository, PR number, head SHA, workflow ID and version against the durable task journal. It scans all configured open PRs each interval, including after restart; failures remain visible at `/api/pr-review/status`. A manual repeat starts a new task unless the caller supplies the same `request_id`. Manual request IDs are scoped to the manager; CEO tool IDs are additionally scoped to their chat. Existing task inputs and team definitions remain pinned.

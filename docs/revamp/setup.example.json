@@ -1,0 +1,6 @@
+{
+  "envai_url": "https://your-envai-instance.example",
+  "envai_key_env": "ENVAI_API_KEY",
+  "namespace": "my_manager",
+  "model": "openai/gpt-6.1-terra"
+}
