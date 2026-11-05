@@ -84,6 +84,7 @@ type Server struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	wg                  sync.WaitGroup
+	backgroundWG        sync.WaitGroup
 }
 
 func New(cfg Config) (*Server, error) {
@@ -106,6 +107,7 @@ func New(cfg Config) (*Server, error) {
 		cfg.ClassifierModel = "openai/gpt-6-luna-decisions"
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	cfg.ProtectedEnvironment = append(append([]string(nil), cfg.ProtectedEnvironment...), "SMIDJA_WEBHOOK_SECRET")
 	s := &Server{cfg: cfg, dynamicBindings: map[string]ToolBinding{}, sessions: map[string]loginSession{}, pending: map[string]func(context.Context){}, active: map[string]context.CancelFunc{}, ctx: ctx, cancel: cancel}
 	if s.cfg.WorkflowRuntime == nil {
 		if remote, ok := cfg.Remote.(NativeRemote); ok {
@@ -114,7 +116,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.index)
+	mux.HandleFunc("GET /assets/{name}", s.asset)
 	mux.HandleFunc("POST /api/login", s.login)
+	mux.HandleFunc("POST /hooks/verk", s.verkTriggerHTTP)
 	mux.Handle("/api/clients/", cfg.Clients)
 	mux.Handle("/api/", s.authorize(http.HandlerFunc(s.api)))
 	s.handler = s.headers(mux)
@@ -143,6 +147,7 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	s.startPRReviewPolling()
+	s.startVerkTriggers()
 	s.startClientExtensionSync()
 	return s, nil
 }
@@ -151,6 +156,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.S
 func (s *Server) Close() {
 	s.cancel()
 	s.wg.Wait()
+	s.backgroundWG.Wait()
 	_ = s.cfg.Clients.Close()
 	if s.cfg.Packages != nil {
 		_ = s.cfg.Packages.Close()

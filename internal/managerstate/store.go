@@ -118,7 +118,9 @@ func newID() string {
 func clone[T any](value T) T {
 	data, _ := json.Marshal(value)
 	var result T
-	_ = json.Unmarshal(data, &result)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	_ = decoder.Decode(&result)
 	return result
 }
 

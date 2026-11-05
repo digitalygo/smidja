@@ -15,6 +15,9 @@ type phaseCanceller interface {
 }
 
 func (s *Server) cancelTask(ctx context.Context, id string) (managerstate.Task, error) {
+	if task, err := s.cfg.Store.GetTask(id); err == nil && task.GraphState != nil {
+		return s.cancelGraphTask(ctx, task)
+	}
 	canceller, ok := s.cfg.WorkflowRuntime.(phaseCanceller)
 	if !ok {
 		task, err := s.cfg.Store.Cancel(id)
@@ -99,6 +102,18 @@ func (s *Server) workflowToolCancelled(chatID string) bool {
 
 func (s *Server) managedNativeTask(nativeID string) (managerstate.Task, bool) {
 	for _, task := range s.cfg.Store.ListTasks() {
+		if task.GraphState != nil {
+			for _, run := range task.GraphState.Runs {
+				receipt, err := s.cfg.Store.GetTool(run.RequestID)
+				if err != nil || receipt.Status != managerstate.Completed || receipt.ToolName != "workflow.delegate" {
+					continue
+				}
+				var execution PhaseExecution
+				if json.Unmarshal([]byte(receipt.Output), &execution) == nil && execution.NativeTaskID == nativeID {
+					return task, true
+				}
+			}
+		}
 		for _, phase := range task.Phases {
 			for _, attempt := range phase.Attempts {
 				receipt, err := s.cfg.Store.GetTool(attempt.RequestID)

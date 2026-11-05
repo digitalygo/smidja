@@ -81,7 +81,23 @@ func (s *Server) privateWorkflow(id string) (managerstate.Workflow, error) {
 	workflow.ID = entity.ID
 	workflow.TeamDefinitions = map[string]json.RawMessage{}
 	workflow.ToolDefinitions = map[string]json.RawMessage{}
-	for _, phase := range workflow.Phases {
+	phases := append([]managerstate.Phase(nil), workflow.Phases...)
+	if workflow.Graph != nil {
+		for _, node := range workflow.Graph.Nodes {
+			if node.Type == "lid" {
+				phases = append(phases, managerstate.Phase{TeamRef: graphParam(node, "ref")})
+			}
+			if node.Type == "tool" && strings.HasPrefix(graphParam(node, "ref"), "private:") {
+				ref := graphParam(node, "ref")
+				entity, err := s.cfg.Private.Get(ref)
+				if err != nil || entity.Kind != "extension" || entity.ArchivedAt != nil {
+					return workflow, errors.New("referenced private tool unavailable")
+				}
+				workflow.ToolDefinitions[ref] = append(json.RawMessage(nil), entity.Payload...)
+			}
+		}
+	}
+	for _, phase := range phases {
 		if strings.HasPrefix(phase.TeamRef, "private:") {
 			team, err := s.cfg.Private.Get(phase.TeamRef)
 			if err != nil {

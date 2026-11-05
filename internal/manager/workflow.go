@@ -35,14 +35,6 @@ func (s *Server) startTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &input, 2<<20) != nil {
 		return
 	}
-	if s.cfg.WorkflowRuntime == nil {
-		writeError(w, 503, errors.New("native Envai Verk contracts are not configured"))
-		return
-	}
-	if err := s.cfg.WorkflowRuntime.Ready(r.Context()); err != nil {
-		writeError(w, 503, err)
-		return
-	}
 	if input.OriginSessionID != "" {
 		session, err := s.cfg.Store.GetSession(input.OriginSessionID)
 		if err != nil || session.Turn == nil || session.Turn.TurnID == "" {
@@ -61,6 +53,18 @@ func (s *Server) startTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Workflow = workflow
+	if workflow.Graph == nil {
+		if s.cfg.WorkflowRuntime == nil {
+			writeError(w, 503, errors.New("native Envai Verk contracts are not configured"))
+			return
+		}
+		if err := s.cfg.WorkflowRuntime.Ready(r.Context()); err != nil {
+			writeError(w, 503, err)
+			return
+		}
+	}
+	input.ParentTaskID = ""
+	input.Depth = 0
 	task, err := s.cfg.Store.CreateTask(input)
 	if err != nil {
 		writeError(w, 400, err)
@@ -71,11 +75,17 @@ func (s *Server) startTaskAPI(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) scheduleTask(id string) {
 	if s.cfg.WorkflowRuntime == nil {
-		return
+		if task, err := s.cfg.Store.GetTask(id); err != nil || task.GraphState == nil {
+			return
+		}
 	}
 	s.launchMode("task:"+id, func(ctx context.Context) { s.runTask(ctx, id) }, true)
 }
 func (s *Server) runTask(ctx context.Context, id string) {
+	if task, err := s.cfg.Store.GetTask(id); err == nil && task.GraphState != nil {
+		s.runGraphTask(ctx, id)
+		return
+	}
 	runtime := s.cfg.WorkflowRuntime
 	if err := runtime.Ready(ctx); err != nil {
 		_, _ = s.cfg.Store.Pause(id, err.Error())

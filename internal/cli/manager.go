@@ -202,7 +202,7 @@ func buildManager(cfg managerFileConfig, d *Deps) (*manager.Server, *managerstat
 		store.Close()
 		return nil, nil, err
 	}
-	protectedEnvironment := []string{cfg.TokenEnv, cfg.EnvaiKeyEnv}
+	protectedEnvironment := []string{cfg.TokenEnv, cfg.EnvaiKeyEnv, "SMIDJA_WEBHOOK_SECRET"}
 	if cfg.PRReview != nil && cfg.PRReview.TokenEnv != "" {
 		protectedEnvironment = append(protectedEnvironment, cfg.PRReview.TokenEnv)
 	}

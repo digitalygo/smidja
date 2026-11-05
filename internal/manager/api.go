@@ -12,6 +12,8 @@ import (
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.Method == "POST" && r.URL.Path == "/api/workflows/validate":
+		s.validateGraphAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/pr-review"):
 		s.prReviewAPI(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/private") || strings.HasPrefix(r.URL.Path, "/api/approvals"):
@@ -127,6 +129,9 @@ func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 	var task managerstate.Task
 	var err error
 	switch parts[1] {
+	case "signal", "budget":
+		s.signalGraphAPI(w, r, parts[0], parts[1])
+		return
 	case "resume":
 		var in struct {
 			Clarification string `json:"clarification"`
@@ -136,6 +141,14 @@ func (s *Server) taskAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		task, err = s.cfg.Store.Resume(parts[0], in.Clarification)
 	case "retry-notification":
+		if current, readErr := s.cfg.Store.GetTask(parts[0]); readErr == nil && current.GraphState != nil {
+			if err := s.notifyGraph(r.Context(), current); err != nil {
+				writeError(w, 502, err)
+				return
+			}
+			writeJSON(w, 200, current)
+			return
+		}
 		var in struct {
 			EventID string `json:"event_id"`
 		}

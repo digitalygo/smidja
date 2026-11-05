@@ -10,6 +10,7 @@ import (
 )
 
 type DeliveryInput struct {
+	StrictModel  *bool  `json:"strict_model,omitempty"`
 	WorkspaceID  string `json:"workspace_id"`
 	EventID      string `json:"event_id"`
 	OriginTurnID string `json:"origin_turn_id"`
@@ -80,7 +81,7 @@ func (c *Client) nativePath(ctx context.Context, chatID, feature string) (string
 }
 func (c *Client) Deliver(ctx context.Context, chatID string, input DeliveryInput) (DeliveryReceipt, error) {
 	var result DeliveryReceipt
-	if input.WorkspaceID == "" || input.EventID == "" || input.OriginTurnID == "" || input.TaskID == "" {
+	if input.WorkspaceID == "" || input.EventID == "" || input.TaskID == "" {
 		return result, errors.New("delivery identity fields are required")
 	}
 	switch input.Status {
@@ -91,6 +92,16 @@ func (c *Client) Deliver(ctx context.Context, chatID string, input DeliveryInput
 	path, err := c.nativePath(ctx, chatID, "native_deliveries")
 	if err != nil {
 		return result, err
+	}
+	if input.OriginTurnID == "" {
+		if err = c.RequireFeatures(ctx, "originless_deliveries"); err != nil {
+			return result, err
+		}
+	}
+	if input.StrictModel != nil && *input.StrictModel {
+		if err = c.RequireFeatures(ctx, "strict_model"); err != nil {
+			return result, err
+		}
 	}
 	err = c.json(ctx, http.MethodPost, path+"/deliveries", input, &result, true)
 	if err == nil && (result.EventID != input.EventID || (result.Status != "queued" && result.Status != "delivered" && result.Status != "cancelled" && result.Status != "failed")) {
@@ -134,7 +145,10 @@ func (c *Client) Task(ctx context.Context, chatID, taskID string) (DetachedTask,
 		return result, err
 	}
 	err = c.json(ctx, http.MethodGet, path+"/tasks/"+task, nil, &result, true)
-	if err == nil && (result.TaskID != taskID || result.OriginTurnID == "" || (result.Status != "running" && result.Status != "completed" && result.Status != "failed" && result.Status != "cancelled")) {
+	if err == nil && result.OriginTurnID == "" {
+		err = c.RequireFeatures(ctx, "independent_jobs")
+	}
+	if err == nil && (result.TaskID != taskID || (result.Status != "running" && result.Status != "completed" && result.Status != "failed" && result.Status != "cancelled")) {
 		err = errors.New("invalid native task result")
 	}
 	return result, err

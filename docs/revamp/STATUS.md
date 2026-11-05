@@ -4,6 +4,8 @@ This is an incremental draft, not a deployment or a declaration that every accep
 
 ## Implemented in this branch
 
+- Responsive v14-inspired UI with real chat, Tafla, Lið, file/diff, device and package data. Composable Verk graph authoring and execution, typed deterministic and AI decisions, pinned nested workflows, owner gates, bounded loops, signed triggers and durable recovery are documented in [Composable Verk](verk-graph.md).
+
 - Authenticated single-owner manager and embedded browser UI, JSONL sessions/tasks/tool receipts, restart recovery with explicit uncertainty.
 - Envai ATP v3 adapter, request signatures and native delegation/delivery/classification contracts. Verk phase completion waits for the delegated **job**, not its first turn acknowledgement.
 - Sequential Tafla with exact phase outputs, classifier-only retry and blocked-phase resume; native cancellation acknowledgement and uncertain cancellation remain distinguishable. Cancelling a task also stops its exclusive phase observers and their active local/client tool contexts, without stopping unrelated Smidr conversations.

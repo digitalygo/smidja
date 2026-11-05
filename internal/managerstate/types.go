@@ -3,6 +3,7 @@ package managerstate
 import (
 	"encoding/json"
 	"errors"
+	"github.com/digitalygo/smidja/internal/verk"
 	"time"
 )
 
@@ -33,17 +34,22 @@ type Phase struct {
 }
 
 type Workflow struct {
-	InputSchema     json.RawMessage            `json:"input_schema,omitempty"`
-	AllowedInvokers []string                   `json:"allowed_invokers"`
-	ToolDefinitions map[string]json.RawMessage `json:"tool_definitions,omitempty"`
-	ClientID        string                     `json:"client_id,omitempty"`
-	TeamDefinitions map[string]json.RawMessage `json:"team_definitions,omitempty"`
-	ID              string                     `json:"id"`
-	Version         string                     `json:"version"`
-	Phases          []Phase                    `json:"phases"`
+	WorkflowDefinitions map[string]json.RawMessage `json:"workflow_definitions,omitempty"`
+	SchemaVersion       int                        `json:"schema_version,omitempty"`
+	Graph               *verk.Graph                `json:"graph,omitempty"`
+	InputSchema         json.RawMessage            `json:"input_schema,omitempty"`
+	AllowedInvokers     []string                   `json:"allowed_invokers"`
+	ToolDefinitions     map[string]json.RawMessage `json:"tool_definitions,omitempty"`
+	ClientID            string                     `json:"client_id,omitempty"`
+	TeamDefinitions     map[string]json.RawMessage `json:"team_definitions,omitempty"`
+	ID                  string                     `json:"id"`
+	Version             string                     `json:"version"`
+	Phases              []Phase                    `json:"phases"`
 }
 
 type StartTask struct {
+	ParentTaskID    string          `json:"parent_task_id,omitempty"`
+	Depth           int             `json:"depth,omitempty"`
 	Workflow        Workflow        `json:"workflow"`
 	Inputs          json.RawMessage `json:"inputs"`
 	Focus           string          `json:"focus,omitempty"`
@@ -72,6 +78,9 @@ type PhaseState struct {
 }
 
 type Task struct {
+	GraphState      *verk.State     `json:"graph_state,omitempty"`
+	ParentTaskID    string          `json:"parent_task_id,omitempty"`
+	Depth           int             `json:"depth,omitempty"`
 	CancelRequested bool            `json:"cancel_requested"`
 	CancelError     string          `json:"cancel_error,omitempty"`
 	ID              string          `json:"id"`
@@ -150,6 +159,7 @@ type ToolOperation struct {
 }
 
 type event struct {
+	GraphEvent     *verk.Event    `json:"graph_event,omitempty"`
 	TeamRef        string         `json:"team_ref,omitempty"`
 	TeamID         string         `json:"team_id,omitempty"`
 	Tool           *ToolOperation `json:"tool,omitempty"`
