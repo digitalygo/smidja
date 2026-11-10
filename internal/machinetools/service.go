@@ -46,6 +46,7 @@ type Arguments struct {
 	Command        string `json:"command"`
 	Pattern        string `json:"pattern"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
+	File           string `json:"file,omitempty"`
 	Staged         bool   `json:"staged"`
 }
 
@@ -84,7 +85,7 @@ func Definitions() []Definition {
 		{"grep", "Search UTF-8 files for a regular expression; returns bounded file/line matches without following directory symlinks.", []string{"path", "pattern"}, map[string]any{"path": map[string]string{"type": "string"}, "pattern": map[string]string{"type": "string"}}},
 		{"bash", "Run Bash as the current OS user, with explicit timeout and bounded output. This is not a sandbox.", []string{"command"}, map[string]any{"path": map[string]string{"type": "string"}, "command": map[string]string{"type": "string"}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 1}}},
 		{"git_status", "Detect the enclosing Git repository and list changed and untracked files.", []string{"path"}, map[string]any{"path": map[string]string{"type": "string"}}},
-		{"git_diff", "Show a repository diff with external diff and text conversion disabled.", []string{"path"}, map[string]any{"path": map[string]string{"type": "string"}, "staged": map[string]string{"type": "boolean"}}},
+		{"git_diff", "Show a repository diff with external diff and text conversion disabled.", []string{"path"}, map[string]any{"path": map[string]string{"type": "string"}, "staged": map[string]string{"type": "boolean"}, "file": map[string]string{"type": "string", "description": "Optional repository-relative literal filename"}}},
 	}
 	out := make([]Definition, 0, len(definitions))
 	for _, d := range definitions {

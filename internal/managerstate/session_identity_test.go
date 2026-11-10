@@ -41,3 +41,81 @@ func TestSessionIdentityDurableAndImmutable(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestRejectedSessionAdmissionIsDurable(t *testing.T) {
+	s, dir := openTestStore(t)
+	session, err := s.CreateSession("rejected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.RejectSessionAdmission("missing"); err == nil {
+		t.Fatal("missing session accepted")
+	}
+	if _, err = s.RejectSessionAdmission(session.ID); err == nil {
+		t.Fatal("unattached session accepted")
+	}
+	if _, err = s.AttachSessionIdentity(session.ID, "chat", "team", "team"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if session, err = s.RejectSessionAdmission(session.ID); err != nil || !session.AdmissionRejected {
+			t.Fatal(session, err)
+		}
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	got, err := restored.GetSession(session.ID)
+	if err != nil || !got.AdmissionRejected || got.ChatID != "chat" || got.TeamID != "team" {
+		t.Fatal(got, err)
+	}
+}
+
+func TestActiveSessionAdmissionCannotBeRejected(t *testing.T) {
+	s, _ := openTestStore(t)
+	session, _ := s.CreateSession("active")
+	if _, err := s.AttachSessionIdentity(session.ID, "chat", "team", "team"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.StartSessionTurn(session.ID, "request", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordChatSequence(session.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RejectSessionAdmission(session.ID); err == nil {
+		t.Fatal("active session rejected")
+	}
+}
+
+func TestRejectedSessionAdmissionPreservesPreTurnCursor(t *testing.T) {
+	s, dir := openTestStore(t)
+	session, _ := s.CreateSession("pre-turn notice")
+	if _, err := s.AttachSessionIdentity(session.ID, "chat", "team", "team"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordChatSequence(session.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	rejected, err := s.RejectSessionAdmission(session.ID)
+	if err != nil || !rejected.AdmissionRejected || rejected.Turn != nil || rejected.LastSequence != 1 {
+		t.Fatal(rejected, err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	got, err := restored.GetSession(session.ID)
+	if err != nil || !got.AdmissionRejected || got.Turn != nil || got.LastSequence != 1 {
+		t.Fatal(got, err)
+	}
+}

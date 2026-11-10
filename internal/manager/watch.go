@@ -22,7 +22,7 @@ func (s *Server) observeSession(id string) bool {
 		return false
 	}
 	session, err := s.cfg.Store.GetSession(id)
-	if err != nil || session.ChatID == "" || s.workflowToolCancelled(session.ChatID) {
+	if err != nil || session.ChatID == "" || session.AdmissionRejected || s.workflowToolCancelled(session.ChatID) {
 		return false
 	}
 	s.launch("watch:"+id, func(ctx context.Context) {
@@ -161,4 +161,13 @@ func (s *Server) observeEvent(ctx context.Context, id string, event envai.Event)
 	}
 	_, err = s.cfg.Store.RecordChatSequence(id, uint64(event.Sequence))
 	return err
+}
+
+func (s *Server) observeAdmission(sessionID string, admissionErr error) (bool, error) {
+	if envai.AdmissionRejected(admissionErr) {
+		_, err := s.cfg.Store.RejectSessionAdmission(sessionID)
+		s.cancelJob("watch:" + sessionID)
+		return false, errors.Join(admissionErr, err)
+	}
+	return s.observeSession(sessionID), admissionErr
 }

@@ -111,6 +111,9 @@ func (s *Server) packageWorkflows() ([]managerstate.Workflow, error) {
 	return result, nil
 }
 func (s *Server) resolveWorkflow(input managerstate.Workflow) (managerstate.Workflow, error) {
+	return s.resolveGraphSnapshot(input, map[string]bool{}, 0)
+}
+func (s *Server) resolveWorkflowDefinition(input managerstate.Workflow) (managerstate.Workflow, error) {
 	if strings.HasPrefix(input.ID, "client:") {
 		return s.clientWorkflow(input.ID)
 	}
@@ -119,7 +122,7 @@ func (s *Server) resolveWorkflow(input managerstate.Workflow) (managerstate.Work
 	}
 	if !strings.Contains(input.ID, "/") {
 		input.ClientID = ""
-		if len(input.TeamDefinitions) > 0 || len(input.ToolDefinitions) > 0 {
+		if len(input.TeamDefinitions) > 0 || len(input.ToolDefinitions) > 0 || len(input.WorkflowDefinitions) > 0 {
 			return input, errors.New("inline Lid definitions require private configuration approval")
 		}
 		return input, nil

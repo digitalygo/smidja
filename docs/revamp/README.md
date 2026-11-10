@@ -99,3 +99,5 @@ See [Verk observation and notification recovery](workflow-recovery.md) for retai
 The client currently fails fast: a polling transport error, a heartbeat failure, or an unacknowledged result-delivery error ends the process. It does not contain an automatic reconnect loop. Run it under an operating-system service supervisor if restart-on-failure is required, with backoff and observable logs rather than a tight restart loop. A restarted client registers its current inventory again; being remembered in the manager is not proof that the client is online.
 
 Supervision only restarts the connection process. It must not resubmit a task or replay an uncertain machine operation. The client's completed-result cache is bounded and in memory, so restart does not provide durable exactly-once execution. After an interrupted command or unconfirmed result, inspect the manager's recorded operation and any external effects before deciding whether to retry work. Authentication, revocation and protocol errors require diagnosis rather than repeated blind restarts.
+
+See [Composable Verk](verk-graph.md) for the responsive UI, graph execution, gates, triggers and recovery contracts.

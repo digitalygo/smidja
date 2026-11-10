@@ -16,6 +16,10 @@ jobs:
           node-version: '22'
       - name: Offline DOM behavior checks
         run: node scripts/test-manager-ui.mjs
+      - name: Verk editor contract checks
+        run: node scripts/test-manager-verk.mjs
+      - name: Lid editor behavior checks
+        run: node scripts/test-manager-team-editor.mjs
       - name: Install pinned browser test dependency
         run: npm install --no-save --package-lock=false --ignore-scripts playwright@1.62.1
       - name: Install Chromium

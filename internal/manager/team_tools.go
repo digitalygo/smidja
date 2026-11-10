@@ -22,7 +22,7 @@ func (s *Server) teamCatalog(ctx context.Context) ([]map[string]any, error) {
 			if team.ID == s.cfg.CEOTeamID || strings.HasPrefix(team.Name, "smidja_") {
 				continue
 			}
-			result = append(result, map[string]any{"id": team.ID, "name": team.Name, "origin": "envai"})
+			result = append(result, map[string]any{"id": team.ID, "name": team.Name, "origin": "envai", "description": team.Description, "members": team.Members, "orchestrator_id": team.OrchestratorID})
 		}
 	}
 	if s.cfg.Private != nil {
@@ -31,7 +31,7 @@ func (s *Server) teamCatalog(ctx context.Context) ([]map[string]any, error) {
 			if err := json.Unmarshal(entity.Payload, &team); err != nil {
 				return nil, err
 			}
-			result = append(result, map[string]any{"id": entity.ID, "name": team.Name, "origin": "private", "revision": entity.Revision})
+			result = append(result, map[string]any{"id": entity.ID, "name": team.Name, "origin": "private", "revision": entity.Revision, "description": team.Description, "agents": catalogAgents(team.Agents)})
 		}
 	}
 	if s.cfg.Packages != nil {
@@ -45,13 +45,15 @@ func (s *Server) teamCatalog(ctx context.Context) ([]map[string]any, error) {
 					return nil, err
 				}
 				var identity struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
+					ID          string                `json:"id"`
+					Name        string                `json:"name"`
+					Description string                `json:"description"`
+					Agents      []privateconfig.Agent `json:"agents"`
 				}
 				if err = json.Unmarshal(body, &identity); err != nil {
 					return nil, err
 				}
-				result = append(result, map[string]any{"id": identity.ID, "name": identity.Name, "origin": "package", "version": revision.Version})
+				result = append(result, map[string]any{"id": identity.ID, "name": identity.Name, "origin": "package", "version": revision.Version, "description": identity.Description, "agents": catalogAgents(identity.Agents)})
 			}
 		}
 	}
@@ -64,7 +66,7 @@ func (s *Server) teamCatalog(ctx context.Context) ([]map[string]any, error) {
 			if err := json.Unmarshal(definition.Definition, &team); err != nil {
 				return nil, err
 			}
-			result = append(result, map[string]any{"id": clientReference(client.ID, definition.ID), "name": client.Name + " / " + team.Name, "origin": "client", "client_id": client.ID, "version": definition.Package.Version})
+			result = append(result, map[string]any{"id": clientReference(client.ID, definition.ID), "name": client.Name + " / " + team.Name, "origin": "client", "client_id": client.ID, "version": definition.Package.Version, "description": team.Description, "agents": catalogAgents(team.Agents)})
 		}
 	}
 	return result, nil
@@ -135,4 +137,12 @@ func (s *Server) delegateTeam(ctx context.Context, chatID, turnID, eventID, team
 	strictModel := true
 	result, err := remote.Delegate(ctx, chatID, envai.DelegationInput{StrictModel: &strictModel, WorkspaceID: s.cfg.WorkspaceID, EventID: eventID, OriginTurnID: turnID, TargetChatID: target.ID, Prompt: prompt})
 	return toolResult(result, err)
+}
+
+func catalogAgents(agents []privateconfig.Agent) []map[string]any {
+	result := make([]map[string]any, 0, len(agents))
+	for _, agent := range agents {
+		result = append(result, map[string]any{"name": agent.Name, "model": agent.Model, "tools": agent.Tools})
+	}
+	return result
 }

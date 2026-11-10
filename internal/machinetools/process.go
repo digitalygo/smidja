@@ -17,9 +17,12 @@ type ProcessResult struct {
 	TimedOut bool   `json:"timed_out"`
 }
 type GitResult struct {
-	Root   string `json:"root"`
-	Output string `json:"output"`
-	Staged bool   `json:"staged,omitempty"`
+	Root     string    `json:"root"`
+	Output   string    `json:"output"`
+	Staged   bool      `json:"staged,omitempty"`
+	Branch   string    `json:"branch,omitempty"`
+	Detached bool      `json:"detached,omitempty"`
+	Files    []GitFile `json:"files,omitempty"`
 }
 type boundedOutput struct {
 	mu        sync.Mutex
@@ -108,52 +111,4 @@ func (s *Service) bash(ctx context.Context, a Arguments) Result {
 		timeout = time.Duration(a.TimeoutSeconds) * time.Second
 	}
 	return s.run(ctx, a.Path, timeout, "bash", "-c", a.Command)
-}
-func (s *Service) git(ctx context.Context, a Arguments, diff bool) Result {
-	path, err := absolute(a.Path)
-	if err != nil {
-		return failure("invalid_arguments", err)
-	}
-	rootResult := s.run(ctx, path, s.cfg.DefaultTimeout, "git", "-c", "core.fsmonitor=false", "rev-parse", "--show-toplevel")
-	if !rootResult.OK {
-		return rootResult
-	}
-	rootProcess := rootResult.Data.(ProcessResult)
-	if rootResult.Truncated {
-		return failure("too_large", errors.New("repository path exceeds output limit"))
-	}
-	root := strings.TrimSuffix(rootProcess.Output, "\n")
-	args := []string{"-c", "core.fsmonitor=false", "-c", "core.pager=cat"}
-	filters := s.run(ctx, root, s.cfg.DefaultTimeout, "git", "config", "--name-only", "--null", "--get-regexp", `^filter\..*\.(clean|smudge|process|required)$`)
-	filterProcess := filters.Data.(ProcessResult)
-	if filters.Truncated {
-		return failure("too_large", errors.New("repository filter configuration exceeds limit"))
-	}
-	if !filters.OK && filterProcess.ExitCode != 1 {
-		return filters
-	}
-	for _, key := range strings.Split(filterProcess.Output, "\x00") {
-		if key == "" {
-			continue
-		}
-		value := ""
-		if strings.HasSuffix(key, ".required") {
-			value = "false"
-		}
-		args = append(args, "-c", key+"="+value)
-	}
-	if diff {
-		args = append(args, "diff", "--no-ext-diff", "--no-textconv", "--no-color")
-		if a.Staged {
-			args = append(args, "--cached")
-		}
-		args = append(args, "--")
-	} else {
-		args = append(args, "status", "--porcelain=v1", "-z", "--untracked-files=normal")
-	}
-	result := s.run(ctx, root, s.cfg.DefaultTimeout, "git", args...)
-	if result.OK {
-		result.Data = GitResult{Root: root, Output: result.Data.(ProcessResult).Output, Staged: a.Staged}
-	}
-	return result
 }

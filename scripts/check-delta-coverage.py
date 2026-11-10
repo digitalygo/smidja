@@ -17,6 +17,7 @@ for line in diff.splitlines():
         count = int(match[2] or 1)
         changed[path].update(range(start, start + count))
 blocks = {}
+profile_files = set()
 module = subprocess.check_output(["go", "list", "-m"], text=True).strip() + "/"
 for profile in profiles:
     for line in Path(profile).read_text().splitlines()[1:]:
@@ -25,6 +26,7 @@ for profile in profiles:
             raise SystemExit("Invalid coverage row")
         filename, start, _, end, _, statements, hits = match.groups()
         filename = filename.removeprefix(module)
+        profile_files.add(filename)
         if any(number in changed.get(filename, ()) for number in range(int(start), int(end) + 1)):
             key = (filename, start, end, statements)
             blocks[key] = blocks.get(key, 0) + int(hits)
@@ -42,7 +44,7 @@ for package, (covered, total) in sorted(by_package.items()):
     print(f"{package}: {covered}/{total} changed-block statements ({ratio:.1%})")
     if ratio < 0.8:
         failed.append(package)
-missing = [path for path in changed if path.startswith("internal/") and not any(key[0] == path for key in blocks)]
+missing = [path for path in changed if path.startswith("internal/") and path not in profile_files]
 for path in missing:
     content = Path(path).read_text() if Path(path).exists() else ""
     if re.search(r"^func\s", content, flags=re.M):

@@ -1,22 +1,30 @@
 package managerstate
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/digitalygo/smidja/internal/verk"
+	"github.com/digitalygo/smidja/internal/verktriggers"
 	"strings"
 )
 
 func (s *Store) CreateTask(start StartTask) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	start = clone(start)
 	if len(start.Inputs) == 0 {
 		start.Inputs = json.RawMessage(`{}`)
 	}
+	start = clone(start)
+	normalized, err := graphTaskInputs(start.Workflow, start.Inputs)
+	if err != nil {
+		return Task{}, err
+	}
+	start.Inputs = normalized
 	if start.InvocationKey != "" {
 		if id, ok := s.invocations[start.InvocationKey]; ok {
 			existing := s.tasks[id]
-			old := StartTask{Workflow: existing.Workflow, Inputs: existing.Inputs, Focus: existing.Focus, OriginSessionID: existing.OriginSessionID, OriginChatID: existing.OriginChatID, OriginTurnID: existing.OriginTurnID, InvocationKey: existing.InvocationKey}
+			old := StartTask{ParentTaskID: existing.ParentTaskID, Depth: existing.Depth, Workflow: existing.Workflow, Inputs: existing.Inputs, Focus: existing.Focus, OriginSessionID: existing.OriginSessionID, OriginChatID: existing.OriginChatID, OriginTurnID: existing.OriginTurnID, InvocationKey: existing.InvocationKey}
 			a, _ := json.Marshal(old)
 			b, _ := json.Marshal(start)
 			if string(a) != string(b) {
@@ -30,6 +38,30 @@ func (s *Store) CreateTask(start StartTask) (Task, error) {
 		return Task{}, err
 	}
 	return clone(s.tasks[id]), nil
+}
+
+func graphTaskInputs(workflow Workflow, raw json.RawMessage) (json.RawMessage, error) {
+	if workflow.Graph == nil {
+		return raw, nil
+	}
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return nil, fmt.Errorf("graph inputs must be an object")
+	}
+	for _, input := range workflow.Graph.InputValues {
+		if _, exists := values[input.Name]; exists {
+			continue
+		}
+		encoded, err := json.Marshal(input.Value)
+		if err != nil {
+			return nil, err
+		}
+		values[input.Name] = encoded
+	}
+	return json.Marshal(values)
 }
 
 func (s *Store) change(e event) (Task, error) {
@@ -100,9 +132,35 @@ func ValidateWorkflowPolicy(workflow Workflow) error {
 	}
 	return nil
 }
-func ValidateWorkflow(workflow Workflow) error {
+func ValidateWorkflow(workflow Workflow) error      { return validateWorkflow(workflow, true) }
+func ValidateWorkflowDraft(workflow Workflow) error { return validateWorkflow(workflow, false) }
+func validateWorkflow(workflow Workflow, runnable bool) error {
 	if err := ValidateWorkflowPolicy(workflow); err != nil {
 		return err
+	}
+	if workflow.Graph != nil {
+		if workflow.SchemaVersion != 2 || len(workflow.Phases) > 0 || strings.TrimSpace(workflow.ID) == "" || strings.TrimSpace(workflow.Version) == "" {
+			return fmt.Errorf("invalid graph workflow identity or version")
+		}
+		if err := verk.Validate(*workflow.Graph, runnable); err != nil {
+			return err
+		}
+		for _, node := range workflow.Graph.Nodes {
+			if runnable && node.Type == "entry" {
+				for i, trigger := range node.Triggers {
+					if err := verktriggers.Validate(trigger); err != nil {
+						return fmt.Errorf("node %s trigger %d (%s): %w", node.ID, i+1, trigger.Type, err)
+					}
+				}
+			}
+			if err := ValidateInputSchema(node.OutputSchema); err != nil {
+				return fmt.Errorf("node %s output schema: %w", node.ID, err)
+			}
+		}
+		return nil
+	}
+	if workflow.SchemaVersion > 1 {
+		return fmt.Errorf("unsupported workflow schema version")
 	}
 	if strings.TrimSpace(workflow.ID) == "" || strings.TrimSpace(workflow.Version) == "" || len(workflow.Phases) == 0 {
 		return fmt.Errorf("invalid workflow identity or empty phases")
@@ -126,9 +184,23 @@ func (s *Store) reduceTask(e event) (func(), error) {
 			return nil, ErrConflict
 		}
 		start := clone(*e.Start)
+		if start.Depth < 0 || start.Depth > 8 || (start.Depth > 0 && start.ParentTaskID == "") || (start.Depth == 0 && start.ParentTaskID != "") {
+			return nil, fmt.Errorf("invalid nested workflow depth")
+		}
+		if start.ParentTaskID != "" {
+			parent, ok := s.tasks[start.ParentTaskID]
+			if !ok || parent.Depth+1 != start.Depth || parent.CancelRequested || parent.Status == Cancelled || parent.Status == Completed {
+				return nil, fmt.Errorf("invalid parent task")
+			}
+		}
 		if err := ValidateWorkflow(start.Workflow); err != nil {
 			return nil, err
 		}
+		normalized, err := graphTaskInputs(start.Workflow, start.Inputs)
+		if err != nil {
+			return nil, err
+		}
+		start.Inputs = normalized
 		if err := ValidateWorkflowInputs(start.Workflow.InputSchema, start.Inputs); err != nil {
 			return nil, err
 		}
@@ -140,7 +212,20 @@ func (s *Store) reduceTask(e event) (func(), error) {
 				return nil, fmt.Errorf("origin session: %w", ErrNotFound)
 			}
 		}
-		t := Task{ID: e.TaskID, Workflow: start.Workflow, Inputs: start.Inputs, Focus: start.Focus, OriginSessionID: start.OriginSessionID, OriginChatID: start.OriginChatID, OriginTurnID: start.OriginTurnID, InvocationKey: start.InvocationKey, Status: Queued, Phases: []PhaseState{}, Clarifications: []string{}, CreatedAt: e.At, UpdatedAt: e.At}
+		t := Task{ParentTaskID: start.ParentTaskID, Depth: start.Depth, ID: e.TaskID, Workflow: start.Workflow, Inputs: start.Inputs, Focus: start.Focus, OriginSessionID: start.OriginSessionID, OriginChatID: start.OriginChatID, OriginTurnID: start.OriginTurnID, InvocationKey: start.InvocationKey, Status: Queued, Phases: []PhaseState{}, Clarifications: []string{}, CreatedAt: e.At, UpdatedAt: e.At}
+		if start.Workflow.Graph != nil {
+			var inputs map[string]any
+			decoder := json.NewDecoder(bytes.NewReader(start.Inputs))
+			decoder.UseNumber()
+			if err := decoder.Decode(&inputs); err != nil {
+				return nil, err
+			}
+			state, err := verk.NewState(*start.Workflow.Graph, inputs)
+			if err != nil {
+				return nil, err
+			}
+			t.GraphState = &state
+		}
 		for _, p := range start.Workflow.Phases {
 			t.Phases = append(t.Phases, PhaseState{Phase: p, Status: Queued, Attempts: []Attempt{}})
 		}
@@ -161,6 +246,9 @@ func (s *Store) reduceTask(e event) (func(), error) {
 	}
 	if t.CancelRequested && e.Type != "task.cancellation_requested" && e.Type != "task.cancellation_confirmed" && e.Type != "task.cancellation_failed" {
 		return nil, fmt.Errorf("%w: remote cancellation remains unconfirmed", ErrConflict)
+	}
+	if t.GraphState != nil {
+		return s.reduceGraph(t, e)
 	}
 	phase := &t.Phases[t.PhaseIndex]
 	var attempt *Attempt
@@ -293,7 +381,7 @@ func (s *Store) reduce(e event) (func(), error) {
 	switch e.Type {
 	case "tool.started", "tool.finished":
 		return s.reduceTool(e)
-	case "session.identity_attached", "session.chat_sequence", "session.turn_output", "session.created", "session.remote_attached", "session.message_appended", "session.turn_started", "session.turn_attached", "session.turn_completed", "session.turn_paused", "session.turn_followed", "session.turn_sequence", "session.turn_cancelled":
+	case "session.admission_rejected", "session.identity_attached", "session.chat_sequence", "session.turn_output", "session.created", "session.remote_attached", "session.message_appended", "session.turn_started", "session.turn_attached", "session.turn_completed", "session.turn_paused", "session.turn_followed", "session.turn_sequence", "session.turn_cancelled":
 		return s.reduceSession(e)
 	default:
 		return s.reduceTask(e)

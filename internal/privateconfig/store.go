@@ -269,7 +269,7 @@ func validatePayload(kind string, payload json.RawMessage) error {
 		if err := decode(payload, &workflow); err != nil {
 			return err
 		}
-		if err := managerstate.ValidateWorkflow(workflow); err != nil {
+		if err := managerstate.ValidateWorkflowDraft(workflow); err != nil {
 			return err
 		}
 	case "extension":

@@ -10,6 +10,7 @@ import (
 )
 
 type DeliveryInput struct {
+	StrictModel  *bool  `json:"strict_model,omitempty"`
 	WorkspaceID  string `json:"workspace_id"`
 	EventID      string `json:"event_id"`
 	OriginTurnID string `json:"origin_turn_id"`
@@ -80,7 +81,7 @@ func (c *Client) nativePath(ctx context.Context, chatID, feature string) (string
 }
 func (c *Client) Deliver(ctx context.Context, chatID string, input DeliveryInput) (DeliveryReceipt, error) {
 	var result DeliveryReceipt
-	if input.WorkspaceID == "" || input.EventID == "" || input.OriginTurnID == "" || input.TaskID == "" {
+	if input.WorkspaceID == "" || input.EventID == "" || input.TaskID == "" {
 		return result, errors.New("delivery identity fields are required")
 	}
 	switch input.Status {
@@ -92,6 +93,16 @@ func (c *Client) Deliver(ctx context.Context, chatID string, input DeliveryInput
 	if err != nil {
 		return result, err
 	}
+	if input.OriginTurnID == "" {
+		if err = c.RequireFeatures(ctx, "originless_deliveries"); err != nil {
+			return result, err
+		}
+	}
+	if input.StrictModel != nil && *input.StrictModel {
+		if err = c.RequireFeatures(ctx, "strict_model"); err != nil {
+			return result, err
+		}
+	}
 	err = c.json(ctx, http.MethodPost, path+"/deliveries", input, &result, true)
 	if err == nil && (result.EventID != input.EventID || (result.Status != "queued" && result.Status != "delivered" && result.Status != "cancelled" && result.Status != "failed")) {
 		err = errors.New("invalid native delivery receipt; outcome uncertain")
@@ -101,20 +112,20 @@ func (c *Client) Deliver(ctx context.Context, chatID string, input DeliveryInput
 func (c *Client) Delegate(ctx context.Context, chatID string, input DelegationInput) (Delegation, error) {
 	var result Delegation
 	if input.WorkspaceID == "" || input.EventID == "" || input.OriginTurnID == "" || input.TargetChatID == "" || input.Prompt == "" {
-		return result, errors.New("delegation identity and prompt required")
+		return result, rejectedAdmission(errors.New("delegation identity and prompt required"))
 	}
 	path, err := c.nativePath(ctx, chatID, "cross_team_delegation")
 	if err != nil {
-		return result, err
+		return result, rejectedAdmission(err)
 	}
 	if input.NotifyOrigin != nil && !*input.NotifyOrigin {
 		if err = c.RequireFeatures(ctx, "delegation_notify_origin"); err != nil {
-			return result, err
+			return result, rejectedAdmission(err)
 		}
 	}
 	if input.StrictModel != nil && *input.StrictModel {
 		if err = c.RequireFeatures(ctx, "strict_model"); err != nil {
-			return result, err
+			return result, rejectedAdmission(err)
 		}
 	}
 	err = c.json(ctx, http.MethodPost, path+"/delegations", input, &result, true)
@@ -134,7 +145,10 @@ func (c *Client) Task(ctx context.Context, chatID, taskID string) (DetachedTask,
 		return result, err
 	}
 	err = c.json(ctx, http.MethodGet, path+"/tasks/"+task, nil, &result, true)
-	if err == nil && (result.TaskID != taskID || result.OriginTurnID == "" || (result.Status != "running" && result.Status != "completed" && result.Status != "failed" && result.Status != "cancelled")) {
+	if err == nil && result.OriginTurnID == "" {
+		err = c.RequireFeatures(ctx, "independent_jobs")
+	}
+	if err == nil && (result.TaskID != taskID || (result.Status != "running" && result.Status != "completed" && result.Status != "failed" && result.Status != "cancelled")) {
 		err = errors.New("invalid native task result")
 	}
 	return result, err
