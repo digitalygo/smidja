@@ -381,7 +381,7 @@ func (s *Store) reduce(e event) (func(), error) {
 	switch e.Type {
 	case "tool.started", "tool.finished":
 		return s.reduceTool(e)
-	case "session.identity_attached", "session.chat_sequence", "session.turn_output", "session.created", "session.remote_attached", "session.message_appended", "session.turn_started", "session.turn_attached", "session.turn_completed", "session.turn_paused", "session.turn_followed", "session.turn_sequence", "session.turn_cancelled":
+	case "session.admission_rejected", "session.identity_attached", "session.chat_sequence", "session.turn_output", "session.created", "session.remote_attached", "session.message_appended", "session.turn_started", "session.turn_attached", "session.turn_completed", "session.turn_paused", "session.turn_followed", "session.turn_sequence", "session.turn_cancelled":
 		return s.reduceSession(e)
 	default:
 		return s.reduceTask(e)

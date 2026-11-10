@@ -42,15 +42,15 @@ type ChoiceResult struct {
 func (c *Client) StartJob(ctx context.Context, chatID string, input JobInput) (Job, error) {
 	var result Job
 	if input.WorkspaceID == "" || input.RequestID == "" || strings.TrimSpace(input.Prompt) == "" {
-		return result, errors.New("job workspace, request ID and prompt required")
+		return result, rejectedAdmission(errors.New("job workspace, request ID and prompt required"))
 	}
 	path, err := c.nativePath(ctx, chatID, "independent_jobs")
 	if err != nil {
-		return result, err
+		return result, rejectedAdmission(err)
 	}
 	if input.StrictModel != nil && *input.StrictModel {
 		if err = c.RequireFeatures(ctx, "strict_model"); err != nil {
-			return result, err
+			return result, rejectedAdmission(err)
 		}
 	}
 	err = c.json(ctx, http.MethodPost, path+"/jobs", input, &result, true)

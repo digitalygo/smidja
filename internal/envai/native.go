@@ -112,20 +112,20 @@ func (c *Client) Deliver(ctx context.Context, chatID string, input DeliveryInput
 func (c *Client) Delegate(ctx context.Context, chatID string, input DelegationInput) (Delegation, error) {
 	var result Delegation
 	if input.WorkspaceID == "" || input.EventID == "" || input.OriginTurnID == "" || input.TargetChatID == "" || input.Prompt == "" {
-		return result, errors.New("delegation identity and prompt required")
+		return result, rejectedAdmission(errors.New("delegation identity and prompt required"))
 	}
 	path, err := c.nativePath(ctx, chatID, "cross_team_delegation")
 	if err != nil {
-		return result, err
+		return result, rejectedAdmission(err)
 	}
 	if input.NotifyOrigin != nil && !*input.NotifyOrigin {
 		if err = c.RequireFeatures(ctx, "delegation_notify_origin"); err != nil {
-			return result, err
+			return result, rejectedAdmission(err)
 		}
 	}
 	if input.StrictModel != nil && *input.StrictModel {
 		if err = c.RequireFeatures(ctx, "strict_model"); err != nil {
-			return result, err
+			return result, rejectedAdmission(err)
 		}
 	}
 	err = c.json(ctx, http.MethodPost, path+"/delegations", input, &result, true)

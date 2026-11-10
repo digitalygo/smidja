@@ -98,6 +98,12 @@ func (s *Server) privateWorkflow(id string) (managerstate.Workflow, error) {
 		}
 	}
 	for _, phase := range phases {
+		if strings.HasPrefix(phase.TeamRef, "client:") {
+			if _, _, err := parseClientReference(phase.TeamRef); err != nil {
+				return workflow, err
+			}
+			continue
+		}
 		if strings.HasPrefix(phase.TeamRef, "private:") {
 			team, err := s.cfg.Private.Get(phase.TeamRef)
 			if err != nil {

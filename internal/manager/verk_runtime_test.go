@@ -528,7 +528,10 @@ func TestGraphPrivateToolPinnedEnvironment(t *testing.T) {
 				raw = []byte(`{`)
 			}
 			w := reviewGraph("tool", map[string]any{"ref": "private:echo"}, "done", "error")
-			w.ToolDefinitions = map[string]json.RawMessage{"private:echo": raw}
+			savePrivate(t, private, "private:echo", "extension", 0, definition)
+			if err := s.pinGraphTools(&w); err != nil {
+				t.Fatal(err)
+			}
 			if mode == "unpinned" || mode == "invalid" {
 				w.ToolDefinitions = nil
 			}

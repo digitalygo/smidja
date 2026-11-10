@@ -90,10 +90,11 @@ func (n *nativeWorkflow) StartPhase(ctx context.Context, task managerstate.Task,
 	if _, err = n.server.cfg.Store.AttachSessionIdentity(watchSession.ID, target.ID, teamRef, teamID); err != nil {
 		return execution, err
 	}
-	watching := n.server.observeSession(watchSession.ID)
+	n.server.observeSession(watchSession.ID)
 	notifyOrigin := false
 	strictModel := true
 	delegation, err := n.remote.Delegate(ctx, origin.ChatID, envai.DelegationInput{StrictModel: &strictModel, NotifyOrigin: &notifyOrigin, WorkspaceID: n.server.cfg.WorkspaceID, EventID: attempt.RequestID, OriginTurnID: origin.Turn.TurnID, TargetChatID: target.ID, Prompt: "Execute this Verk phase to completion. Use the native delegation lifecycle for specialist work. Preserve the full final result and state any blocker explicitly.\n" + string(body)})
+	watching, err := n.server.observeAdmission(watchSession.ID, err)
 	if err != nil {
 		return execution, err
 	}

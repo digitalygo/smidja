@@ -109,12 +109,11 @@ func (s *Server) graphLid(ctx context.Context, task managerstate.Task, node verk
 	if err != nil {
 		return "", "", err
 	}
-	execution, err := s.graphExecutionChat(ctx, task, run, team)
+	body, err := graphPayload(task, node)
 	if err != nil {
 		return "", "", err
 	}
-	execution.Observed = s.observeSession(execution.SessionID)
-	body, err := graphPayload(task, node)
+	execution, err := s.graphExecutionChat(ctx, task, run, team)
 	if err != nil {
 		return "", "", err
 	}
@@ -124,6 +123,7 @@ func (s *Server) graphLid(ctx context.Context, task managerstate.Task, node verk
 	}
 	if !created {
 		if record.Status != managerstate.Completed {
+			s.observeSession(execution.SessionID)
 			return "", "", errors.New("native admission outcome uncertain; refusing blind restart")
 		}
 		if err = json.Unmarshal([]byte(record.Output), &execution); err != nil {
@@ -131,8 +131,10 @@ func (s *Server) graphLid(ctx context.Context, task managerstate.Task, node verk
 		}
 		execution.Observed = s.observeSession(execution.SessionID)
 	} else {
+		execution.Observed = s.observeSession(execution.SessionID)
 		strict := true
 		job, e := remote.StartJob(ctx, execution.ChatID, envai.JobInput{WorkspaceID: s.cfg.WorkspaceID, RequestID: run.RequestID, Prompt: "Execute this Verk block. Preserve complete results. When output_schema is present return a JSON object conforming to it.\n" + string(body), StrictModel: &strict})
+		execution.Observed, e = s.observeAdmission(execution.SessionID, e)
 		if e != nil {
 			return "", "", e
 		}
@@ -241,6 +243,9 @@ func (s *Server) graphTool(ctx context.Context, task managerstate.Task, node ver
 				return "", "", errors.New("tool environment missing: " + reference)
 			}
 			environment[name] = s.cfg.LookupEnv(reference)
+		}
+		if err = s.checkPrivateGraphTool(task.Workflow, ref); err != nil {
+			return "", "", err
 		}
 		result = s.cfg.Extensions.WithEnvironment(environment).ExecuteDefinition(ctx, definition, args)
 	} else if !registered {

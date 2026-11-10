@@ -18,6 +18,10 @@ AI choices are explicit labels through Envai's authenticated `classify-choice` e
 
 Each block admission, remote handle, full output, route and gate transition is recorded in the manager JSONL journal. Output is retained before output-schema validation, so a failed validation does not discard evidence or rerun the tool. Known completed tool receipts are reused after recovery. An unknown effect remains paused, including after restart; resuming is not permission to repeat it blindly.
 
+Native admission rejection, including a billing HTTP 402, closes its chat observer and remains closed after restart. Pre-turn billing notices retain their event cursor without being mistaken for an admitted turn. An uncertain mutation outcome, including transport failure, timeout, conflict or server error after submission, retains observation because admission may have succeeded; none triggers automatic resubmission.
+
+Private manager tools require the approved revision and exact payload to remain active when the block executes. Archiving or updating the extension revokes an older task snapshot. Completed receipts remain reusable without executing the extension again. Older snapshots without a private revision pin fail closed; start a new task from the current definition. Immutable package tool pins remain usable after a package update.
+
 Nested definitions and registered tool versions are pinned to the task. Nested depth is limited to eight and an admission snapshot to 512 definitions; recursive definition cycles are rejected. Graph cycles must pass through a bounded repetition edge. A run also has a hard limit of 10,000 block visits. Exhausted loop budgets require an explicit owner grant, limited to 100 additional iterations per action and a cumulative hard limit of 10,000.
 
 Clarification and approval gates retain their exact block request and gate IDs. Approval also binds the proposal digest; stale or repeated answers are rejected. Silence and timeout never imply approval. Wait gates accept a matching authenticated source event or their configured timeout. A blocked exit can be explicitly resumed without rerunning finished work.

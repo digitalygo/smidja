@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,6 +40,7 @@ func graphToolTarget(workflow managerstate.Workflow, node verk.Node) (string, st
 	return ref, client, nil
 }
 func (s *Server) pinGraphTools(workflow *managerstate.Workflow) error {
+	workflow.PrivateToolRevisions = map[string]uint64{}
 	if workflow.ToolDefinitions == nil {
 		workflow.ToolDefinitions = map[string]json.RawMessage{}
 	}
@@ -71,6 +73,7 @@ func (s *Server) pinGraphTools(workflow *managerstate.Workflow) error {
 			}
 			client = owner
 			workflow.ToolDefinitions[ref] = append(json.RawMessage(nil), entity.Payload...)
+			workflow.PrivateToolRevisions[ref] = entity.Revision
 			if client == "manager" {
 				continue
 			}
@@ -170,4 +173,19 @@ func graphBuiltinTool(name string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Server) checkPrivateGraphTool(workflow managerstate.Workflow, ref string) error {
+	revision := workflow.PrivateToolRevisions[ref]
+	if revision == 0 {
+		return errors.New("private graph tool revision is not pinned")
+	}
+	entity, err := s.cfg.Private.Get(ref)
+	if err != nil {
+		return err
+	}
+	if entity.Kind != "extension" || entity.ArchivedAt != nil || entity.Revision != revision || !bytes.Equal(entity.Payload, workflow.ToolDefinitions[ref]) {
+		return errors.New("private graph tool approval changed; resolve a new workflow before execution")
+	}
+	return nil
 }
