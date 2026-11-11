@@ -200,13 +200,16 @@ func buildIdentity(d *Deps) buildinfo.Info {
 }
 
 var subcommands = map[string]bool{
-	"run":     true,
-	"auth":    true,
-	"import":  true,
-	"update":  true,
-	"version": true,
-	"pkg":     true,
-	"gateway": true,
+	"manager-setup": true,
+	"manager":       true,
+	"client":        true,
+	"run":           true,
+	"auth":          true,
+	"import":        true,
+	"update":        true,
+	"version":       true,
+	"pkg":           true,
+	"gateway":       true,
 }
 
 func isSubcommand(name string) bool {
@@ -215,6 +218,12 @@ func isSubcommand(name string) bool {
 
 func runSubcommand(name string, args []string, d *Deps) error {
 	switch name {
+	case "manager-setup":
+		return runManagerSetup(args, d)
+	case "manager":
+		return runManager(args, d)
+	case "client":
+		return runMachineClient(args, d)
 	case "version":
 		return runVersion(args, d)
 	case "auth":
@@ -269,6 +278,9 @@ flags:
                   (default: only ~/.smidja/mcp.json servers run)
 
 subcommands:
+  manager  run the Web UI manager using --config path.json
+  manager-setup  explicitly register the remote Smidr and namespaced tools
+  client   expose local tools to a manager using --config path.json
   auth     manage provider credentials
   gateway  run the headless gateway (Telegram + local web server)
   import   import Pi sessions into the session store

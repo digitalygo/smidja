@@ -1,0 +1,9 @@
+{
+  "manager_url": "https://your-manager.example",
+  "client_id": "laptop",
+  "name": "My laptop",
+  "token_env": "SMIDJA_LAPTOP_TOKEN",
+  "state_dir": "/absolute/path/to/smidja-client-state",
+  "package_sources": [],
+  "package_update_interval_seconds": 900
+}

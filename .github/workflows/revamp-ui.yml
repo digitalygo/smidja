@@ -1,0 +1,36 @@
+name: Revamp UI
+on:
+  push:
+    branches: [feature/smidja-manager-client-revamp]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  embedded-ui:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Offline DOM behavior checks
+        run: node scripts/test-manager-ui.mjs
+      - name: Verk editor contract checks
+        run: node scripts/test-manager-verk.mjs
+      - name: Lid editor behavior checks
+        run: node scripts/test-manager-team-editor.mjs
+      - name: Install pinned browser test dependency
+        run: npm install --no-save --package-lock=false --ignore-scripts playwright@1.62.1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Sandboxed browser smoke
+        run: node scripts/test-manager-browser.mjs
+      - name: Upload browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manager-browser-smoke
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

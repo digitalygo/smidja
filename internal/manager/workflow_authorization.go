@@ -1,0 +1,59 @@
+package manager
+
+import (
+	"errors"
+	"github.com/digitalygo/smidja/internal/envai"
+	"github.com/digitalygo/smidja/internal/managerstate"
+	"strings"
+)
+
+func (s *Server) workflowPrincipal(event envai.Event) (string, error) {
+	if event.ChatID == "" {
+		return "", errors.New("Verk caller has no chat identity")
+	}
+	for _, session := range s.cfg.Store.ListSessions() {
+		if session.ChatID != event.ChatID {
+			continue
+		}
+		if session.TeamRef == "" || session.TeamID == "" {
+			return "", errors.New("Verk caller lacks verified Lid provenance")
+		}
+		if session.TeamRef == "ceo" {
+			if session.TeamID != s.cfg.CEOTeamID {
+				return "", errors.New("Smidr Lid identity mismatch")
+			}
+			return "ceo", nil
+		}
+		return "team:" + session.TeamRef, nil
+	}
+	return "", errors.New("Verk caller chat is not tracked")
+}
+func (s *Server) authorizeWorkflow(event envai.Event, workflow managerstate.Workflow) error {
+	principal, err := s.workflowPrincipal(event)
+	if err != nil {
+		return err
+	}
+	if workflow.AllowedInvokers == nil && principal == "ceo" {
+		return nil
+	}
+	for _, allowed := range workflow.AllowedInvokers {
+		if allowed == principal {
+			return nil
+		}
+	}
+	return errors.New("Lid is not an allowed Verk invoker")
+}
+func (s *Server) resolveAgentWorkflow(event envai.Event, input managerstate.Workflow) (managerstate.Workflow, error) {
+	principal, err := s.workflowPrincipal(event)
+	if err != nil {
+		return input, err
+	}
+	if principal != "ceo" && !strings.Contains(input.ID, "/") && !strings.HasPrefix(input.ID, "private:") && !strings.HasPrefix(input.ID, "client:") {
+		return input, errors.New("non-Smidr Lid require an approved catalog Verk")
+	}
+	workflow, err := s.resolveWorkflow(input)
+	if err != nil {
+		return input, err
+	}
+	return workflow, s.authorizeWorkflow(event, workflow)
+}

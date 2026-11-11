@@ -1,0 +1,69 @@
+{
+  "id": "smidja.pr-review/review",
+  "version": "1.0.0",
+  "phases": [
+    {
+      "id": "context",
+      "name": "Context",
+      "team_ref": "smidja.pr-review/context"
+    },
+    {
+      "id": "analysis",
+      "name": "Analysis",
+      "team_ref": "smidja.pr-review/analysis"
+    },
+    {
+      "id": "verification",
+      "name": "Verification",
+      "team_ref": "smidja.pr-review/verification"
+    },
+    {
+      "id": "synthesis",
+      "name": "Synthesis",
+      "team_ref": "smidja.pr-review/synthesis"
+    }
+  ],
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "reference",
+      "base_sha",
+      "head_sha",
+      "diff"
+    ],
+    "properties": {
+      "reference": {
+        "type": "object",
+        "required": [
+          "repository",
+          "number"
+        ],
+        "properties": {
+          "repository": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "base_sha": {
+        "type": "string",
+        "minLength": 40,
+        "maxLength": 40
+      },
+      "head_sha": {
+        "type": "string",
+        "minLength": 40,
+        "maxLength": 40
+      },
+      "diff": {
+        "type": "string"
+      }
+    }
+  },
+  "allowed_invokers": [
+    "ceo"
+  ]
+}

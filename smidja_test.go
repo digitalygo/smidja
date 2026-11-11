@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,75 @@ import (
 	"github.com/digitalygo/smidja"
 	"github.com/digitalygo/smidja/sdk"
 )
+
+type offlineTestTransport struct {
+	loopback http.RoundTripper
+	catalog  []byte
+}
+
+func (tr offlineTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var body string
+	switch req.URL.String() {
+	case "https://pi.dev/api/models":
+		body = string(tr.catalog)
+	case "https://openrouter.ai/api/v1/models":
+		body = `{"data":[]}`
+	default:
+		ip := net.ParseIP(req.URL.Hostname())
+		if ip != nil && ip.IsLoopback() && (req.URL.Scheme == "http" || req.URL.Scheme == "https") {
+			return tr.loopback.RoundTrip(req)
+		}
+		return nil, fmt.Errorf("test rejected unexpected outbound request to %s", req.URL.Redacted())
+	}
+	if req.Method != http.MethodGet || req.Body != nil || req.Header.Get("Authorization") != "" || req.Header.Get("Cookie") != "" {
+		return nil, fmt.Errorf("public catalog fixture received unexpected method, body or credentials")
+	}
+	return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+func TestMain(m *testing.M) {
+	fixture, err := os.ReadFile(filepath.Join("internal", "models", "testdata", "pi-models-sample.json"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	loopback := http.DefaultTransport.(*http.Transport).Clone()
+	loopback.Proxy = nil
+	dial := loopback.DialContext
+	loopback.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(address)
+		ip := net.ParseIP(host)
+		if err != nil || ip == nil || !ip.IsLoopback() {
+			return nil, fmt.Errorf("test rejected non-loopback connection to %s", address)
+		}
+		return dial(ctx, network, address)
+	}
+	http.DefaultTransport = loopback
+	http.DefaultClient = &http.Client{Transport: offlineTestTransport{loopback: loopback, catalog: fixture}}
+	code := m.Run()
+	loopback.CloseIdleConnections()
+	os.Exit(code)
+}
+
+func TestOfflineCatalogTransportRejectsExternalRequests(t *testing.T) {
+	tr := offlineTestTransport{catalog: []byte(`{}`)}
+	for _, endpoint := range []string{"https://pi.dev/api/models", "https://openrouter.ai/api/v1/models"} {
+		req, _ := http.NewRequest(http.MethodGet, endpoint, nil)
+		response, err := tr.RoundTrip(req)
+		if err != nil || response.StatusCode != 200 {
+			t.Fatal(response, err)
+		}
+		response.Body.Close()
+		req.Header.Set("Authorization", "fixture-only")
+		if _, err = tr.RoundTrip(req); err == nil {
+			t.Fatal("catalog credentials not rejected")
+		}
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://unexpected.example/api", nil)
+	if _, err := tr.RoundTrip(req); err == nil {
+		t.Fatal("external request allowed")
+	}
+}
 
 func captureStream(t *testing.T, target **os.File) func() string {
 	t.Helper()
